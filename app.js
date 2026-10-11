@@ -1768,7 +1768,7 @@ function renderMarkers() {
     if (!Number.isFinite(post.lat) || !Number.isFinite(post.lng)) return;
     const marker = L.marker([post.lat, post.lng], { icon: pinIcon(post.status, post.site) });
     marker.on("click", () => {
-      // Al tocar el globo: abrir ruta / cómo llegar al servicio
+      // Al tocar el globo: punto exacto + ruta desde tu ubicación
       selectedId = post.id;
       openSheet(post.id);
       openDirectionsToPost(post);
@@ -3045,30 +3045,77 @@ function mapsLink(post) {
   return `https://maps.google.com/?q=${post.lat},${post.lng}`;
 }
 
-/** Enlace de ruta / “cómo llegar” hacia el servicio */
+function mapCoords(post) {
+  if (!post || !Number.isFinite(post.lat) || !Number.isFinite(post.lng)) return null;
+  return {
+    lat: Number(post.lat),
+    lng: Number(post.lng),
+    latStr: Number(post.lat).toFixed(6),
+    lngStr: Number(post.lng).toFixed(6),
+    label: String(post.site || "Servicio RFS").trim() || "Servicio RFS",
+  };
+}
+
+/** Punto exacto del servicio en el mapa */
+function placeLink(post) {
+  const c = mapCoords(post);
+  if (!c) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${c.latStr},${c.lngStr}`;
+}
+
+/** Ruta / “cómo llegar” al punto exacto (desde tu ubicación) */
 function directionsLink(post) {
-  if (!post || !Number.isFinite(post.lat) || !Number.isFinite(post.lng)) return "";
-  const dest = `${post.lat},${post.lng}`;
-  // Google Maps directions: en celular suele abrir la app con la ruta
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+  const c = mapCoords(post);
+  if (!c) return "";
+  const ua = navigator.userAgent || "";
+  if (/iPad|iPhone|iPod/i.test(ua)) {
+    // Apple Maps: destino = coordenadas exactas + ruta
+    return `https://maps.apple.com/?daddr=${c.latStr},${c.lngStr}&q=${encodeURIComponent(c.label)}&dirflg=d`;
+  }
+  // Formato por ruta: rellena el destino (evita la pantalla vacía de “Elige un destino”)
+  return `https://www.google.com/maps/dir/Current+Location/${c.latStr},${c.lngStr}`;
+}
+
+function openExternalMap(url) {
+  if (!url) return false;
+  const standalone =
+    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+    window.navigator.standalone === true;
+  try {
+    if (standalone) {
+      window.location.href = url;
+      return true;
+    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return true;
+  } catch (_) {
+    try {
+      window.location.href = url;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 function openDirectionsToPost(postOrId) {
   const post = typeof postOrId === "string" ? getPost(postOrId) : postOrId;
-  if (!post || !Number.isFinite(post.lat) || !Number.isFinite(post.lng)) {
+  if (!mapCoords(post)) {
     toast("Este servicio no tiene ubicación cargada.");
     return false;
   }
-  const url = directionsLink(post);
+  const url = directionsLink(post) || placeLink(post);
   if (!url) {
     toast("No hay ruta disponible para este servicio.");
     return false;
   }
-  try {
-    window.open(url, "_blank", "noopener,noreferrer");
-  } catch (_) {
-    window.location.href = url;
-  }
+  openExternalMap(url);
   toast(`Cómo llegar: ${post.site || "servicio"}`);
   return true;
 }
@@ -8490,7 +8537,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=53").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=54").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8506,7 +8553,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v53").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v54").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
