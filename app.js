@@ -1767,7 +1767,12 @@ function renderMarkers() {
   posts.forEach((post) => {
     if (!Number.isFinite(post.lat) || !Number.isFinite(post.lng)) return;
     const marker = L.marker([post.lat, post.lng], { icon: pinIcon(post.status, post.site) });
-    marker.on("click", () => openSheet(post.id));
+    marker.on("click", () => {
+      // Al tocar el globo: abrir ruta / cómo llegar al servicio
+      selectedId = post.id;
+      openSheet(post.id);
+      openDirectionsToPost(post);
+    });
     marker.addTo(markersLayer);
   });
 }
@@ -3038,6 +3043,34 @@ function tryAdminLogin() {
 function mapsLink(post) {
   if (post.mapsUrl) return post.mapsUrl;
   return `https://maps.google.com/?q=${post.lat},${post.lng}`;
+}
+
+/** Enlace de ruta / “cómo llegar” hacia el servicio */
+function directionsLink(post) {
+  if (!post || !Number.isFinite(post.lat) || !Number.isFinite(post.lng)) return "";
+  const dest = `${post.lat},${post.lng}`;
+  // Google Maps directions: en celular suele abrir la app con la ruta
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+}
+
+function openDirectionsToPost(postOrId) {
+  const post = typeof postOrId === "string" ? getPost(postOrId) : postOrId;
+  if (!post || !Number.isFinite(post.lat) || !Number.isFinite(post.lng)) {
+    toast("Este servicio no tiene ubicación cargada.");
+    return false;
+  }
+  const url = directionsLink(post);
+  if (!url) {
+    toast("No hay ruta disponible para este servicio.");
+    return false;
+  }
+  try {
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (_) {
+    window.location.href = url;
+  }
+  toast(`Cómo llegar: ${post.site || "servicio"}`);
+  return true;
 }
 
 function shareText(post) {
@@ -8239,6 +8272,7 @@ function bindUi() {
   });
   document.getElementById("btnShareLocation").addEventListener("click", shareLocation);
   document.getElementById("btnShareWhatsApp").addEventListener("click", shareWhatsApp);
+  document.getElementById("btnDirections")?.addEventListener("click", () => openDirectionsToPost(selectedId));
   document.getElementById("btnOpenDetail").addEventListener("click", () => openDetail(selectedId));
   document.getElementById("btnBackDetail").addEventListener("click", () => switchView(previousView || "shiftsView"));
   document.getElementById("btnDetailMap").addEventListener("click", () => {
@@ -8456,7 +8490,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=52").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=53").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8472,7 +8506,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v52").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v53").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
