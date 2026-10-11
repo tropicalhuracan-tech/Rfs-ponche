@@ -3056,47 +3056,28 @@ function mapCoords(post) {
   };
 }
 
-/** Punto exacto del servicio en el mapa */
+/** Punto exacto del servicio (pin). No usar /maps/dir/ — en Android abre el formulario vacío. */
 function placeLink(post) {
   const c = mapCoords(post);
   if (!c) return "";
-  return `https://www.google.com/maps/search/?api=1&query=${c.latStr},${c.lngStr}`;
-}
-
-/** Ruta / “cómo llegar” al punto exacto (desde tu ubicación) */
-function directionsLink(post) {
-  const c = mapCoords(post);
-  if (!c) return "";
-  const ua = navigator.userAgent || "";
-  if (/iPad|iPhone|iPod/i.test(ua)) {
-    // Apple Maps: destino = coordenadas exactas + ruta
-    return `https://maps.apple.com/?daddr=${c.latStr},${c.lngStr}&q=${encodeURIComponent(c.label)}&dirflg=d`;
-  }
-  // Formato por ruta: rellena el destino (evita la pantalla vacía de “Elige un destino”)
-  return `https://www.google.com/maps/dir/Current+Location/${c.latStr},${c.lngStr}`;
+  return `https://maps.google.com/?q=${c.latStr},${c.lngStr}`;
 }
 
 function openExternalMap(url) {
   if (!url) return false;
-  const standalone =
-    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
-    window.navigator.standalone === true;
   try {
-    if (standalone) {
-      window.location.href = url;
-      return true;
-    }
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // En PWA/celular location.href es más fiable con mapas/intents
+    window.location.href = url;
     return true;
   } catch (_) {
     try {
-      window.location.href = url;
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       return true;
     } catch (_) {
       return false;
@@ -3104,19 +3085,63 @@ function openExternalMap(url) {
   }
 }
 
+/**
+ * Abre el punto exacto del servicio y la ruta / navegación.
+ * Evita URLs /maps/dir/ que en Google Maps móvil salen sin destino.
+ */
 function openDirectionsToPost(postOrId) {
   const post = typeof postOrId === "string" ? getPost(postOrId) : postOrId;
-  if (!mapCoords(post)) {
+  const c = mapCoords(post);
+  if (!c) {
     toast("Este servicio no tiene ubicación cargada.");
     return false;
   }
-  const url = directionsLink(post) || placeLink(post);
-  if (!url) {
-    toast("No hay ruta disponible para este servicio.");
-    return false;
+
+  const pinHttps = placeLink(post);
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+
+  toast(`Cómo llegar: ${c.label}`);
+
+  if (isAndroid) {
+    // 1) Navegación directa al punto exacto (app Google Maps)
+    // 2) Si el esquema no abre, Intent con destino (daddr)
+    // 3) Fallback: pin exacto en el mapa
+    const nav = `google.navigation:q=${c.latStr},${c.lngStr}&mode=d`;
+    const intent =
+      `intent://maps.google.com/maps?daddr=${c.latStr},${c.lngStr}&directionsmode=driving` +
+      `#Intent;scheme=https;package=com.google.android.apps.maps;` +
+      `S.browser_fallback_url=${encodeURIComponent(pinHttps)};end`;
+
+    try {
+      window.location.href = nav;
+    } catch (_) {}
+
+    setTimeout(() => {
+      if (document.hidden) return; // ya abrió Maps
+      try {
+        window.location.href = intent;
+      } catch (_) {
+        openExternalMap(pinHttps);
+      }
+      setTimeout(() => {
+        if (!document.hidden) openExternalMap(pinHttps);
+      }, 700);
+    }, 500);
+    return true;
   }
-  openExternalMap(url);
-  toast(`Cómo llegar: ${post.site || "servicio"}`);
+
+  if (isIOS) {
+    // Apple Maps con destino = coordenadas del servicio
+    openExternalMap(
+      `https://maps.apple.com/?daddr=${c.latStr},${c.lngStr}&q=${encodeURIComponent(c.label)}&dirflg=d`
+    );
+    return true;
+  }
+
+  // Escritorio u otros: pin exacto
+  openExternalMap(pinHttps);
   return true;
 }
 
@@ -8537,7 +8562,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=54").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=55").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8553,7 +8578,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v54").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v55").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
