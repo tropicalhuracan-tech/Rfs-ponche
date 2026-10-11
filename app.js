@@ -6421,12 +6421,79 @@ function expensesForPerson(person) {
 }
 
 function fillCajaPeopleDatalist() {
-  const dl = document.getElementById("cajaPeopleList");
-  if (!dl) return;
-  const people = [...(pettyCash.people || [])].sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
-  dl.innerHTML = people
-    .map((p) => `<option value="${escapeHtml(p.code)} — ${escapeHtml(p.name)}"></option>`)
-    .join("");
+  // Compat: ya no usamos <datalist>; la lista vive en #cajaPeopleSuggest
+  renderCajaPeopleSuggest(document.getElementById("cajaRecipient")?.value || "", { keepHidden: true });
+}
+
+function listCajaPeopleForSuggest(query) {
+  const q = cajaNameKey(query);
+  const people = [...(pettyCash.people || [])].filter((p) => p && (p.name || p.code));
+  people.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
+  if (!q) return people;
+  return people.filter((p) => {
+    const nameKey = p.nameKey || cajaNameKey(p.name);
+    const codeKey = String(p.code || "").toUpperCase();
+    return (nameKey && nameKey.includes(q)) || codeKey.includes(String(query || "").trim().toUpperCase());
+  });
+}
+
+function hideCajaPeopleSuggest() {
+  const box = document.getElementById("cajaPeopleSuggest");
+  if (box) {
+    box.hidden = true;
+    box.innerHTML = "";
+  }
+}
+
+function renderCajaPeopleSuggest(query, opts = {}) {
+  const box = document.getElementById("cajaPeopleSuggest");
+  if (!box) return;
+  const keepHidden = !!opts.keepHidden;
+  const people = listCajaPeopleForSuggest(query);
+  if (!people.length) {
+    if (String(query || "").trim()) {
+      box.innerHTML = `<div class="caja-suggest-empty">No hay coincidencia · se creará persona nueva al guardar</div>`;
+      box.hidden = keepHidden;
+    } else {
+      box.innerHTML = `<div class="caja-suggest-empty">Aún no hay personas registradas en caja</div>`;
+      box.hidden = keepHidden;
+    }
+    return;
+  }
+  const max = 40;
+  const slice = people.slice(0, max);
+  box.innerHTML =
+    slice
+      .map(
+        (p) => `<button type="button" class="caja-suggest-item" role="option" data-person-id="${escapeHtml(p.id)}">
+          <span class="caja-suggest-name">${escapeHtml(p.name || "Sin nombre")}</span>
+          <span class="caja-suggest-code">${escapeHtml(p.code || "")}</span>
+        </button>`
+      )
+      .join("") +
+    (people.length > max
+      ? `<div class="caja-suggest-empty">…y ${people.length - max} más. Sigue escribiendo para filtrar.</div>`
+      : "");
+  box.querySelectorAll(".caja-suggest-item").forEach((btn) => {
+    btn.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      selectCajaPersonSuggestion(btn.dataset.personId);
+    });
+  });
+  if (!keepHidden) box.hidden = false;
+}
+
+function selectCajaPersonSuggestion(personId) {
+  const person = findCajaPersonById(personId);
+  const input = document.getElementById("cajaRecipient");
+  if (!person || !input) return;
+  input.value = person.name || person.code;
+  selectedCajaPersonId = person.id;
+  updateCajaPersonCodeHint();
+  hideCajaPeopleSuggest();
+  try {
+    input.focus();
+  } catch (_) {}
 }
 
 function updateCajaPersonCodeHint() {
@@ -6436,13 +6503,13 @@ function updateCajaPersonCodeHint() {
   const person = resolveCajaRecipientPreview(raw);
   if (person) {
     selectedCajaPersonId = person.id;
-    hint.textContent = `Código: ${person.code} · ${person.name}`;
+    hint.textContent = `Código existente: ${person.code} · ${person.name}`;
   } else if (String(raw).trim()) {
     selectedCajaPersonId = null;
-    hint.textContent = "Código: se asignará al guardar (persona nueva)";
+    hint.textContent = "Código nuevo al guardar (elige de la lista si ya existe esa persona)";
   } else {
     selectedCajaPersonId = null;
-    hint.textContent = "Código: se asignará al guardar";
+    hint.textContent = "Código: elige un nombre de la lista o escribe uno nuevo";
   }
 }
 
@@ -7400,8 +7467,26 @@ function bindCajaUi() {
   document.getElementById("cajaPagoDiasTo")?.addEventListener("change", renderCajaPagoDias);
   document.getElementById("cajaWeekPivot")?.addEventListener("change", renderCajaSemana);
   document.getElementById("cajaMonth")?.addEventListener("change", renderCajaMes);
-  document.getElementById("cajaRecipient")?.addEventListener("input", updateCajaPersonCodeHint);
-  document.getElementById("cajaRecipient")?.addEventListener("change", updateCajaPersonCodeHint);
+  const cajaRecipientInput = document.getElementById("cajaRecipient");
+  if (cajaRecipientInput) {
+    cajaRecipientInput.addEventListener("focus", () => {
+      renderCajaPeopleSuggest(cajaRecipientInput.value || "");
+    });
+    cajaRecipientInput.addEventListener("click", () => {
+      renderCajaPeopleSuggest(cajaRecipientInput.value || "");
+    });
+    cajaRecipientInput.addEventListener("input", () => {
+      updateCajaPersonCodeHint();
+      renderCajaPeopleSuggest(cajaRecipientInput.value || "");
+    });
+    cajaRecipientInput.addEventListener("change", updateCajaPersonCodeHint);
+    cajaRecipientInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") hideCajaPeopleSuggest();
+    });
+    cajaRecipientInput.addEventListener("blur", () => {
+      setTimeout(() => hideCajaPeopleSuggest(), 180);
+    });
+  }
   document.getElementById("cajaCheckPhoto")?.addEventListener("change", onCajaCheckPhotoSelected);
   document.getElementById("btnClearCajaCheck")?.addEventListener("click", clearCajaCheckPhoto);
   document.getElementById("btnViewCajaCheck")?.addEventListener("click", () => {
@@ -8371,7 +8456,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=51").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=52").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8387,7 +8472,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v51").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v52").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
