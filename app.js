@@ -1911,31 +1911,341 @@ function fillReportPostSelect(preferredId) {
   if (preferredId && getPost(preferredId)) select.value = preferredId;
 }
 
+function reportCompany() {
+  if (typeof RFS_COMPANY !== "undefined" && RFS_COMPANY) return RFS_COMPANY;
+  return {
+    name: "Reaction Force Security, S.R.L.",
+    slogan: "Tu mejor alternativa de seguridad",
+    phones: "809-581-8181 / 809-694-3232",
+    email: "reactionforce45@gmail.com",
+    address: "Calle Penetración No. 2, sector El Paraíso, Gurabo, Santiago, R.D.",
+    license: "Licencia de Operación No. 279",
+  };
+}
+
+function nextIncidentReportNumber(type) {
+  const prefix = type === "incidente" ? "RFS-INC" : type === "checkin" ? "RFS-SUP" : "RFS-NOV";
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const sameDay = reports.filter((r) => String(r.number || "").includes(`-${day}-`)).length + 1;
+  return `${prefix}-${day}-${String(sameDay).padStart(3, "0")}`;
+}
+
+/** Redacta un informe ejecutivo claro a partir de las notas del operador */
+function polishExecutiveNarrative(rawText, ctx = {}) {
+  let notes = String(rawText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!notes) return "";
+  if (!/[.!?…]$/.test(notes)) notes += ".";
+  notes = notes.charAt(0).toUpperCase() + notes.slice(1);
+
+  const site = ctx.site || "el puesto asignado";
+  const type = ctx.type || "novedad";
+  const when = ctx.whenLabel || new Date().toLocaleString("es");
+  const guards = ctx.guards || "el personal de seguridad asignado";
+  const number = ctx.number || "";
+
+  const titleLine =
+    type === "incidente"
+      ? "Reporte de incidente"
+      : type === "checkin"
+        ? "Reporte de supervisión / check-in"
+        : "Reporte de novedad operativa";
+
+  const opening =
+    type === "incidente"
+      ? `Por medio del presente, ${reportCompany().name} informa a ustedes sobre un incidente registrado en el servicio de seguridad privada correspondiente a <strong>${escapeHtml(
+          site
+        )}</strong>, el día <strong>${escapeHtml(when)}</strong>.`
+      : type === "checkin"
+        ? `Por medio del presente, ${reportCompany().name} deja constancia de la supervisión / check-in realizado en <strong>${escapeHtml(
+            site
+          )}</strong>, el día <strong>${escapeHtml(when)}</strong>.`
+        : `Por medio del presente, ${reportCompany().name} comunica una novedad operativa en el servicio de <strong>${escapeHtml(
+            site
+          )}</strong>, registrada el día <strong>${escapeHtml(when)}</strong>.`;
+
+  const body =
+    type === "incidente"
+      ? `Según el reporte del personal en sitio (${escapeHtml(
+          guards
+        )}), los hechos se describen de la siguiente manera: ${escapeHtml(
+          notes
+        )} Nuestro equipo actuó conforme a los protocolos de seguridad, priorizando la protección de personas, instalaciones y activos del cliente, y mantuvo el control de la situación.`
+      : `El personal asignado (${escapeHtml(
+          guards
+        )}) reportó lo siguiente: ${escapeHtml(
+          notes
+        )} La información queda registrada para el seguimiento del servicio y la coordinación con el cliente.`;
+
+  const closing =
+    type === "incidente"
+      ? `Reaction Force Security permanece atenta a cualquier indicación adicional de su parte y reitera su compromiso de brindar un servicio profesional, preventivo y transparente. Este documento constituye el ${escapeHtml(
+          titleLine.toLowerCase()
+        )}${number ? ` N.º <strong>${escapeHtml(number)}</strong>` : ""} para su conocimiento y archivo.`
+      : `Quedamos a disposición para ampliar cualquier detalle. Documento de referencia${
+          number ? ` N.º <strong>${escapeHtml(number)}</strong>` : ""
+        }.`;
+
+  return { titleLine, opening, body, closing, notesPlain: notes };
+}
+
+function buildIncidentReportHtml(report, post) {
+  const co = reportCompany();
+  const site = post ? post.site : report.siteName || "Puesto";
+  const guards = post ? guardsSummary(post) : report.guardsLabel || "—";
+  const polished =
+    report.narrativeHtml ||
+    (() => {
+      const p = polishExecutiveNarrative(report.text, {
+        site,
+        type: report.type,
+        whenLabel: report.whenLabel,
+        guards,
+        number: report.number,
+      });
+      return p;
+    })();
+  const parts =
+    typeof polished === "object"
+      ? polished
+      : polishExecutiveNarrative(report.text, {
+          site,
+          type: report.type,
+          whenLabel: report.whenLabel,
+          guards,
+          number: report.number,
+        });
+  const photo = report.photo
+    ? `<div style="margin:16px 0"><p><strong>Evidencia fotográfica (opcional adjunta)</strong></p>
+       <img src="${report.photo}" alt="Evidencia" style="max-width:100%;max-height:360px;border:1px solid #ccc;border-radius:8px" /></div>`
+    : `<p class="muted" style="font-size:11px;color:#666">Sin evidencia fotográfica adjunta.</p>`;
+  const creator = report.createdBy ? `<p style="font-size:11px;color:#666">Elaborado en sistema por: ${escapeHtml(report.createdBy)}</p>` : "";
+
+  return `
+    <div class="inc-doc">
+      <div style="height:4px;background:linear-gradient(90deg,#0b0b0c,#d41414,#0b0b0c);border-radius:3px;margin:0 0 14px"></div>
+      <p style="margin:0 0 4px;font-size:11px;color:#444">
+        <strong>${escapeHtml(co.name)}</strong> · “${escapeHtml(co.slogan || "")}”<br/>
+        ${escapeHtml(co.license || "")}<br/>
+        ${escapeHtml(co.address || "")}<br/>
+        Tel: ${escapeHtml(co.phones || "")} · ${escapeHtml(co.email || "")}
+      </p>
+      <h2 style="margin:14px 0 6px;border-bottom:2px solid #d41414;padding-bottom:6px">${escapeHtml(
+        parts.titleLine
+      )}</h2>
+      <p style="margin:0 0 12px"><strong>N.º de reporte:</strong> ${escapeHtml(report.number || "—")}
+        &nbsp;·&nbsp; <strong>Fecha:</strong> ${escapeHtml(report.whenLabel || "")}</p>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin:0 0 14px">
+        <div style="flex:1;min-width:160px;border-top:3px solid #d41414;border:1px solid #ddd;border-top:3px solid #d41414;padding:8px 10px;border-radius:6px">
+          <strong style="color:#d41414;font-size:10px;text-transform:uppercase">Cliente / Puesto</strong><br/>${escapeHtml(site)}
+        </div>
+        <div style="flex:1;min-width:160px;border:1px solid #ddd;border-top:3px solid #d41414;padding:8px 10px;border-radius:6px">
+          <strong style="color:#d41414;font-size:10px;text-transform:uppercase">Personal en sitio</strong><br/>${escapeHtml(guards)}
+        </div>
+        <div style="flex:1;min-width:120px;border:1px solid #ddd;border-top:3px solid #d41414;padding:8px 10px;border-radius:6px">
+          <strong style="color:#d41414;font-size:10px;text-transform:uppercase">Tipo</strong><br/>${escapeHtml(
+            TYPE_LABEL[report.type] || report.type
+          )}
+        </div>
+      </div>
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">1. Presentación</h3>
+      <p>${parts.opening}</p>
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">2. Descripción de los hechos</h3>
+      <p>${parts.body}</p>
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">3. Notas del operador (origen)</h3>
+      <p style="background:#f7f7f7;border-left:4px solid #999;padding:10px;font-size:12px">${escapeHtml(
+        report.text || parts.notesPlain || ""
+      )}</p>
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">4. Evidencia</h3>
+      ${photo}
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">5. Cierre</h3>
+      <p>${parts.closing}</p>
+      <p style="margin-top:18px;padding:10px 12px;background:#0b0b0c;color:#fff;border-left:5px solid #d41414;border-radius:8px">
+        <strong style="color:#d41414">Contacto:</strong> ${escapeHtml(co.phones || "")} · ${escapeHtml(co.email || "")}
+      </p>
+      <div style="margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:28px">
+        <div style="border-top:2px solid #0b0b0c;padding-top:8px;text-align:center;font-size:11px">Reaction Force Security<br/>Supervisión / Operaciones</div>
+        <div style="border-top:2px solid #0b0b0c;padding-top:8px;text-align:center;font-size:11px">Recibido por el cliente<br/>Nombre / Firma / Sello</div>
+      </div>
+      ${creator}
+      <div style="height:6px;margin:22px 0 8px;border-radius:3px;background:linear-gradient(90deg,#d41414,#0b0b0c,#d41414)"></div>
+    </div>`;
+}
+
+function buildIncidentShareText(report, post) {
+  const co = reportCompany();
+  const site = post ? post.site : report.siteName || "Puesto";
+  const title =
+    report.type === "incidente"
+      ? "Reporte de incidente"
+      : report.type === "checkin"
+        ? "Reporte de supervisión"
+        : "Reporte de novedad";
+  const narrative = polishExecutiveNarrative(report.text, {
+    site,
+    type: report.type,
+    whenLabel: report.whenLabel,
+    guards: post ? guardsSummary(post) : "personal asignado",
+    number: report.number,
+  });
+  return (
+    `*${title} — ${co.name}*\n` +
+    `N.º ${report.number || "—"}\n` +
+    `Cliente / Puesto: ${site}\n` +
+    `Fecha: ${report.whenLabel || ""}\n\n` +
+    `${String(narrative.opening || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")}\n\n` +
+    `${String(narrative.body || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")}\n\n` +
+    `${String(narrative.closing || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")}\n\n` +
+    `Contacto: ${co.phones}\n${co.email}`
+  );
+}
+
+function getReportById(id) {
+  return reports.find((r) => r.id === id) || null;
+}
+
+function printIncidentReport(id) {
+  const report = getReportById(id);
+  if (!report) {
+    toast("No se encontró el reporte.");
+    return;
+  }
+  const post = getPost(report.postId);
+  const title = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""}`.trim();
+  if (typeof openPrintWindow !== "function") {
+    toast("No se pudo abrir la impresión.");
+    return;
+  }
+  openPrintWindow(title, buildIncidentReportHtml(report, post), {
+    bodyClass: "quote-print",
+    extraCss:
+      typeof quotePrintCss === "function"
+        ? quotePrintCss()
+        : "body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;line-height:1.4}",
+  });
+  toast("Informe listo para imprimir o guardar como PDF.");
+}
+
+function shareIncidentWhatsApp(id) {
+  const report = getReportById(id);
+  if (!report) return;
+  const post = getPost(report.postId);
+  const text = buildIncidentShareText(report, post);
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+  toast("Abriendo WhatsApp con el informe.");
+}
+
+function shareIncidentEmail(id) {
+  const report = getReportById(id);
+  if (!report) return;
+  const post = getPost(report.postId);
+  const site = post ? post.site : "cliente";
+  const text = buildIncidentShareText(report, post);
+  const subject = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""} — ${site}`;
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  toast("Abriendo el correo con el informe.");
+}
+
+function downloadIncidentReport(id) {
+  const report = getReportById(id);
+  if (!report) return;
+  const post = getPost(report.postId);
+  const title = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || report.id}`;
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>${escapeHtml(
+    title
+  )}</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:900px;margin:0 auto;font-size:12px;line-height:1.4}
+    .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px;background:#0b0b0c;color:#fff;padding:12px 14px;border-left:6px solid #d41414;border-radius:10px}
+    .brand img{width:64px;height:64px;object-fit:contain;border:2px solid #d41414;border-radius:12px;background:#fff}
+    h1{font-size:18px;margin:0}
+  </style></head><body>
+  <div class="brand"><img src="logo.jpg" alt="RFS"/><div><h1>Reaction Force Security</h1><div>${escapeHtml(
+    title
+  )}</div></div></div>
+  ${buildIncidentReportHtml(report, post)}
+  </body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(report.number || report.id || "reporte").replace(/[^\w.-]+/g, "_")}.html`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast("Descarga lista. Ábrela y, si quieres, imprímela como PDF.");
+}
+
 function renderReports() {
   const list = document.getElementById("reportsList");
   if (!reports.length) {
-    list.innerHTML = `<p class="empty">Aún no hay reportes. Crea el primero arriba.</p>`;
+    list.innerHTML = `<p class="empty">Aún no hay reportes. Genera el primero arriba.</p>`;
     return;
   }
   list.innerHTML = reports
     .map((r) => {
       const post = getPost(r.postId);
-      const site = post ? post.site : "Puesto eliminado";
-      const guard = post ? guardsSummary(post) : "—";
+      const site = post ? post.site : r.siteName || "Puesto eliminado";
+      const guard = post ? guardsSummary(post) : r.guardsLabel || "—";
       const photo = r.photo ? `<img class="thumb" src="${r.photo}" alt="Foto del reporte" />` : "";
+      const narrative = polishExecutiveNarrative(r.text, {
+        site,
+        type: r.type,
+        whenLabel: r.whenLabel,
+        guards: guard,
+        number: r.number,
+      });
+      const preview = String(narrative.body || r.text || "")
+        .replace(/<[^>]+>/g, "")
+        .slice(0, 220);
       return `
         <article class="report-card">
-          <h3>${escapeHtml(site)}</h3>
+          <h3>${escapeHtml(r.number || "Sin número")} · ${escapeHtml(site)}</h3>
           <p>${escapeHtml(guard)}</p>
           <div class="meta">
             <span class="type-pill">${TYPE_LABEL[r.type] || r.type}</span>
             <span class="status-pill ${r.type === "incidente" ? "alert" : "ok"}">${escapeHtml(r.whenLabel)}</span>
           </div>
-          <p style="margin-top:10px;color:#d4d4d8">${escapeHtml(r.text)}</p>
+          <p class="muted" style="margin-top:6px;font-size:12px">Creado por: ${escapeHtml(
+            r.createdBy || "—"
+          )}</p>
+          <p style="margin-top:10px;color:#d4d4d8">${escapeHtml(preview)}${preview.length >= 220 ? "…" : ""}</p>
           ${photo}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button type="button" class="btn primary btn-rep-print" data-id="${escapeHtml(
+              r.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
+            <button type="button" class="btn secondary btn-rep-wa" data-id="${escapeHtml(
+              r.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">WhatsApp</button>
+            <button type="button" class="btn secondary btn-rep-mail" data-id="${escapeHtml(
+              r.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Correo</button>
+            <button type="button" class="btn secondary btn-rep-dl" data-id="${escapeHtml(
+              r.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Descargar</button>
+          </div>
         </article>`;
     })
     .join("");
+  list.querySelectorAll(".btn-rep-print").forEach((btn) => {
+    btn.addEventListener("click", () => printIncidentReport(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-rep-wa").forEach((btn) => {
+    btn.addEventListener("click", () => shareIncidentWhatsApp(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-rep-mail").forEach((btn) => {
+    btn.addEventListener("click", () => shareIncidentEmail(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-rep-dl").forEach((btn) => {
+    btn.addEventListener("click", () => downloadIncidentReport(btn.dataset.id));
+  });
 }
 
 function renderFinance() {
@@ -8063,34 +8373,51 @@ function saveReport() {
     return;
   }
   if (!text) {
-    toast("Escribe la descripción del reporte.");
-    return;
-  }
-  if ((type === "checkin" || type === "incidente") && !pendingPhotoDataUrl) {
-    toast("Este tipo de reporte necesita una foto.");
+    toast("Escribe en tus palabras lo que ocurrió.");
     return;
   }
 
   const now = new Date();
+  const number = nextIncidentReportNumber(type);
+  const createdBy =
+    currentUser && (currentUser.displayName || currentUser.username)
+      ? currentUser.displayName || currentUser.username
+      : "Usuario";
+  const polished = polishExecutiveNarrative(text, {
+    site: post.site,
+    type,
+    whenLabel: now.toLocaleString("es"),
+    guards: guardsSummary(post),
+    number,
+  });
   const report = {
     id: `r-${Date.now()}`,
+    number,
     postId,
+    siteName: post.site,
+    guardsLabel: guardsSummary(post),
     type,
     text,
-    photo: pendingPhotoDataUrl,
+    narrativeTitle: polished.titleLine,
+    narrativeHtml: polished,
+    photo: pendingPhotoDataUrl || "",
     createdAt: now.toISOString(),
     whenLabel: now.toLocaleString("es"),
+    createdBy,
   };
   reports.unshift(report);
   if (type === "checkin") {
     post.status = "ok";
-    pushHistory(post, "Check-in con foto", text);
+    pushHistory(post, "Check-in / supervisión", `${number}: ${text}`);
   }
   if (type === "incidente") {
     post.status = "alert";
-    pushHistory(post, "Incidente", text);
+    pushHistory(post, "Incidente", `${number}: ${text}`);
   }
-  reports = reports.slice(0, 40);
+  if (type === "novedad") {
+    pushHistory(post, "Novedad", `${number}: ${text}`);
+  }
+  reports = reports.slice(0, 80);
   saveReports();
   savePosts();
   renderMarkers();
@@ -8099,7 +8426,12 @@ function saveReport() {
   renderReports();
   document.getElementById("reportText").value = "";
   clearPhoto();
-  toast("Reporte guardado.");
+  if (typeof logActivity === "function") {
+    logActivity("report_create", `${number} · ${TYPE_LABEL[type] || type} · ${post.site} · por ${createdBy}`);
+  }
+  toast(`Informe ${number} generado.`);
+  // Abrir de una vez la versión ejecutiva para imprimir / PDF
+  printIncidentReport(report.id);
 }
 
 function exportBackup() {
@@ -8670,7 +9002,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=65").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=66").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8686,7 +9018,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v65").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v66").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

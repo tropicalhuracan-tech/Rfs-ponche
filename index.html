@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=65" />
+  <link rel="stylesheet" href="styles.css?v=66" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=65" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=66" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=65" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=66" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=65" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=66" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v65 · Cotizaciones</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v66 · Cotizaciones</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -114,25 +114,28 @@
     <section id="reportsView" class="view scroll-view">
       <div class="section-head">
         <h1>Reportes</h1>
-        <p>Bitácora con foto del turno o incidente.</p>
+        <p>Escribe lo ocurrido; el sistema genera el informe ejecutivo para el cliente (con número, logo e impresión).</p>
       </div>
       <div class="form-card">
-        <h2>Nuevo reporte</h2>
-        <label>Puesto<select id="reportPost"></select></label>
+        <h2>Nuevo reporte de incidente / novedad</h2>
+        <label>Puesto / cliente<select id="reportPost"></select></label>
         <label>Tipo
           <select id="reportType">
-            <option value="novedad">Novedad del turno</option>
-            <option value="checkin">Check-in con foto</option>
             <option value="incidente">Incidente</option>
+            <option value="novedad">Novedad del turno</option>
+            <option value="checkin">Check-in / supervisión</option>
           </select>
         </label>
-        <label>Descripción<textarea id="reportText" rows="3" placeholder="Qué pasó, hora, detalles…"></textarea></label>
-        <label class="photo-label">Foto<input id="reportPhoto" type="file" accept="image/*" capture="environment" /></label>
+        <label>Detalle (en tus palabras)
+          <textarea id="reportText" rows="4" placeholder="Ej.: A las 2:10 am un desconocido intentó entrar por la reja lateral; el vigilante lo detuvo, se llamó al supervisor y la situación quedó controlada…"></textarea>
+        </label>
+        <p class="muted tight">No hace falta redactar formal: a partir de este texto se arma el informe corporativo para el cliente.</p>
+        <label class="photo-label">Foto (opcional)<input id="reportPhoto" type="file" accept="image/*" capture="environment" /></label>
         <div id="photoPreviewWrap" class="photo-preview" hidden>
           <img id="photoPreview" alt="Vista previa" />
           <button id="btnClearPhoto" class="btn ghost" type="button">Quitar foto</button>
         </div>
-        <button id="btnSaveReport" class="btn primary" type="button">Guardar reporte</button>
+        <button id="btnSaveReport" class="btn primary" type="button">Generar informe ejecutivo</button>
       </div>
       <div class="section-head tight"><h2>Historial de reportes</h2></div>
       <div id="reportsList" class="card-list"></div>
@@ -1543,12 +1546,12 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=65"></script>
-  <script src="monorriel-data.js?v=65"></script>
-  <script src="cloud.js?v=65"></script>
-  <script src="hr.js?v=65"></script>
-  <script src="depuracion.js?v=65"></script>
-  <script src="quotes.js?v=65"></script>
-  <script src="app.js?v=65"></script>
+  <script src="cloud-config.js?v=66"></script>
+  <script src="monorriel-data.js?v=66"></script>
+  <script src="cloud.js?v=66"></script>
+  <script src="hr.js?v=66"></script>
+  <script src="depuracion.js?v=66"></script>
+  <script src="quotes.js?v=66"></script>
+  <script src="app.js?v=66"></script>
 </body>
 </html>
