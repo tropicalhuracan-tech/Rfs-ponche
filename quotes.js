@@ -633,6 +633,7 @@ function renderQuotesHistory() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-quote-load" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Cargar</button>
           <button type="button" class="btn primary btn-quote-reprint" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
+          <button type="button" class="btn danger btn-quote-delete" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Eliminar</button>
         </div>
       </article>`;
     })
@@ -643,6 +644,23 @@ function renderQuotesHistory() {
   list.querySelectorAll(".btn-quote-reprint").forEach((btn) => {
     btn.addEventListener("click", () => reprintSavedQuote(btn.dataset.id));
   });
+  list.querySelectorAll(".btn-quote-delete").forEach((btn) => {
+    btn.addEventListener("click", () => deleteSavedQuote(btn.dataset.id));
+  });
+}
+
+function deleteSavedQuote(id) {
+  const q = quotesHistory.find((x) => x.id === id);
+  if (!q) return;
+  const label = q.clientName || "esta cotización";
+  if (!confirm(`¿Eliminar la cotización de ${label}?`)) return;
+  quotesHistory = quotesHistory.filter((x) => x.id !== id);
+  saveQuotesHistory();
+  renderQuotesHistory();
+  if (typeof logActivity === "function") {
+    logActivity("quote_delete", `Cotización eliminada: ${label}`);
+  }
+  toast("Cotización eliminada.");
 }
 
 function fillQuoteForm(data) {
