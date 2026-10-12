@@ -2162,6 +2162,7 @@ const MODULE_DEFS = [
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "cajachica", label: "Caja chica", view: "cajaView" },
   { key: "rrhh", label: "Recursos Humanos", view: "hrView" },
+  { key: "cotizaciones", label: "Cotizaciones", view: "quotesView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
   { key: "messages", label: "Mensajes", view: "messagesView" },
   { key: "radio", label: "Radio", view: "radioView" },
@@ -2198,6 +2199,7 @@ const VIEW_TO_MODULE = {
   detailView: "clients",
   cajaView: "cajachica",
   hrView: "rrhh",
+  quotesView: "cotizaciones",
   loginView: null,
 };
 
@@ -2223,6 +2225,10 @@ function normalizeUser(u = {}) {
     }
     if (m.key === "rrhh" && !Object.prototype.hasOwnProperty.call(incoming, "rrhh")) {
       modules.rrhh = false;
+      return;
+    }
+    if (m.key === "cotizaciones" && !Object.prototype.hasOwnProperty.call(incoming, "cotizaciones")) {
+      modules.cotizaciones = false;
       return;
     }
     if (typeof modules[m.key] !== "boolean") modules[m.key] = !!modules[m.key];
@@ -2337,17 +2343,24 @@ function canAccessRrhh() {
   return !!(currentUser.modules && currentUser.modules.rrhh);
 }
 
+function canAccessQuotes() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  return !!(currentUser.modules && currentUser.modules.cotizaciones);
+}
+
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
   if (viewId === "hrView") return canAccessRrhh();
+  if (viewId === "quotesView") return canAccessQuotes();
   const mod = VIEW_TO_MODULE[viewId];
   if (!mod) return !!currentUser;
   return canAccessModule(mod);
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "hrView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "hrView", "quotesView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -2810,6 +2823,7 @@ function clearUserForm() {
     finance: false,
     cajachica: false,
     rrhh: false,
+    cotizaciones: false,
     reports: true,
     messages: true,
     radio: true,
@@ -4110,6 +4124,9 @@ function printCurrentView() {
   if (id === "employeeDetailView") return printEmployeeDetailSheet();
   if (id === "financeView") return printFinanceSheet();
   if (id === "cajaView") return printCajaSheet();
+  if (id === "quotesView") {
+    if (typeof printQuoteProposal === "function") return printQuoteProposal();
+  }
   if (id === "monoReportDetailView") return printMonoReport();
   if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
   if (id === "detailView") {
@@ -7648,6 +7665,9 @@ function switchView(viewId) {
   if (viewId === "financeView") renderFinance();
   if (viewId === "cajaView") renderCajaModule();
   if (viewId === "hrView") renderHrModule();
+  if (viewId === "quotesView") {
+    if (typeof renderQuotesModule === "function") renderQuotesModule();
+  }
   if (viewId === "employeesView") renderEmployees();
   if (viewId === "employeeNewView") {}
   if (viewId === "loansView") renderLoans();
@@ -8534,6 +8554,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   bindUi();
+  if (typeof wireQuotesModule === "function") wireQuotesModule();
   setupInstallPrompt();
   updateAdminGate();
   renderGuardsEditor([emptyGuard()]);
@@ -8562,7 +8583,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=55").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=56").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8578,7 +8599,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v55").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v56").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
