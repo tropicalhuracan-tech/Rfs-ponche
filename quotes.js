@@ -448,7 +448,6 @@ function buildModelEjecutiva(data, calc) {
         data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
       }Nombre / Firma</div></div>
     </div>
-    ${quoteMandatoryNoteHtml()}
     <div class="q-footer-bar"></div>`;
 }
 
@@ -475,7 +474,6 @@ function buildModelCotizacion(data, calc) {
         data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
       }Nombre / Firma</div></div>
     </div>
-    ${quoteMandatoryNoteHtml()}
     <div class="q-footer-bar"></div>`;
 }
 
@@ -540,7 +538,6 @@ function buildModelInstitucional(data, calc) {
         data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
       }Nombre / Firma / Sello</div></div>
     </div>
-    ${quoteMandatoryNoteHtml()}
     <div class="q-footer-bar"></div>`;
 }
 
