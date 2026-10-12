@@ -95,6 +95,10 @@ function emptyQuoteForm() {
     dayHourlyRate: 155,
     nightHourlyRate: 175,
     hourlyRate: 155,
+    dayDiscountType: "none",
+    dayDiscountValue: 0,
+    nightDiscountType: "none",
+    nightDiscountValue: 0,
     discountType: "none",
     discountValue: 0,
     includeItbis: true,
@@ -150,11 +154,49 @@ function calcQuoteTotals(input = {}) {
   const gross = dayGross + nightGross;
   const rate = men > 0 ? gross / Math.max(1, hoursMonth) : dayRate || nightRate || legacyRate;
 
+  function shiftDiscount(grossPart, type, value) {
+    const t = type || "none";
+    const v = Math.max(0, Number(value) || 0);
+    if (!grossPart || t === "none" || v <= 0) return 0;
+    if (t === "percent") return grossPart * (Math.min(v, 100) / 100);
+    if (t === "amount") return Math.min(v, grossPart);
+    return 0;
+  }
+
+  let dayDiscountType = input.dayDiscountType;
+  let nightDiscountType = input.nightDiscountType;
+  let dayDiscountValue = input.dayDiscountValue;
+  let nightDiscountValue = input.nightDiscountValue;
+  // Compat: cotización vieja con un solo descuento global
+  const legacyDtype = input.discountType || "none";
+  const legacyDval = Math.max(0, Number(input.discountValue) || 0);
+  const hasSplitDiscount =
+    Object.prototype.hasOwnProperty.call(input, "dayDiscountType") ||
+    Object.prototype.hasOwnProperty.call(input, "nightDiscountType") ||
+    Object.prototype.hasOwnProperty.call(input, "dayDiscountValue") ||
+    Object.prototype.hasOwnProperty.call(input, "nightDiscountValue");
+
+  let dayDiscount = 0;
+  let nightDiscount = 0;
   let discount = 0;
-  const dtype = input.discountType || "none";
-  const dval = Math.max(0, Number(input.discountValue) || 0);
-  if (dtype === "percent") discount = gross * (Math.min(dval, 100) / 100);
-  else if (dtype === "amount") discount = Math.min(dval, gross);
+  if (hasSplitDiscount) {
+    dayDiscountType = dayDiscountType || "none";
+    nightDiscountType = nightDiscountType || "none";
+    dayDiscount = shiftDiscount(dayGross, dayDiscountType, dayDiscountValue);
+    nightDiscount = shiftDiscount(nightGross, nightDiscountType, nightDiscountValue);
+    discount = dayDiscount + nightDiscount;
+  } else if (legacyDtype === "percent") {
+    discount = gross * (Math.min(legacyDval, 100) / 100);
+    dayDiscountType = "none";
+    nightDiscountType = "none";
+  } else if (legacyDtype === "amount") {
+    discount = Math.min(legacyDval, gross);
+    dayDiscountType = "none";
+    nightDiscountType = "none";
+  } else {
+    dayDiscountType = "none";
+    nightDiscountType = "none";
+  }
 
   const subtotal = Math.max(0, gross - discount);
   const includeItbis = input.includeItbis !== false;
@@ -177,9 +219,15 @@ function calcQuoteTotals(input = {}) {
     dayGross,
     nightGross,
     gross,
+    dayDiscount,
+    nightDiscount,
+    dayDiscountType,
+    dayDiscountValue: Math.max(0, Number(dayDiscountValue) || 0),
+    nightDiscountType,
+    nightDiscountValue: Math.max(0, Number(nightDiscountValue) || 0),
     discount,
-    discountType: dtype,
-    discountValue: dval,
+    discountType: hasSplitDiscount ? "split" : legacyDtype,
+    discountValue: hasSplitDiscount ? discount : legacyDval,
     includeItbis,
     subtotal,
     itbis,
@@ -204,7 +252,8 @@ function saveQuotesHistory() {
 
 function readQuoteForm() {
   const modelId = selectedQuoteModel || document.querySelector(".quote-model-card.active")?.dataset.model || "ejecutiva";
-  const discountType = document.getElementById("quoteDiscountType")?.value || "none";
+  const dayDiscountType = document.getElementById("quoteDayDiscountType")?.value || "none";
+  const nightDiscountType = document.getElementById("quoteNightDiscountType")?.value || "none";
   return {
     modelId,
     clientName: String(document.getElementById("quoteClientName")?.value || "").trim(),
@@ -217,8 +266,12 @@ function readQuoteForm() {
     hourlyRate: Number(
       document.getElementById("quoteDayRate")?.value || document.getElementById("quoteNightRate")?.value || 0
     ),
-    discountType,
-    discountValue: Number(document.getElementById("quoteDiscountValue")?.value || 0),
+    dayDiscountType,
+    dayDiscountValue: Number(document.getElementById("quoteDayDiscountValue")?.value || 0),
+    nightDiscountType,
+    nightDiscountValue: Number(document.getElementById("quoteNightDiscountValue")?.value || 0),
+    discountType: "split",
+    discountValue: 0,
     includeItbis: !!document.getElementById("quoteIncludeItbis")?.checked,
     note: String(document.getElementById("quoteNote")?.value || "").trim(),
     date: document.getElementById("quoteDate")?.value || new Date().toISOString().slice(0, 10),
@@ -377,12 +430,33 @@ function buildClientsBlock() {
 }
 
 function buildQuoteTotalsTable(data, calc) {
-  const discountRow =
-    calc.discount > 0
-      ? `<tr><td colspan="3"><strong>Descuento especial${
-          calc.discountType === "percent" ? ` (${calc.discountValue}%)` : ""
-        }</strong></td><td class="right">− ${moneyRD(calc.discount)}</td></tr>`
-      : "";
+  const discountRows = [];
+  if (calc.dayDiscount > 0) {
+    const label =
+      calc.dayDiscountType === "percent"
+        ? `Descuento turno diurno (${calc.dayDiscountValue}%)`
+        : "Descuento turno diurno";
+    discountRows.push(
+      `<tr><td colspan="3"><strong>${label}</strong></td><td class="right">− ${moneyRD(calc.dayDiscount)}</td></tr>`
+    );
+  }
+  if (calc.nightDiscount > 0) {
+    const label =
+      calc.nightDiscountType === "percent"
+        ? `Descuento turno nocturno (${calc.nightDiscountValue}%)`
+        : "Descuento turno nocturno";
+    discountRows.push(
+      `<tr><td colspan="3"><strong>${label}</strong></td><td class="right">− ${moneyRD(calc.nightDiscount)}</td></tr>`
+    );
+  }
+  if (!discountRows.length && calc.discount > 0) {
+    discountRows.push(
+      `<tr><td colspan="3"><strong>Descuento especial${
+        calc.discountType === "percent" ? ` (${calc.discountValue}%)` : ""
+      }</strong></td><td class="right">− ${moneyRD(calc.discount)}</td></tr>`
+    );
+  }
+  const discountRow = discountRows.join("");
   const serviceLines = [];
   if (calc.dayMen > 0) {
     serviceLines.push(
@@ -618,7 +692,9 @@ function updateQuoteTotalsUi() {
       <div><span>Bruto día</span><strong>${moneyRD(calc.dayGross)}</strong></div>
       <div><span>Bruto noche</span><strong>${moneyRD(calc.nightGross)}</strong></div>
       <div><span>Bruto total</span><strong>${moneyRD(calc.gross)}</strong></div>
-      <div><span>Descuento</span><strong>${calc.discount ? "− " + moneyRD(calc.discount) : "—"}</strong></div>
+      <div><span>Desc. día</span><strong>${calc.dayDiscount ? "− " + moneyRD(calc.dayDiscount) : "—"}</strong></div>
+      <div><span>Desc. noche</span><strong>${calc.nightDiscount ? "− " + moneyRD(calc.nightDiscount) : "—"}</strong></div>
+      <div><span>Desc. total</span><strong>${calc.discount ? "− " + moneyRD(calc.discount) : "—"}</strong></div>
       <div><span>Subtotal</span><strong>${moneyRD(calc.subtotal)}</strong></div>
       <div><span>${calc.includeItbis ? "ITBIS 18%" : "ITBIS"}</span><strong>${
         calc.includeItbis ? moneyRD(calc.itbis) : "No incluido"
@@ -740,8 +816,21 @@ function fillQuoteForm(data) {
   const legacyRate = d.hourlyRate ?? 155;
   set("quoteDayRate", d.dayHourlyRate != null ? d.dayHourlyRate : legacyRate);
   set("quoteNightRate", d.nightHourlyRate != null ? d.nightHourlyRate : legacyRate);
-  set("quoteDiscountType", d.discountType || "none");
-  set("quoteDiscountValue", d.discountValue || 0);
+  // Migrar descuento global viejo → día (si no hay split)
+  let dayDiscType = d.dayDiscountType;
+  let nightDiscType = d.nightDiscountType;
+  let dayDiscVal = d.dayDiscountValue;
+  let nightDiscVal = d.nightDiscountValue;
+  if (dayDiscType == null && nightDiscType == null && d.discountType && d.discountType !== "none" && d.discountType !== "split") {
+    dayDiscType = d.discountType;
+    dayDiscVal = d.discountValue || 0;
+    nightDiscType = "none";
+    nightDiscVal = 0;
+  }
+  set("quoteDayDiscountType", dayDiscType || "none");
+  set("quoteDayDiscountValue", dayDiscVal || 0);
+  set("quoteNightDiscountType", nightDiscType || "none");
+  set("quoteNightDiscountValue", nightDiscVal || 0);
   set("quoteNote", d.note || "");
   set("quoteDate", d.date || new Date().toISOString().slice(0, 10));
   const itbisEl = document.getElementById("quoteIncludeItbis");
@@ -765,9 +854,12 @@ function reprintSavedQuote(id) {
 }
 
 function toggleQuoteDiscountField() {
-  const type = document.getElementById("quoteDiscountType")?.value || "none";
-  const wrap = document.getElementById("quoteDiscountValueWrap");
-  if (wrap) wrap.hidden = type === "none";
+  const dayType = document.getElementById("quoteDayDiscountType")?.value || "none";
+  const nightType = document.getElementById("quoteNightDiscountType")?.value || "none";
+  const dayWrap = document.getElementById("quoteDayDiscountValueWrap");
+  const nightWrap = document.getElementById("quoteNightDiscountValueWrap");
+  if (dayWrap) dayWrap.hidden = dayType === "none";
+  if (nightWrap) nightWrap.hidden = nightType === "none";
 }
 
 function validateQuoteForm(data, calc) {
@@ -932,16 +1024,28 @@ function wireQuotesModule() {
   fillQuoteForm(emptyQuoteForm());
   renderQuotesHistory();
 
-  ["quoteClientName", "quoteClientRnc", "quoteAttentionTo", "quoteDayMen", "quoteNightMen", "quoteDayRate", "quoteNightRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
-    (id) => {
-      document.getElementById(id)?.addEventListener("input", updateQuoteTotalsUi);
-      document.getElementById(id)?.addEventListener("change", updateQuoteTotalsUi);
-    }
-  );
+  [
+    "quoteClientName",
+    "quoteClientRnc",
+    "quoteAttentionTo",
+    "quoteDayMen",
+    "quoteNightMen",
+    "quoteDayRate",
+    "quoteNightRate",
+    "quoteDayDiscountValue",
+    "quoteNightDiscountValue",
+    "quoteNote",
+    "quoteDate",
+  ].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", updateQuoteTotalsUi);
+    document.getElementById(id)?.addEventListener("change", updateQuoteTotalsUi);
+  });
   document.getElementById("quoteIncludeItbis")?.addEventListener("change", updateQuoteTotalsUi);
-  document.getElementById("quoteDiscountType")?.addEventListener("change", () => {
-    toggleQuoteDiscountField();
-    updateQuoteTotalsUi();
+  ["quoteDayDiscountType", "quoteNightDiscountType"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      toggleQuoteDiscountField();
+      updateQuoteTotalsUi();
+    });
   });
   document.getElementById("btnQuotePrint")?.addEventListener("click", () => printQuoteProposal());
   document.getElementById("btnQuoteWhatsApp")?.addEventListener("click", () => shareQuoteByWhatsApp());
