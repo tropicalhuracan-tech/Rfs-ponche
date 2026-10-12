@@ -1959,10 +1959,46 @@ function renderShifts() {
 
 function fillReportPostSelect(preferredId) {
   const select = document.getElementById("reportPost");
-  select.innerHTML = sortPostsByClientNumber(posts)
-    .map((p) => `<option value="${p.id}">#${escapeHtml(String(p.clientNumber || "—"))} ${escapeHtml(p.site)} — ${escapeHtml(guardsSummary(p))}</option>`)
+  if (!select) return;
+  if (preferredId && getPost(preferredId)) {
+    select.dataset.preferredId = preferredId;
+  }
+  filterReportPostSelect(preferredId || select.dataset.preferredId || select.value || "");
+}
+
+function filterReportPostSelect(preferredId) {
+  const select = document.getElementById("reportPost");
+  if (!select) return;
+  const searchEl = document.getElementById("reportPostSearch");
+  const needle = String(searchEl?.value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  const current = preferredId || select.value || "";
+  const sorted = sortPostsByClientNumber(posts);
+  const filtered = !tokens.length
+    ? sorted
+    : sorted.filter((p) => {
+        const blob = `#${p.clientNumber || ""} ${p.site || ""} ${guardsSummary(p)}`
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+        return tokens.every((t) => blob.includes(t));
+      });
+  if (!filtered.length) {
+    select.innerHTML = `<option value="">Sin coincidencias — limpia la búsqueda</option>`;
+    return;
+  }
+  select.innerHTML = filtered
+    .map(
+      (p) =>
+        `<option value="${p.id}">#${escapeHtml(String(p.clientNumber || "—"))} ${escapeHtml(p.site)} — ${escapeHtml(guardsSummary(p))}</option>`
+    )
     .join("");
-  if (preferredId && getPost(preferredId)) select.value = preferredId;
+  if (current && filtered.some((p) => p.id === current)) select.value = current;
+  else if (filtered.length === 1) select.value = filtered[0].id;
 }
 
 function reportCompany() {
@@ -4858,22 +4894,49 @@ function monoDraftHasPerson(slot) {
   return !!(slot && (slot.employeeId || (slot.customName || "").trim()));
 }
 
+/** IDs de vigilantes ya puestos en otro puesto del reporte (excepto el puesto actual). */
+function assignedMonoEmployeeIds(exceptPostId) {
+  const ids = new Set();
+  Object.entries(monoDraftAssignments || {}).forEach(([postId, slot]) => {
+    if (exceptPostId && postId === exceptPostId) return;
+    if (slot && slot.employeeId) ids.add(slot.employeeId);
+  });
+  return ids;
+}
+
+function monoStaffOptionsHtml(forPostId) {
+  const taken = assignedMonoEmployeeIds(forPostId);
+  const currentId = ((monoDraftAssignments || {})[forPostId] || {}).employeeId || "";
+  const staff = getMonorrielEmployees(false).filter((e) => e.id === currentId || !taken.has(e.id));
+  return [`<option value="">— Vacante / elegir lista —</option>`]
+    .concat(staff.map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}</option>`))
+    .join("");
+}
+
+/** Actualiza listas sin recrear filas: quien ya está en un puesto no sale en los demás. */
+function refreshMonoStaffSelectOptions() {
+  const box = document.getElementById("monoPostsEditor");
+  if (!box) return;
+  box.querySelectorAll("select[data-mono-post]").forEach((sel) => {
+    const postId = sel.dataset.monoPost;
+    const desired = ((monoDraftAssignments || {})[postId] || {}).employeeId || "";
+    sel.innerHTML = monoStaffOptionsHtml(postId);
+    sel.value = desired;
+  });
+}
+
 function renderMonoPostsEditor() {
   const box = document.getElementById("monoPostsEditor");
   if (!box) return;
-  const staff = getMonorrielEmployees(false);
-  const options = [`<option value="">— Vacante / elegir lista —</option>`]
-    .concat(staff.map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}</option>`))
-    .join("");
 
   box.innerHTML = monoPosts()
     .map((p) => {
       const slot = monoDraftAssignments[p.id] || { employeeId: "", customName: "" };
       return `<div class="mono-post-row">
         <div class="mono-post-label">${escapeHtml(monoPostLabel(p))}</div>
-        <select data-mono-post="${escapeHtml(p.id)}">${options}</select>
+        <select data-mono-post="${escapeHtml(p.id)}">${monoStaffOptionsHtml(p.id)}</select>
         <input class="mono-name-input" data-mono-name="${escapeHtml(p.id)}" type="text" placeholder="O escribe un nombre nuevo" value="${escapeHtml(slot.customName || "")}" />
-        <p class="mono-hint">Si escribes un nombre nuevo, se agrega solo a Empleados (Monorriel).</p>
+        <p class="mono-hint">Si eliges a alguien aquí, no aparecerá en los otros puestos. Nombre nuevo se agrega a Empleados (Monorriel).</p>
       </div>`;
     })
     .join("");
@@ -4887,6 +4950,7 @@ function renderMonoPostsEditor() {
       monoDraftAssignments[postId] = { employeeId: sel.value, customName: sel.value ? "" : current.customName };
       const nameInput = box.querySelector(`input[data-mono-name="${postId}"]`);
       if (sel.value && nameInput) nameInput.value = "";
+      refreshMonoStaffSelectOptions();
       updateMonoCoverageHint();
     });
   });
@@ -4898,14 +4962,20 @@ function renderMonoPostsEditor() {
       if (!typed) {
         const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
         monoDraftAssignments[postId] = { employeeId: current.employeeId || "", customName: "" };
+        refreshMonoStaffSelectOptions();
         updateMonoCoverageHint();
         return;
       }
+      const taken = assignedMonoEmployeeIds(postId);
       const emp = ensureEmployeeFromMonoName(typed);
       if (!emp) return;
+      if (taken.has(emp.id)) {
+        toast("Ese vigilante ya está asignado en otro puesto de este reporte.");
+        inp.value = "";
+        return;
+      }
       monoDraftAssignments[postId] = { employeeId: emp.id, customName: "" };
       inp.value = "";
-      // refrescar opciones para que aparezca el nuevo
       renderMonoPostsEditor();
       const sel = document.querySelector(`#monoPostsEditor select[data-mono-post="${postId}"]`);
       if (sel) sel.value = emp.id;
@@ -8959,6 +9029,8 @@ function bindUi() {
   document.getElementById("fHourlyRate").addEventListener("input", updateMonthPreview);
   document.getElementById("btnSaveReport").addEventListener("click", saveReport);
   document.getElementById("reportPhoto").addEventListener("change", onPhotoSelected);
+  document.getElementById("reportPostSearch")?.addEventListener("input", () => filterReportPostSelect());
+  document.getElementById("reportPostSearch")?.addEventListener("search", () => filterReportPostSelect());
   document.getElementById("btnClearPhoto").addEventListener("click", clearPhoto);
   document.getElementById("btnAdminLogin").addEventListener("click", tryAdminLogin);
   document.getElementById("btnAdminLogout").addEventListener("click", () => {
@@ -9171,7 +9243,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=73").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=74").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9186,7 +9258,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v73").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v74").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
