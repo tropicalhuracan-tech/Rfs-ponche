@@ -1460,11 +1460,43 @@ function queueCloudSave() {
 }
 
 let cloudSavePending = false;
+let cloudRetryAttempt = 0;
+let cloudRetryTimer = null;
+
+function hasLocalLvaData() {
+  try {
+    const postsCount = (lvaState && Array.isArray(lvaState.posts) ? lvaState.posts : []).filter(
+      (p) => p && p.active !== false && p.name
+    ).length;
+    const staffCount = (lvaState && Array.isArray(lvaState.staff) ? lvaState.staff : []).filter(
+      (s) => s && s.active !== false && s.name
+    ).length;
+    return postsCount > 0 || staffCount > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function scheduleCloudRetry(reason) {
+  cloudSavePending = true;
+  cloudRetryAttempt += 1;
+  const delay = Math.min(180000, 8000 * Math.pow(2, Math.min(cloudRetryAttempt, 4)));
+  setCloudStatus(`Nube: ${reason} · reintento en ${Math.round(delay / 1000)}s…`);
+  clearTimeout(cloudRetryTimer);
+  cloudRetryTimer = setTimeout(() => {
+    cloudSavePending = false;
+    pushToCloud().catch(() => {});
+  }, delay);
+}
 
 async function mergeRemoteBundleBeforeSave() {
   if (!window.RFSCloudApi) return true;
   try {
-    const remote = await window.RFSCloudApi.loadCloud();
+    const loader =
+      typeof window.RFSCloudApi.loadCloudForMerge === "function"
+        ? window.RFSCloudApi.loadCloudForMerge
+        : window.RFSCloudApi.loadCloud;
+    const remote = await loader.call(window.RFSCloudApi);
     if (!remote) return false;
     if (!remote.empty && Array.isArray(remote.messages)) {
       chatMessages = mergeChatMessages(chatMessages, remote.messages.map(normalizeChatMessage));
@@ -1490,7 +1522,7 @@ function cloudDepuracionPayload() {
   return typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } };
 }
 
-async function saveCloudBundle() {
+async function saveCloudBundle(options) {
   return window.RFSCloudApi.saveCloud(
     posts,
     reports,
@@ -1505,21 +1537,20 @@ async function saveCloudBundle() {
     pettyCash,
     hrData,
     cloudDepuracionPayload(),
-    typeof loanTrashIds !== "undefined" ? loanTrashIds : []
+    typeof loanTrashIds !== "undefined" ? loanTrashIds : [],
+    options || {}
   );
 }
 
 /** Subida dedicada del chat: no reescribe empleados/fotos y no borra mensajes ajenos */
 async function pushMessagesToCloud() {
   if (!window.RFSCloudApi) throw new Error("cloud not configured");
-  await mergeRemoteMessagesBeforeSave();
   chatMessages = pruneChatMessages(chatMessages);
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
   if (typeof window.RFSCloudApi.saveMessages === "function") {
     await window.RFSCloudApi.saveMessages(chatMessages);
   } else {
-    await mergeRemoteMessagesBeforeSave();
-    await saveCloudBundle();
+    await saveCloudBundle({ skipLva: !hasLocalLvaData() });
   }
   cloudReady = true;
 }
@@ -1534,29 +1565,42 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
-    // Una sola lectura remota: chat + La Vega + préstamos (evita borrar en otra PC y reduce 429)
+    // Lectura ligera (main+loans) para fusionar sin gastar cuota en fotos
     const merged = await mergeRemoteBundleBeforeSave();
     if (!merged) {
-      cloudSavePending = true;
-      setCloudStatus("Nube: esperando fusión (reintento)…");
+      // No bloquear la app: guardar copia local sin pisar La Vega remota si aquí está vacía
+      const skipLva = !hasLocalLvaData();
+      await saveCloudBundle({ skipLva });
+      cloudReady = true;
+      cloudRetryAttempt = 0;
+      setCloudStatus(
+        skipLva
+          ? "Nube: guardado ✓ (La Vega remota conservada)"
+          : "Nube: guardado ✓ (sin fusión remota)"
+      );
       return;
     }
     await saveCloudBundle();
     cloudReady = true;
+    cloudRetryAttempt = 0;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
     console.error(err);
-    setCloudStatus("Nube: error al guardar (se mantiene copia local)");
-    // Si el doc completo falla por tamaño, al menos intentar subir el chat
-    try {
-      await pushMessagesToCloud();
-      setCloudStatus("Nube: chat sincronizado (doc completo pendiente)");
-    } catch (_) {}
+    const msg = String((err && err.message) || err || "");
+    if (msg.includes("429")) {
+      scheduleCloudRetry("cuota temporal");
+    } else {
+      setCloudStatus("Nube: error al guardar (se mantiene copia local)");
+      try {
+        await pushMessagesToCloud();
+        setCloudStatus("Nube: chat sincronizado (doc completo pendiente)");
+      } catch (_) {}
+    }
   } finally {
     cloudSaving = false;
-    if (cloudSavePending) {
+    if (cloudSavePending && !cloudRetryTimer) {
       cloudSavePending = false;
-      setTimeout(() => pushToCloud().catch(() => {}), 2500);
+      scheduleCloudRetry("pendiente");
     }
   }
 }

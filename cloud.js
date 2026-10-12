@@ -70,28 +70,65 @@
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   }
 
-  async function getDoc(path) {
-    const res = await fetch(docUrl(path), { method: "GET" });
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`cloud load ${path} ${res.status}`);
-    return res.json();
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function patchDoc(path, fields, fieldPaths) {
-    let url = docUrl(path);
-    if (fieldPaths && fieldPaths.length) {
-      url += fieldPaths.map((p) => `&updateMask.fieldPaths=${encodeURIComponent(p)}`).join("");
+  async function getDoc(path, retries = 4) {
+    let lastErr = null;
+    for (let i = 0; i <= retries; i += 1) {
+      try {
+        const res = await fetch(docUrl(path), { method: "GET" });
+        if (res.status === 404) return null;
+        if (res.status === 429) {
+          lastErr = new Error(`cloud load ${path} 429`);
+          await sleep(Math.min(60000, 2000 * Math.pow(2, i)));
+          continue;
+        }
+        if (!res.ok) throw new Error(`cloud load ${path} ${res.status}`);
+        return res.json();
+      } catch (err) {
+        lastErr = err;
+        if (i < retries) await sleep(800 * (i + 1));
+      }
     }
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`cloud save ${path} ${res.status}: ${text.slice(0, 220)}`);
+    throw lastErr || new Error(`cloud load ${path} failed`);
+  }
+
+  async function patchDoc(path, fields, fieldPaths, retries = 3) {
+    let lastErr = null;
+    for (let i = 0; i <= retries; i += 1) {
+      try {
+        let url = docUrl(path);
+        if (fieldPaths && fieldPaths.length) {
+          url += fieldPaths.map((p) => `&updateMask.fieldPaths=${encodeURIComponent(p)}`).join("");
+        }
+        const res = await fetch(url, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fields }),
+        });
+        if (res.status === 429) {
+          lastErr = new Error(`cloud save ${path} 429`);
+          await sleep(Math.min(60000, 2500 * Math.pow(2, i)));
+          continue;
+        }
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`cloud save ${path} ${res.status}: ${text.slice(0, 220)}`);
+        }
+        return res.json();
+      } catch (err) {
+        lastErr = err;
+        if (String(err && err.message).includes("429")) {
+          await sleep(Math.min(60000, 2500 * Math.pow(2, i)));
+          continue;
+        }
+        if (i < retries) await sleep(800 * (i + 1));
+        else break;
+      }
     }
-    return res.json();
+    throw lastErr || new Error(`cloud save ${path} failed`);
   }
 
   async function putMedia(id, payload) {
@@ -345,12 +382,60 @@
 
   async function loadSplitParts() {
     const names = Object.keys(PART_DOCS);
-    const docs = await Promise.all(names.map((n) => getDoc(partPath(n))));
+    const docs = await Promise.all(
+      names.map(async (n) => {
+        try {
+          return await getDoc(partPath(n));
+        } catch (_) {
+          return null;
+        }
+      })
+    );
     const byName = {};
     names.forEach((n, i) => {
       byName[n] = docs[i];
     });
     return byName;
+  }
+
+  /** Lectura ligera solo para fusionar antes de guardar (main + loans, sin fotos). */
+  async function loadCloudForMerge() {
+    if (!projectId || !apiKey) return null;
+    let main = null;
+    let loans = null;
+    try {
+      main = await getDoc(partPath("main"));
+    } catch (_) {
+      return null;
+    }
+    if (!main) {
+      return {
+        empty: true,
+        messages: [],
+        lva: {},
+        loans: [],
+        loanTrash: [],
+      };
+    }
+    try {
+      loans = await getDoc(partPath("loans"));
+    } catch (_) {
+      loans = null;
+    }
+    const mainFields = main.fields || {};
+    const loanFields = (loans && loans.fields) || {};
+    return {
+      empty: false,
+      messages: parseArrayField(mainFields, "messagesJson"),
+      lva: parseObjectField(mainFields, "lvaJson"),
+      loans: loanFields.loansJson
+        ? parseArrayField(loanFields, "loansJson")
+        : parseArrayField(mainFields, "loansJson"),
+      loanTrash: loanFields.loanTrashJson
+        ? parseArrayField(loanFields, "loanTrashJson")
+        : parseArrayField(mainFields, "loanTrashJson"),
+      partial: !loans,
+    };
   }
 
   function fieldLen(doc, key) {
@@ -530,9 +615,11 @@
     pettyCash,
     hr,
     depuracion,
-    loanTrash
+    loanTrash,
+    options
   ) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
+    const opts = options && typeof options === "object" ? options : {};
 
     const empPack = stripEmployees(employees);
     const pettyPack = stripPettyCash(pettyCash);
@@ -547,58 +634,63 @@
 
     const updatedAt = new Date().toISOString();
     const trashIds = [...new Set((loanTrash || []).map(String).filter(Boolean))].slice(0, 500);
+    const mainFields = {
+      usersJson: { stringValue: JSON.stringify(users || []) },
+      messagesJson: { stringValue: JSON.stringify(messages || []) },
+      radioJson: { stringValue: JSON.stringify(radio || {}) },
+      reportsJson: { stringValue: JSON.stringify(reports || []) },
+      monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
+      schemaVersion: { stringValue: SCHEMA_VERSION },
+      updatedAt: { stringValue: updatedAt },
+      app: { stringValue: "Reaction Force Security Ops" },
+      // Liberar campos legacy pesados del documento main
+      postsJson: { stringValue: "[]" },
+      employeesJson: { stringValue: "[]" },
+      loansJson: { stringValue: "[]" },
+      activityJson: { stringValue: "[]" },
+      pettyCashJson: { stringValue: "{}" },
+      hrJson: { stringValue: "{}" },
+    };
+    // Si skipLva: no tocar lvaJson remoto (evita borrar La Vega cuando no hubo fusión)
+    if (!opts.skipLva) {
+      mainFields.lvaJson = { stringValue: JSON.stringify(lva || {}) };
+    }
+    const mainMask = Object.keys(mainFields);
     const writes = [
-      patchDoc(partPath("main"), {
-        usersJson: { stringValue: JSON.stringify(users || []) },
-        messagesJson: { stringValue: JSON.stringify(messages || []) },
-        radioJson: { stringValue: JSON.stringify(radio || {}) },
-        lvaJson: { stringValue: JSON.stringify(lva || {}) },
-        reportsJson: { stringValue: JSON.stringify(reports || []) },
-        monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
-        schemaVersion: { stringValue: SCHEMA_VERSION },
-        updatedAt: { stringValue: updatedAt },
-        app: { stringValue: "Reaction Force Security Ops" },
-        // Liberar campos legacy pesados del documento main
-        postsJson: { stringValue: "[]" },
-        employeesJson: { stringValue: "[]" },
-        loansJson: { stringValue: "[]" },
-        activityJson: { stringValue: "[]" },
-        pettyCashJson: { stringValue: "{}" },
-        hrJson: { stringValue: "{}" },
-      }),
+      patchDoc(partPath("main"), mainFields, mainMask),
       patchDoc(partPath("posts"), {
         postsJson: { stringValue: JSON.stringify(posts || []) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["postsJson", "updatedAt"]),
       patchDoc(partPath("employees"), {
         employeesJson: { stringValue: JSON.stringify(empPack.light || []) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["employeesJson", "updatedAt"]),
       patchDoc(partPath("loans"), {
         loansJson: { stringValue: JSON.stringify(loans || []) },
         loanTrashJson: { stringValue: JSON.stringify(trashIds) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["loansJson", "loanTrashJson", "updatedAt"]),
       patchDoc(partPath("activity"), {
         activityJson: { stringValue: JSON.stringify(activity || []) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["activityJson", "updatedAt"]),
       patchDoc(partPath("pettyCash"), {
         pettyCashJson: { stringValue: JSON.stringify(pettyPack.light || emptyPetty()) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["pettyCashJson", "updatedAt"]),
       patchDoc(partPath("hr"), {
         hrJson: { stringValue: JSON.stringify(hrPack.light || emptyHr()) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["hrJson", "updatedAt"]),
       patchDoc(partPath("depuracion"), {
         depuracionJson: { stringValue: JSON.stringify(depPack.light || emptyDepuracion()) },
         updatedAt: { stringValue: updatedAt },
-      }),
+      }, ["depuracionJson", "updatedAt"]),
     ];
 
     await Promise.all(writes);
-    return { ok: true, schemaVersion: SCHEMA_VERSION, updatedAt };
+    return { ok: true, schemaVersion: SCHEMA_VERSION, updatedAt, skippedLva: !!opts.skipLva };
   }
 
   /** Parche ligero solo de mensajes (documento main) */
@@ -613,6 +705,7 @@
 
   window.RFSCloudApi = {
     loadCloud,
+    loadCloudForMerge,
     saveCloud,
     saveMessages,
     deleteMedia,
