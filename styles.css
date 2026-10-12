@@ -2176,6 +2176,17 @@ body.lightbox-open {
   flex: 0 0 auto;
 }
 
+.quote-shift-box .tight-label {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.quote-shift-box .tight-label input {
+  margin-top: 4px;
+}
+
 .quote-share-box {
   margin-top: 12px;
   padding: 12px;

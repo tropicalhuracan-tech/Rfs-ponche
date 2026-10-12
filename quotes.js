@@ -92,6 +92,8 @@ function emptyQuoteForm() {
     attentionTo: "",
     dayMen: 1,
     nightMen: 0,
+    dayHourlyRate: 155,
+    nightHourlyRate: 175,
     hourlyRate: 155,
     discountType: "none",
     discountValue: 0,
@@ -123,10 +125,30 @@ function calcQuoteTotals(input = {}) {
   const men = dayMen + nightMen;
   const hoursPerMan = QUOTE_HOURS_PER_MAN;
   const hoursPerDay = men * hoursPerMan;
-  const rate = Math.max(0, Number(input.hourlyRate) || 0);
+  const legacyRate = Math.max(0, Number(input.hourlyRate) || 0);
+  let dayRate = Math.max(0, Number(input.dayHourlyRate));
+  let nightRate = Math.max(0, Number(input.nightHourlyRate));
+  if (!Number.isFinite(dayRate) || (dayRate <= 0 && legacyRate > 0 && input.dayHourlyRate == null)) {
+    dayRate = legacyRate;
+  }
+  if (!Number.isFinite(nightRate) || (nightRate <= 0 && legacyRate > 0 && input.nightHourlyRate == null)) {
+    nightRate = legacyRate;
+  }
+  if (!Number.isFinite(dayRate)) dayRate = 0;
+  if (!Number.isFinite(nightRate)) nightRate = 0;
+  // Compat: cotizaciones viejas solo con hourlyRate
+  if (!dayRate && !nightRate && legacyRate) {
+    dayRate = legacyRate;
+    nightRate = legacyRate;
+  }
   const days = QUOTE_DAYS;
-  const hoursMonth = men * hoursPerMan * days;
-  const gross = hoursMonth * rate;
+  const dayHoursMonth = dayMen * hoursPerMan * days;
+  const nightHoursMonth = nightMen * hoursPerMan * days;
+  const hoursMonth = dayHoursMonth + nightHoursMonth;
+  const dayGross = dayHoursMonth * dayRate;
+  const nightGross = nightHoursMonth * nightRate;
+  const gross = dayGross + nightGross;
+  const rate = men > 0 ? gross / Math.max(1, hoursMonth) : dayRate || nightRate || legacyRate;
 
   let discount = 0;
   const dtype = input.discountType || "none";
@@ -146,8 +168,14 @@ function calcQuoteTotals(input = {}) {
     hoursPerMan,
     hoursPerDay,
     days,
+    dayRate,
+    nightRate,
     rate,
+    dayHoursMonth,
+    nightHoursMonth,
     hoursMonth,
+    dayGross,
+    nightGross,
     gross,
     discount,
     discountType: dtype,
@@ -184,7 +212,11 @@ function readQuoteForm() {
     attentionTo: String(document.getElementById("quoteAttentionTo")?.value || "").trim(),
     dayMen: Number(document.getElementById("quoteDayMen")?.value || 0),
     nightMen: Number(document.getElementById("quoteNightMen")?.value || 0),
-    hourlyRate: Number(document.getElementById("quoteHourlyRate")?.value || 0),
+    dayHourlyRate: Number(document.getElementById("quoteDayRate")?.value || 0),
+    nightHourlyRate: Number(document.getElementById("quoteNightRate")?.value || 0),
+    hourlyRate: Number(
+      document.getElementById("quoteDayRate")?.value || document.getElementById("quoteNightRate")?.value || 0
+    ),
     discountType,
     discountValue: Number(document.getElementById("quoteDiscountValue")?.value || 0),
     includeItbis: !!document.getElementById("quoteIncludeItbis")?.checked,
@@ -355,20 +387,20 @@ function buildQuoteTotalsTable(data, calc) {
   if (calc.dayMen > 0) {
     serviceLines.push(
       `<tr>
-        <td>Turno diurno · ${QUOTE_HOURS_PER_MAN} h/hombre</td>
+        <td>Turno diurno · ${QUOTE_HOURS_PER_MAN} h/hombre · ${moneyRD(calc.dayRate)}/h</td>
         <td>${calc.dayMen}</td>
-        <td>${calc.dayMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.rate)}</td>
-        <td class="right">${moneyRD(calc.dayMen * QUOTE_HOURS_PER_MAN * calc.days * calc.rate)}</td>
+        <td>${calc.dayMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.dayRate)}</td>
+        <td class="right">${moneyRD(calc.dayGross)}</td>
       </tr>`
     );
   }
   if (calc.nightMen > 0) {
     serviceLines.push(
       `<tr>
-        <td>Turno nocturno · ${QUOTE_HOURS_PER_MAN} h/hombre</td>
+        <td>Turno nocturno · ${QUOTE_HOURS_PER_MAN} h/hombre · ${moneyRD(calc.nightRate)}/h</td>
         <td>${calc.nightMen}</td>
-        <td>${calc.nightMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.rate)}</td>
-        <td class="right">${moneyRD(calc.nightMen * QUOTE_HOURS_PER_MAN * calc.days * calc.rate)}</td>
+        <td>${calc.nightMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.nightRate)}</td>
+        <td class="right">${moneyRD(calc.nightGross)}</td>
       </tr>`
     );
   }
@@ -521,7 +553,9 @@ function buildModelInstitucional(data, calc) {
       <li>Cada hombre labora <strong>${QUOTE_HOURS_PER_MAN} horas</strong> por jornada</li>
       <li>Horas diarias totales: <strong>${calc.hoursPerDay} h</strong></li>
       <li>Cálculo base: <strong>${QUOTE_DAYS} días</strong> al mes</li>
-      <li>Tarifa: <strong>${moneyRD(calc.rate)}</strong> por hora</li>
+      <li>Tarifa día: <strong>${moneyRD(calc.dayRate)}</strong>/h · Tarifa noche: <strong>${moneyRD(
+        calc.nightRate
+      )}</strong>/h</li>
     </ul>
 
     ${buildTechBlock()}
@@ -577,11 +611,13 @@ function updateQuoteTotalsUi() {
   if (!box) return;
   box.innerHTML = `
     <div class="detail-grid">
-      <div><span>Diurnos</span><strong>${calc.dayMen}</strong></div>
-      <div><span>Nocturnos</span><strong>${calc.nightMen}</strong></div>
+      <div><span>Diurnos</span><strong>${calc.dayMen} · ${moneyRD(calc.dayRate)}/h</strong></div>
+      <div><span>Nocturnos</span><strong>${calc.nightMen} · ${moneyRD(calc.nightRate)}/h</strong></div>
       <div><span>Horas / día</span><strong>${calc.hoursPerDay}</strong></div>
       <div><span>Horas / mes</span><strong>${calc.hoursMonth.toLocaleString("es-DO")}</strong></div>
-      <div><span>Bruto</span><strong>${moneyRD(calc.gross)}</strong></div>
+      <div><span>Bruto día</span><strong>${moneyRD(calc.dayGross)}</strong></div>
+      <div><span>Bruto noche</span><strong>${moneyRD(calc.nightGross)}</strong></div>
+      <div><span>Bruto total</span><strong>${moneyRD(calc.gross)}</strong></div>
       <div><span>Descuento</span><strong>${calc.discount ? "− " + moneyRD(calc.discount) : "—"}</strong></div>
       <div><span>Subtotal</span><strong>${moneyRD(calc.subtotal)}</strong></div>
       <div><span>${calc.includeItbis ? "ITBIS 18%" : "ITBIS"}</span><strong>${
@@ -701,7 +737,9 @@ function fillQuoteForm(data) {
   set("quoteAttentionTo", d.attentionTo || "");
   set("quoteDayMen", d.dayMen ?? 1);
   set("quoteNightMen", d.nightMen ?? 0);
-  set("quoteHourlyRate", d.hourlyRate ?? 155);
+  const legacyRate = d.hourlyRate ?? 155;
+  set("quoteDayRate", d.dayHourlyRate != null ? d.dayHourlyRate : legacyRate);
+  set("quoteNightRate", d.nightHourlyRate != null ? d.nightHourlyRate : legacyRate);
   set("quoteDiscountType", d.discountType || "none");
   set("quoteDiscountValue", d.discountValue || 0);
   set("quoteNote", d.note || "");
@@ -741,8 +779,16 @@ function validateQuoteForm(data, calc) {
     toast("Indica al menos 1 hombre en Día y/o Noche.");
     return false;
   }
-  if (!calc.rate || calc.rate <= 0) {
-    toast("Indica el precio por hora.");
+  if (calc.dayMen > 0 && (!calc.dayRate || calc.dayRate <= 0)) {
+    toast("Indica el precio por hora del turno de día.");
+    return false;
+  }
+  if (calc.nightMen > 0 && (!calc.nightRate || calc.nightRate <= 0)) {
+    toast("Indica el precio por hora del turno de noche.");
+    return false;
+  }
+  if ((!calc.dayMen || calc.dayMen <= 0) && (!calc.nightMen || calc.nightMen <= 0)) {
+    toast("Indica al menos 1 hombre en Día y/o Noche.");
     return false;
   }
   return true;
@@ -795,7 +841,7 @@ function buildQuoteShareText(data, calc) {
     `Fecha: ${formatQuoteDate(data.date)}\n` +
     `Turnos: ${quoteShiftLabel(calc)}\n` +
     `Personal: ${calc.men} hombre(s) · ${calc.hoursPerDay} h/día · ${calc.hoursMonth} h/mes\n` +
-    `Tarifa: ${moneyRD(calc.rate)} / hora\n` +
+    `Tarifa día: ${moneyRD(calc.dayRate)}/h · Tarifa noche: ${moneyRD(calc.nightRate)}/h\n` +
     `Subtotal: ${moneyRD(calc.subtotal)}\n` +
     `${itbisLine}\n\n` +
     `Contacto RFS: ${RFS_COMPANY.phones}\n` +
@@ -886,7 +932,7 @@ function wireQuotesModule() {
   fillQuoteForm(emptyQuoteForm());
   renderQuotesHistory();
 
-  ["quoteClientName", "quoteClientRnc", "quoteAttentionTo", "quoteDayMen", "quoteNightMen", "quoteHourlyRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
+  ["quoteClientName", "quoteClientRnc", "quoteAttentionTo", "quoteDayMen", "quoteNightMen", "quoteDayRate", "quoteNightRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
     (id) => {
       document.getElementById(id)?.addEventListener("input", updateQuoteTotalsUi);
       document.getElementById(id)?.addEventListener("change", updateQuoteTotalsUi);

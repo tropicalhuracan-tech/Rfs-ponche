@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=66" />
+  <link rel="stylesheet" href="styles.css?v=67" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=66" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=67" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=66" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=67" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=66" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=67" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v66 · Cotizaciones</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v67 · Cotizaciones</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -1213,23 +1213,24 @@
             <strong>Día</strong>
             <span class="muted">Hombres diurnos</span>
             <input id="quoteDayMen" type="number" min="0" step="1" value="1" />
+            <label class="tight-label">Precio/hora día (RD$)
+              <input id="quoteDayRate" type="number" min="0" step="0.01" value="155" />
+            </label>
           </div>
           <div class="quote-shift-box">
             <strong>Noche</strong>
             <span class="muted">Hombres nocturnos</span>
             <input id="quoteNightMen" type="number" min="0" step="1" value="0" />
+            <label class="tight-label">Precio/hora noche (RD$)
+              <input id="quoteNightRate" type="number" min="0" step="0.01" value="175" />
+            </label>
           </div>
         </div>
         <p id="quoteTotalMenLabel" class="muted tight" style="margin-top:8px">1 hombre · 12 h/día</p>
 
-        <div class="coords-row">
-          <label>Precio por hora (RD$)
-            <input id="quoteHourlyRate" type="number" min="0" step="0.01" value="155" />
-          </label>
-          <label>Fecha
-            <input id="quoteDate" type="date" />
-          </label>
-        </div>
+        <label>Fecha
+          <input id="quoteDate" type="date" />
+        </label>
         <div class="coords-row">
           <label>Descuento especial
             <select id="quoteDiscountType">
@@ -1253,7 +1254,7 @@
 
       <div class="form-card">
         <h2>3. Cálculo automático</h2>
-        <p class="muted tight">Hombres × 12 h × 30 días × precio/hora − descuento (+ ITBIS 18% si está marcado).</p>
+        <p class="muted tight">Día y noche con su propio precio/hora × 12 h × 30 días − descuento (+ ITBIS 18% si está marcado).</p>
         <div id="quoteTotalsBox"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
           <button id="btnQuotePrint" class="btn primary" type="button">Imprimir / PDF propuesta</button>
@@ -1546,12 +1547,12 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=66"></script>
-  <script src="monorriel-data.js?v=66"></script>
-  <script src="cloud.js?v=66"></script>
-  <script src="hr.js?v=66"></script>
-  <script src="depuracion.js?v=66"></script>
-  <script src="quotes.js?v=66"></script>
-  <script src="app.js?v=66"></script>
+  <script src="cloud-config.js?v=67"></script>
+  <script src="monorriel-data.js?v=67"></script>
+  <script src="cloud.js?v=67"></script>
+  <script src="hr.js?v=67"></script>
+  <script src="depuracion.js?v=67"></script>
+  <script src="quotes.js?v=67"></script>
+  <script src="app.js?v=67"></script>
 </body>
 </html>
