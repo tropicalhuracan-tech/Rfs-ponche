@@ -2,6 +2,8 @@
 const QUOTES_KEY = "rfs-ops-quotes";
 const QUOTE_DAYS = 30;
 const QUOTE_ITBIS = 0.18;
+/** Cada hombre trabaja siempre 12 horas */
+const QUOTE_HOURS_PER_MAN = 12;
 
 const RFS_COMPANY = {
   name: "Reaction Force Security, S.R.L.",
@@ -14,17 +16,24 @@ const RFS_COMPANY = {
   signer: "Edward Cruz",
 };
 
-/** Clientes de referencia (extraídos del material RFS) */
 const QUOTE_REF_CLIENTS = [
   "Acero Estrella",
   "Auto Chang",
   "Bancas La Suerte",
   "Casa Yanet",
   "Distribuidora 2000",
+  "El Navidón",
+  "Fernández Cáceres Comercial",
   "Fraga Industrial",
+  "Industrias Dominca",
   "Monorriel de Santiago",
   "Óptica Klaridad",
   "Productos María",
+  "Residencial Casa Club Mediterráneo",
+  "Residencial Paseo del Prado I",
+  "Residencial Porto Sole",
+  "Supermercado Central",
+  "Tienda Concepto",
   "Universidad ISA",
   "Vial Gas",
   "Vidmetal",
@@ -34,17 +43,20 @@ const QUOTE_MODELS = [
   {
     id: "ejecutiva",
     label: "Modelo 1 — Ejecutiva",
-    blurb: "Propuesta comercial completa: presentación, alcance, inversión y clientes.",
+    blurb:
+      "Propuesta comercial completa: quiénes somos, tecnología (GPS + Ponche RFS), alcance, inversión, clientes y cierre persuasivo.",
   },
   {
     id: "cotizacion",
     label: "Modelo 2 — Cotización formal",
-    blurb: "Carta breve con tabla de servicio, subtotal, ITBIS y total.",
+    blurb:
+      "Carta formal con tabla clara de diurnos/nocturnos, horas, subtotal, ITBIS y total. Ideal para envío rápido.",
   },
   {
     id: "institucional",
     label: "Modelo 3 — Institucional",
-    blurb: "Enfoque en cobertura, beneficios y detalle económico para el cliente.",
+    blurb:
+      "Enfoque en cobertura, beneficios, supervisión y confianza de clientes institucionales y comerciales.",
   },
 ];
 
@@ -62,8 +74,8 @@ function emptyQuoteForm() {
     modelId: "ejecutiva",
     clientName: "",
     clientRnc: "",
-    menCount: 1,
-    shiftHours: 12,
+    dayMen: 1,
+    nightMen: 0,
     hourlyRate: 155,
     discountType: "none",
     discountValue: 0,
@@ -73,11 +85,30 @@ function emptyQuoteForm() {
 }
 
 function calcQuoteTotals(input = {}) {
-  const men = Math.max(0, Number(input.menCount) || 0);
-  const hours = Number(input.shiftHours) === 24 ? 24 : 12;
+  // Compat: cotizaciones viejas con menCount/shiftHours
+  let dayMen = Math.max(0, Number(input.dayMen));
+  let nightMen = Math.max(0, Number(input.nightMen));
+  if (!Number.isFinite(dayMen)) dayMen = 0;
+  if (!Number.isFinite(nightMen)) nightMen = 0;
+  if (!dayMen && !nightMen && Number(input.menCount) > 0) {
+    const legacyHours = Number(input.shiftHours) === 24 ? 24 : 12;
+    const legacyMen = Math.max(0, Number(input.menCount) || 0);
+    // Aprox: si era 24h con N "cupos", equivalía a N hombres de 12h en la lógica nueva
+    // mantenemos menCount como total y lo ponemos en día por defecto
+    dayMen = legacyMen;
+    nightMen = 0;
+    if (legacyHours === 24 && legacyMen >= 1) {
+      // 24h legacy facturaba hours=24*men; nueva lógica men*12 — documentamos en UI
+      dayMen = legacyMen;
+    }
+  }
+
+  const men = dayMen + nightMen;
+  const hoursPerMan = QUOTE_HOURS_PER_MAN;
+  const hoursPerDay = men * hoursPerMan;
   const rate = Math.max(0, Number(input.hourlyRate) || 0);
   const days = QUOTE_DAYS;
-  const hoursMonth = men * hours * days;
+  const hoursMonth = men * hoursPerMan * days;
   const gross = hoursMonth * rate;
 
   let discount = 0;
@@ -91,8 +122,11 @@ function calcQuoteTotals(input = {}) {
   const total = subtotal + itbis;
 
   return {
+    dayMen,
+    nightMen,
     men,
-    hours,
+    hoursPerMan,
+    hoursPerDay,
     days,
     rate,
     hoursMonth,
@@ -128,8 +162,8 @@ function readQuoteForm() {
     modelId,
     clientName: String(document.getElementById("quoteClientName")?.value || "").trim(),
     clientRnc: String(document.getElementById("quoteClientRnc")?.value || "").trim(),
-    menCount: Number(document.getElementById("quoteMenCount")?.value || 0),
-    shiftHours: Number(document.getElementById("quoteShiftHours")?.value || 12),
+    dayMen: Number(document.getElementById("quoteDayMen")?.value || 0),
+    nightMen: Number(document.getElementById("quoteNightMen")?.value || 0),
     hourlyRate: Number(document.getElementById("quoteHourlyRate")?.value || 0),
     discountType,
     discountValue: Number(document.getElementById("quoteDiscountValue")?.value || 0),
@@ -150,16 +184,18 @@ function formatQuoteDate(iso) {
   }
 }
 
-function quoteClientsBlock() {
-  return QUOTE_REF_CLIENTS.join(" · ");
+function quoteShiftLabel(calc) {
+  const parts = [];
+  if (calc.dayMen > 0) parts.push(`${calc.dayMen} diurno${calc.dayMen === 1 ? "" : "s"}`);
+  if (calc.nightMen > 0) parts.push(`${calc.nightMen} nocturno${calc.nightMen === 1 ? "" : "s"}`);
+  return parts.join(" + ") || "Sin personal";
 }
 
 function quoteNoteBlock() {
-  return `Los valores fueron calculados para un período de ${QUOTE_DAYS} días. La facturación puede variar en meses de 28, 29 o 31 días, así como por la incidencia de días feriados, conforme al calendario y a las condiciones del servicio.`;
+  return `Los valores fueron calculados para un período de ${QUOTE_DAYS} días. Cada hombre labora ${QUOTE_HOURS_PER_MAN} horas por jornada. La facturación puede variar en meses de 28, 29 o 31 días, así como por la incidencia de días feriados, conforme al calendario y a las condiciones del servicio.`;
 }
 
-function buildQuoteHeader(data) {
-  // El logo ya lo pone openPrintWindow; aquí van datos de empresa
+function buildQuoteHeader() {
   return `
     <p style="margin:0 0 12px;color:#444;font-size:12px">
       <strong>${escapeHtml(RFS_COMPANY.name)}</strong> · “${escapeHtml(RFS_COMPANY.slogan)}”<br/>
@@ -169,6 +205,32 @@ function buildQuoteHeader(data) {
     </p>`;
 }
 
+function buildTechBlock() {
+  return `
+    <h3>Tecnología y control operativo</h3>
+    <ul>
+      <li><strong>Monitoreo con GPS:</strong> seguimiento de supervisión y recorridos para mayor control del servicio en tiempo real.</li>
+      <li><strong>Aplicación exclusiva Ponche Reaction Force Security:</strong> registro digital de entrada y salida del personal, con evidencia operativa para la empresa y el cliente.</li>
+      <li><strong>Entrega de reportes a clientes:</strong> novedades, incidencias y seguimiento del puesto, para que usted tenga visibilidad clara de lo que ocurre en su instalación.</li>
+      <li><strong>Supervisión permanente:</strong> refuerzo operativo y respuesta ante irregularidades.</li>
+    </ul>`;
+}
+
+function buildClientsBlock() {
+  return `
+    <h3>Algunos de nuestros clientes</h3>
+    <p>La confianza de empresas e instituciones que ya operan con Reaction Force Security respalda nuestra propuesta. Trabajamos con clientes de alto tráfico, industria, comercio, residenciales y proyectos de infraestructura, manteniendo supervisión, disciplina y respuesta oportuna.</p>
+    <p style="font-size:12px;line-height:1.45"><strong>Referencias:</strong> ${escapeHtml(QUOTE_REF_CLIENTS.join(" · "))}</p>
+    <p style="margin:10px 0 6px;font-size:12px;color:#444">Logotipos / cartera de clientes (material RFS):</p>
+    <div style="display:grid;gap:10px;margin:8px 0 14px">
+      <img src="quote-assets/clientes-rfs-1.jpg" alt="Clientes Reaction Force Security 1"
+        style="width:100%;max-width:640px;border:1px solid #ccc;border-radius:8px" />
+      <img src="quote-assets/clientes-rfs-2.jpg" alt="Clientes Reaction Force Security 2"
+        style="width:100%;max-width:640px;border:1px solid #ccc;border-radius:8px" />
+    </div>
+    <p style="font-size:12px;color:#444">Esta cartera demuestra experiencia comprobada y la tranquilidad de quienes ya nos eligieron como su aliado de seguridad.</p>`;
+}
+
 function buildQuoteTotalsTable(data, calc) {
   const discountRow =
     calc.discount > 0
@@ -176,22 +238,49 @@ function buildQuoteTotalsTable(data, calc) {
           calc.discountType === "percent" ? ` (${calc.discountValue}%)` : ""
         }</strong></td><td class="right">− ${moneyRD(calc.discount)}</td></tr>`
       : "";
+  const serviceLines = [];
+  if (calc.dayMen > 0) {
+    serviceLines.push(
+      `<tr>
+        <td>Turno diurno · ${QUOTE_HOURS_PER_MAN} h/hombre</td>
+        <td>${calc.dayMen}</td>
+        <td>${calc.dayMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.rate)}</td>
+        <td class="right">${moneyRD(calc.dayMen * QUOTE_HOURS_PER_MAN * calc.days * calc.rate)}</td>
+      </tr>`
+    );
+  }
+  if (calc.nightMen > 0) {
+    serviceLines.push(
+      `<tr>
+        <td>Turno nocturno · ${QUOTE_HOURS_PER_MAN} h/hombre</td>
+        <td>${calc.nightMen}</td>
+        <td>${calc.nightMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.rate)}</td>
+        <td class="right">${moneyRD(calc.nightMen * QUOTE_HOURS_PER_MAN * calc.days * calc.rate)}</td>
+      </tr>`
+    );
+  }
+  if (!serviceLines.length) {
+    serviceLines.push(`<tr><td colspan="4">Sin personal asignado</td></tr>`);
+  }
   return `
     <table>
       <thead>
         <tr>
           <th>Servicio</th>
-          <th>Cant. hombres</th>
+          <th>Hombres</th>
           <th>Detalle</th>
           <th class="right">Importe</th>
         </tr>
       </thead>
       <tbody>
+        ${serviceLines.join("")}
         <tr>
-          <td>Seguridad privada · ${calc.hours} horas</td>
-          <td>${calc.men}</td>
-          <td>${calc.hours} h × ${calc.days} días × ${moneyRD(calc.rate)}/h</td>
-          <td class="right">${moneyRD(calc.gross)}</td>
+          <td colspan="3">Horas diarias totales (${calc.men} × ${QUOTE_HOURS_PER_MAN} h)</td>
+          <td class="right"><strong>${calc.hoursPerDay} h/día</strong></td>
+        </tr>
+        <tr>
+          <td colspan="3">Horas mensuales (${calc.hoursPerDay} × ${calc.days} días)</td>
+          <td class="right"><strong>${calc.hoursMonth.toLocaleString("es-DO")} h</strong></td>
         </tr>
         ${discountRow}
         <tr><td colspan="3"><strong>Subtotal</strong></td><td class="right"><strong>${moneyRD(calc.subtotal)}</strong></td></tr>
@@ -202,34 +291,34 @@ function buildQuoteTotalsTable(data, calc) {
 }
 
 function buildModelEjecutiva(data, calc) {
-  const shiftLabel = calc.hours === 24 ? "24 horas (recomendado)" : "12 horas";
   return `
-    ${buildQuoteHeader(data)}
+    ${buildQuoteHeader()}
     <h2 style="margin:0 0 6px">Propuesta ejecutiva de servicios de seguridad privada</h2>
     <p style="margin:0 0 14px;color:#444">Santiago, ${escapeHtml(formatQuoteDate(data.date))}</p>
     <div class="meta">
       <div><strong>Cliente</strong><br/>${escapeHtml(data.clientName)}</div>
       <div><strong>RNC</strong><br/>${escapeHtml(data.clientRnc || "—")}</div>
-      <div><strong>Modalidad</strong><br/>${escapeHtml(shiftLabel)}</div>
-      <div><strong>Personal</strong><br/>${calc.men} hombre${calc.men === 1 ? "" : "s"}</div>
+      <div><strong>Turnos</strong><br/>${escapeHtml(quoteShiftLabel(calc))}</div>
+      <div><strong>Personal</strong><br/>${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${calc.hoursPerDay} h/día</div>
     </div>
 
     <h3>Presentación</h3>
-    <p>Reaction Force Security agradece la oportunidad de presentar esta propuesta comercial. Nuestro objetivo es brindar un servicio de seguridad privada confiable, preventivo y orientado a la protección de las personas, instalaciones y activos de nuestros clientes, respaldado por personal profesional y una supervisión permanente.</p>
+    <p>Reaction Force Security agradece la oportunidad de presentar esta propuesta comercial. Nuestro objetivo es brindar un servicio de seguridad privada confiable, preventivo y orientado a la protección de las personas, instalaciones y activos de nuestros clientes, respaldado por personal profesional, supervisión permanente y herramientas tecnológicas de control.</p>
 
     <h3>¿Quiénes somos?</h3>
-    <p>Reaction Force Security cuenta con más de 12 años de experiencia en el sector de la seguridad privada. La empresa opera bajo la ${escapeHtml(
+    <p>Reaction Force Security cuenta con más de 12 años de experiencia en el sector de la seguridad privada. Operamos bajo la ${escapeHtml(
       RFS_COMPANY.license
-    )}, emitida por la Superintendencia de Vigilancia y Seguridad Privada. Oficinas: ${escapeHtml(
-    RFS_COMPANY.address
-  )}.</p>
-    <p>Disponemos de personal previamente evaluado y capacitado, armas con su licencia operativa correspondiente, supervisión constante y seguro de responsabilidad civil por daños a terceros.</p>
+    )}, emitida por la Superintendencia de Vigilancia y Seguridad Privada. Oficinas: ${escapeHtml(RFS_COMPANY.address)}.</p>
+    <p>Disponemos de personal previamente evaluado y capacitado, armas con licencia operativa, supervisión constante y seguro de responsabilidad civil por daños a terceros. Nuestro compromiso es convertir la seguridad en un servicio medible, disciplinado y transparente para el cliente.</p>
+
+    ${buildTechBlock()}
 
     <h3>Alcance del servicio</h3>
     <ul>
       <li>Vigilancia física y control de accesos</li>
+      <li>Cobertura diurna y/o nocturna según el personal contratado (cada hombre: ${QUOTE_HOURS_PER_MAN} horas)</li>
       <li>Supervisión operativa permanente</li>
-      <li>Reportes diarios de novedades</li>
+      <li>Reportes de novedades e incidencias para el cliente</li>
       <li>Reemplazos por vacaciones y licencias</li>
       <li>Personal uniformado y debidamente identificado</li>
     </ul>
@@ -239,20 +328,15 @@ function buildModelEjecutiva(data, calc) {
     <p class="footer">${escapeHtml(quoteNoteBlock())}</p>
     ${data.note ? `<p><strong>Nota adicional:</strong> ${escapeHtml(data.note)}</p>` : ""}
 
-    <h3>Algunos de nuestros clientes</h3>
-    <p>${escapeHtml(quoteClientsBlock())}</p>
+    ${buildClientsBlock()}
 
     <h3>Nuestra recomendación</h3>
-    <p>${
-      calc.hours === 24
-        ? "La modalidad de 24 horas proporciona cobertura continua, mayor capacidad de respuesta y una mejor relación costo-beneficio."
-        : "La modalidad de 12 horas cubre el turno acordado con personal profesional y supervisión permanente. Si requiere cobertura continua, recomendamos evaluar la opción de 24 horas."
-    }</p>
+    <p>Definir la cantidad de hombres diurnos y nocturnos según el riesgo y el horario de su operación permite una cobertura precisa. Con monitoreo GPS, la app de ponche Reaction Force Security y la entrega de reportes, usted mantiene control real del servicio día a día.</p>
 
     <h3>Mensaje final</h3>
-    <p>Agradecemos el tiempo dedicado a evaluar nuestra propuesta. Será un honor contar con la confianza de <strong>${escapeHtml(
+    <p>Agradecemos el tiempo dedicado a evaluar nuestra propuesta. En Reaction Force Security estamos convencidos de que podemos convertirnos en un aliado estratégico para la protección de <strong>${escapeHtml(
       data.clientName
-    )}</strong> y contribuir a la seguridad de sus operaciones.</p>
+    )}</strong>. Será un honor contar con su confianza.</p>
 
     <p style="margin-top:18px"><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
     <div class="sign-box">
@@ -263,16 +347,20 @@ function buildModelEjecutiva(data, calc) {
 
 function buildModelCotizacion(data, calc) {
   return `
-    ${buildQuoteHeader(data)}
+    ${buildQuoteHeader()}
     <p style="margin:0 0 12px">Santiago, Rep. Dom. · ${escapeHtml(formatQuoteDate(data.date))}</p>
     <p style="margin:0 0 4px"><strong>Señores:</strong> ${escapeHtml(data.clientName)}</p>
     ${data.clientRnc ? `<p style="margin:0 0 12px"><strong>RNC:</strong> ${escapeHtml(data.clientRnc)}</p>` : ""}
-    <p>Después de saludarles, le remitimos la cotización requerida para el servicio de seguridad privada.</p>
+    <p>Después de saludarles, le remitimos la cotización requerida para el servicio de seguridad privada, con personal diurno y/o nocturno, supervisión y herramientas de control (GPS, app de ponche Reaction Force Security y reportes al cliente).</p>
     <h2 style="margin:16px 0 8px">Cotización</h2>
+    <p style="font-size:12px;color:#444;margin:0 0 8px">Turnos: <strong>${escapeHtml(
+      quoteShiftLabel(calc)
+    )}</strong> · Cada hombre: ${QUOTE_HOURS_PER_MAN} h · Horas/día: <strong>${calc.hoursPerDay}</strong></p>
     ${buildQuoteTotalsTable(data, calc)}
     <p class="footer" style="margin-top:12px">${escapeHtml(quoteNoteBlock())}</p>
     ${data.note ? `<p><strong>Nota:</strong> ${escapeHtml(data.note)}</p>` : ""}
-    <p style="margin-top:14px"><strong>Algunos de nuestros clientes:</strong> ${escapeHtml(quoteClientsBlock())}</p>
+    ${buildTechBlock()}
+    ${buildClientsBlock()}
     <p style="margin-top:18px">Atentamente,</p>
     <div class="sign-box">
       <div><div class="sign-line">${escapeHtml(data.preparedBy || "Gerente de ventas")}<br/>${escapeHtml(
@@ -284,7 +372,7 @@ function buildModelCotizacion(data, calc) {
 
 function buildModelInstitucional(data, calc) {
   return `
-    ${buildQuoteHeader(data)}
+    ${buildQuoteHeader()}
     <h2 style="margin:0 0 6px">Propuesta de servicios de seguridad</h2>
     <p style="margin:0 0 14px;color:#444">Santiago de los Caballeros, ${escapeHtml(formatQuoteDate(data.date))}</p>
     <p><strong>Señores:</strong> ${escapeHtml(data.clientName)}${
@@ -292,26 +380,28 @@ function buildModelInstitucional(data, calc) {
   }</p>
     <p>En nombre de ${escapeHtml(
       RFS_COMPANY.name
-    )}, nos complace presentar nuestra propuesta de servicios de seguridad, orientada a brindar protección integral a sus instalaciones. Detallamos cobertura, personal asignado y esquema económico, con el compromiso de profesionalidad, supervisión y respuesta inmediata.</p>
+    )}, nos complace presentar nuestra propuesta de servicios de seguridad, orientada a brindar protección integral a sus instalaciones. Detallamos cobertura, personal (diurno/nocturno), logística tecnológica y esquema económico, con el compromiso de profesionalidad, supervisión y respuesta inmediata.</p>
 
     <h3>Presentación de la empresa</h3>
-    <p>REACTION FORCE SECURITY es una empresa especializada en seguridad privada, con experiencia en resguardo de instalaciones de alta importancia. Contamos con personal capacitado y armado, supervisión permanente y ${escapeHtml(
+    <p>REACTION FORCE SECURITY es una empresa especializada en seguridad privada, con experiencia en resguardo de instalaciones de alta importancia: industria, comercio, residenciales, campus y proyectos de infraestructura. Contamos con personal capacitado y armado, supervisión permanente y ${escapeHtml(
       RFS_COMPANY.license
     )}.</p>
 
     <h3>Objetivo</h3>
     <p>Brindar un servicio integral de seguridad a <strong>${escapeHtml(
       data.clientName
-    )}</strong>, garantizando la protección de personas, activos e instalaciones mediante agentes asignados según la modalidad contratada.</p>
+    )}</strong>, garantizando la protección de personas, activos e instalaciones mediante agentes asignados en turnos diurnos y/o nocturnos, con soporte de supervisión y evidencia digital del servicio.</p>
 
     <h3>Cobertura propuesta</h3>
     <ul>
-      <li><strong>${calc.men}</strong> hombre${calc.men === 1 ? "" : "s"} de seguridad</li>
-      <li>Jornada de <strong>${calc.hours} horas</strong></li>
+      <li><strong>${calc.men}</strong> hombre${calc.men === 1 ? "" : "s"} de seguridad (${escapeHtml(quoteShiftLabel(calc))})</li>
+      <li>Cada hombre labora <strong>${QUOTE_HOURS_PER_MAN} horas</strong> por jornada</li>
+      <li>Horas diarias totales: <strong>${calc.hoursPerDay} h</strong></li>
       <li>Cálculo base: <strong>${QUOTE_DAYS} días</strong> al mes</li>
       <li>Tarifa: <strong>${moneyRD(calc.rate)}</strong> por hora</li>
-      <li>Supervisión operativa y reportes de novedades</li>
     </ul>
+
+    ${buildTechBlock()}
 
     <h3>Detalle económico</h3>
     ${buildQuoteTotalsTable(data, calc)}
@@ -320,19 +410,19 @@ function buildModelInstitucional(data, calc) {
 
     <h3>Beneficios de elegirnos</h3>
     <ul>
-      <li>Personal armado y capacitado</li>
-      <li>Supervisión constante</li>
-      <li>Reportes y control operativo</li>
-      <li>Experiencia en proyectos de gran magnitud</li>
+      <li>Personal armado y altamente capacitado</li>
+      <li>Supervisión constante y capacidad de respuesta</li>
+      <li>Monitoreo con GPS y app exclusiva de ponche Reaction Force Security</li>
+      <li>Reportes y control operativo para el cliente</li>
+      <li>Experiencia comprobada en proyectos de gran magnitud</li>
       <li>Respuesta inmediata ante incidencias</li>
     </ul>
 
-    <h3>Algunos de nuestros clientes</h3>
-    <p>${escapeHtml(quoteClientsBlock())}</p>
+    ${buildClientsBlock()}
 
     <p style="margin-top:16px">${escapeHtml(RFS_COMPANY.name)} reitera su compromiso de ser la mejor alternativa de seguridad para ${escapeHtml(
     data.clientName
-  )}.</p>
+  )}, asegurando tranquilidad, disciplina y resguardo permanente.</p>
     <p><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
     <div class="sign-box">
       <div><div class="sign-line">${escapeHtml(data.preparedBy || RFS_COMPANY.signer)}<br/>${escapeHtml(
@@ -352,9 +442,18 @@ function updateQuoteTotalsUi() {
   const data = readQuoteForm();
   const calc = calcQuoteTotals(data);
   const box = document.getElementById("quoteTotalsBox");
+  const totalMenEl = document.getElementById("quoteTotalMenLabel");
+  if (totalMenEl) {
+    totalMenEl.textContent = `${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${calc.hoursPerDay} h/día · ${calc.hoursMonth.toLocaleString(
+      "es-DO"
+    )} h/mes`;
+  }
   if (!box) return;
   box.innerHTML = `
     <div class="detail-grid">
+      <div><span>Diurnos</span><strong>${calc.dayMen}</strong></div>
+      <div><span>Nocturnos</span><strong>${calc.nightMen}</strong></div>
+      <div><span>Horas / día</span><strong>${calc.hoursPerDay}</strong></div>
       <div><span>Horas / mes</span><strong>${calc.hoursMonth.toLocaleString("es-DO")}</strong></div>
       <div><span>Bruto</span><strong>${moneyRD(calc.gross)}</strong></div>
       <div><span>Descuento</span><strong>${calc.discount ? "− " + moneyRD(calc.discount) : "—"}</strong></div>
@@ -362,7 +461,7 @@ function updateQuoteTotalsUi() {
       <div><span>ITBIS 18%</span><strong>${moneyRD(calc.itbis)}</strong></div>
       <div><span>Total mensual</span><strong>${moneyRD(calc.total)}</strong></div>
     </div>
-    <p class="muted tight" style="margin-top:8px">Cálculo fijo a ${QUOTE_DAYS} días · ${calc.men} hombre(s) · ${calc.hours} h</p>`;
+    <p class="muted tight" style="margin-top:8px">Cada hombre = ${QUOTE_HOURS_PER_MAN} h · Cálculo a ${QUOTE_DAYS} días</p>`;
 }
 
 function selectQuoteModel(modelId) {
@@ -401,7 +500,9 @@ function renderQuotesHistory() {
       const model = QUOTE_MODELS.find((m) => m.id === q.modelId);
       return `<article class="report-card">
         <h3>${escapeHtml(q.clientName || "Sin cliente")}</h3>
-        <p class="muted">${escapeHtml(model?.label || q.modelId)} · ${escapeHtml(q.date || "")} · ${calc.men} homb. · ${calc.hours}h</p>
+        <p class="muted">${escapeHtml(model?.label || q.modelId)} · ${escapeHtml(q.date || "")} · ${escapeHtml(
+        quoteShiftLabel(calc)
+      )} · ${calc.hoursPerDay} h/día</p>
         <p><strong>${moneyRD(calc.total)}</strong> <span class="muted">(con ITBIS)</span></p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-quote-load" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Cargar</button>
@@ -420,6 +521,11 @@ function renderQuotesHistory() {
 
 function fillQuoteForm(data) {
   const d = { ...emptyQuoteForm(), ...(data || {}) };
+  // Migrar historial viejo
+  if ((d.dayMen == null || d.nightMen == null) && d.menCount) {
+    d.dayMen = Number(d.menCount) || 1;
+    d.nightMen = 0;
+  }
   selectedQuoteModel = d.modelId || "ejecutiva";
   const set = (id, val) => {
     const el = document.getElementById(id);
@@ -427,8 +533,8 @@ function fillQuoteForm(data) {
   };
   set("quoteClientName", d.clientName || "");
   set("quoteClientRnc", d.clientRnc || "");
-  set("quoteMenCount", d.menCount ?? 1);
-  set("quoteShiftHours", d.shiftHours === 24 ? 24 : 12);
+  set("quoteDayMen", d.dayMen ?? 1);
+  set("quoteNightMen", d.nightMen ?? 0);
   set("quoteHourlyRate", d.hourlyRate ?? 155);
   set("quoteDiscountType", d.discountType || "none");
   set("quoteDiscountValue", d.discountValue || 0);
@@ -464,7 +570,7 @@ function validateQuoteForm(data, calc) {
     return false;
   }
   if (!calc.men || calc.men < 1) {
-    toast("Indica la cantidad de hombres (mínimo 1).");
+    toast("Indica al menos 1 hombre en Día y/o Noche.");
     return false;
   }
   if (!calc.rate || calc.rate <= 0) {
@@ -479,6 +585,7 @@ function persistQuote(data, calc) {
     ...data,
     id: data.id || `quote-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     createdAt: data.createdAt || new Date().toISOString(),
+    menCount: calc.men,
     total: calc.total,
   };
   quotesHistory = [row, ...quotesHistory.filter((q) => q.id !== row.id)].slice(0, 80);
@@ -502,7 +609,7 @@ function printQuoteProposal(dataIn) {
   if (typeof logActivity === "function") {
     logActivity(
       "quote_print",
-      `Cotización ${saved.modelId}: ${saved.clientName} · ${calc.men} homb. · ${calc.hours}h · ${moneyRD(calc.total)}`
+      `Cotización ${saved.modelId}: ${saved.clientName} · ${quoteShiftLabel(calc)} · ${calc.hoursPerDay}h/día · ${moneyRD(calc.total)}`
     );
   }
   toast("Propuesta lista para imprimir o guardar PDF.");
@@ -510,7 +617,7 @@ function printQuoteProposal(dataIn) {
 
 function renderQuotesModule() {
   loadQuotesHistory();
-  if (!document.getElementById("quoteClientName")?.value) {
+  if (!document.getElementById("quoteClientName")?.value && !document.getElementById("quoteDayMen")?.value) {
     fillQuoteForm(emptyQuoteForm());
   } else {
     renderQuoteModelCards();
@@ -524,7 +631,7 @@ function wireQuotesModule() {
   fillQuoteForm(emptyQuoteForm());
   renderQuotesHistory();
 
-  ["quoteClientName", "quoteClientRnc", "quoteMenCount", "quoteShiftHours", "quoteHourlyRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
+  ["quoteClientName", "quoteClientRnc", "quoteDayMen", "quoteNightMen", "quoteHourlyRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
     (id) => {
       document.getElementById(id)?.addEventListener("input", updateQuoteTotalsUi);
       document.getElementById(id)?.addEventListener("change", updateQuoteTotalsUi);
@@ -540,5 +647,3 @@ function wireQuotesModule() {
     toast("Formulario limpio.");
   });
 }
-
-/* Se conecta desde app.js al iniciar (necesita toast/escapeHtml/openPrintWindow). */
