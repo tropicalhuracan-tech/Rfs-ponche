@@ -8687,6 +8687,9 @@ function saveReport() {
   renderAdminList();
   renderReports();
   document.getElementById("reportText").value = "";
+  const reportSearch = document.getElementById("reportPostSearch");
+  if (reportSearch) reportSearch.value = "";
+  fillReportPostSelect(postId);
   clearPhoto();
   if (typeof logActivity === "function") {
     logActivity("report_create", `${number} · ${TYPE_LABEL[type] || type} · ${post.site} · por ${createdBy}`);
