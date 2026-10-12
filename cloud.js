@@ -17,6 +17,7 @@
     activity: true,
     pettyCash: true,
     hr: true,
+    depuracion: true,
   };
 
   function baseUrl() {
@@ -141,6 +142,10 @@
     return { applications: [] };
   }
 
+  function emptyDepuracion() {
+    return { candidates: [], settings: { verifikToken: "" } };
+  }
+
   function decodeLegacyMain(doc) {
     const fields = (doc && doc.fields) || {};
     return {
@@ -160,6 +165,7 @@
       hr: Object.keys(parseObjectField(fields, "hrJson")).length
         ? parseObjectField(fields, "hrJson")
         : emptyHr(),
+      depuracion: emptyDepuracion(),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
       schemaVersion: (fields.schemaVersion && fields.schemaVersion.stringValue) || "1",
     };
@@ -243,7 +249,33 @@
     return { light, mediaJobs };
   }
 
-  function collectMediaIds(employees, pettyCash, hr) {
+  function stripDepuracion(dep) {
+    const src = dep && typeof dep === "object" ? dep : emptyDepuracion();
+    const mediaJobs = [];
+    const light = {
+      ...src,
+      settings: src.settings && typeof src.settings === "object" ? src.settings : { verifikToken: "" },
+      candidates: (Array.isArray(src.candidates) ? src.candidates : []).map((row) => {
+        const copy = { ...(row || {}) };
+        if (isHeavyMedia(copy.cedulaPhoto)) {
+          const id = mediaDocId("dep", copy.id || "x", "cedula");
+          mediaJobs.push({
+            id,
+            kind: "depuracion",
+            ownerId: copy.id || "",
+            field: "cedulaPhoto",
+            data: copy.cedulaPhoto,
+          });
+          copy.cedulaPhoto = "";
+          copy.cedulaPhotoMediaId = id;
+        }
+        return copy;
+      }),
+    };
+    return { light, mediaJobs };
+  }
+
+  function collectMediaIds(employees, pettyCash, hr, depuracion) {
     const ids = [];
     (employees || []).forEach((e) => {
       if (e && e.photoMediaId) ids.push(e.photoMediaId);
@@ -255,6 +287,9 @@
     });
     ((hr && hr.applications) || []).forEach((a) => {
       if (a && a.photoMediaId) ids.push(a.photoMediaId);
+    });
+    ((depuracion && depuracion.candidates) || []).forEach((c) => {
+      if (c && c.cedulaPhotoMediaId) ids.push(c.cedulaPhotoMediaId);
     });
     return ids;
   }
@@ -295,6 +330,18 @@
     return src;
   }
 
+  function hydrateDepuracion(dep, mediaMap) {
+    const src = dep && typeof dep === "object" ? { ...dep } : emptyDepuracion();
+    src.candidates = (Array.isArray(src.candidates) ? src.candidates : []).map((row) => {
+      const copy = { ...(row || {}) };
+      if (copy.cedulaPhotoMediaId && mediaMap[copy.cedulaPhotoMediaId]) {
+        copy.cedulaPhoto = mediaMap[copy.cedulaPhotoMediaId];
+      }
+      return copy;
+    });
+    return src;
+  }
+
   async function loadSplitParts() {
     const names = Object.keys(PART_DOCS);
     const docs = await Promise.all(names.map((n) => getDoc(partPath(n))));
@@ -324,6 +371,7 @@
     if (fieldLen(parts.posts, "postsJson") > 10) return true;
     if (fieldLen(parts.pettyCash, "pettyCashJson") > 10) return true;
     if (fieldLen(parts.hr, "hrJson") > 10) return true;
+    if (fieldLen(parts.depuracion, "depuracionJson") > 10) return true;
     return false;
   }
 
@@ -335,6 +383,7 @@
     const activity = (parts.activity && parts.activity.fields) || {};
     const petty = (parts.pettyCash && parts.pettyCash.fields) || {};
     const hr = (parts.hr && parts.hr.fields) || {};
+    const dep = (parts.depuracion && parts.depuracion.fields) || {};
 
     // Compat: si un part falta, intentar campo legacy en main
     const legacy = parts.main ? decodeLegacyMain(parts.main) : null;
@@ -358,13 +407,16 @@
         ? parseObjectField(petty, "pettyCashJson")
         : (legacy && legacy.pettyCash) || emptyPetty(),
       hr: hr.hrJson ? parseObjectField(hr, "hrJson") : (legacy && legacy.hr) || emptyHr(),
+      depuracion: dep.depuracionJson
+        ? parseObjectField(dep, "depuracionJson")
+        : (legacy && legacy.depuracion) || emptyDepuracion(),
       updatedAt: (main.updatedAt && main.updatedAt.stringValue) || null,
       schemaVersion: (main.schemaVersion && main.schemaVersion.stringValue) || SCHEMA_VERSION,
     };
   }
 
   async function hydrateBundle(bundle) {
-    const mediaIds = collectMediaIds(bundle.employees, bundle.pettyCash, bundle.hr);
+    const mediaIds = collectMediaIds(bundle.employees, bundle.pettyCash, bundle.hr, bundle.depuracion);
     // También hidratar si aún vienen embebidos (legacy) — no hace falta mapa
     if (!mediaIds.length) return bundle;
     const mediaMap = await loadMediaMap(mediaIds);
@@ -373,6 +425,7 @@
       employees: hydrateEmployees(bundle.employees, mediaMap),
       pettyCash: hydratePettyCash(bundle.pettyCash, mediaMap),
       hr: hydrateHr(bundle.hr, mediaMap),
+      depuracion: hydrateDepuracion(bundle.depuracion, mediaMap),
     };
   }
 
@@ -423,6 +476,7 @@
         lva: {},
         pettyCash: emptyPetty(),
         hr: emptyHr(),
+        depuracion: emptyDepuracion(),
         updatedAt: null,
         empty: true,
         schemaVersion: SCHEMA_VERSION,
@@ -469,14 +523,21 @@
     activity,
     lva,
     pettyCash,
-    hr
+    hr,
+    depuracion
   ) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
 
     const empPack = stripEmployees(employees);
     const pettyPack = stripPettyCash(pettyCash);
     const hrPack = stripHr(hr);
-    await persistMediaJobs([...empPack.mediaJobs, ...pettyPack.mediaJobs, ...hrPack.mediaJobs]);
+    const depPack = stripDepuracion(depuracion);
+    await persistMediaJobs([
+      ...empPack.mediaJobs,
+      ...pettyPack.mediaJobs,
+      ...hrPack.mediaJobs,
+      ...depPack.mediaJobs,
+    ]);
 
     const updatedAt = new Date().toISOString();
     const writes = [
@@ -520,6 +581,10 @@
       }),
       patchDoc(partPath("hr"), {
         hrJson: { stringValue: JSON.stringify(hrPack.light || emptyHr()) },
+        updatedAt: { stringValue: updatedAt },
+      }),
+      patchDoc(partPath("depuracion"), {
+        depuracionJson: { stringValue: JSON.stringify(depPack.light || emptyDepuracion()) },
         updatedAt: { stringValue: updatedAt },
       }),
     ];

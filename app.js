@@ -1495,7 +1495,8 @@ async function pushMessagesToCloud() {
       activityLog,
       lvaState,
       pettyCash,
-      hrData
+      hrData,
+      typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } }
     );
   }
   cloudReady = true;
@@ -1513,7 +1514,21 @@ async function pushToCloud() {
   try {
     // Fusionar chat remoto antes de guardar el documento completo (evita borrar mensajes nuevos)
     await mergeRemoteMessagesBeforeSave();
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash, hrData);
+    await window.RFSCloudApi.saveCloud(
+      posts,
+      reports,
+      employees,
+      loans,
+      monorrielReports,
+      appUsers,
+      chatMessages,
+      radioState,
+      activityLog,
+      lvaState,
+      pettyCash,
+      hrData,
+      typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } }
+    );
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -1552,7 +1567,21 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash, hrData);
+      await window.RFSCloudApi.saveCloud(
+        localPosts,
+        localReports,
+        employees,
+        localLoans,
+        localMono,
+        appUsers,
+        chatMessages,
+        radioState,
+        activityLog,
+        lvaState,
+        pettyCash,
+        hrData,
+        typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } }
+      );
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
@@ -1563,6 +1592,9 @@ async function syncFromCloud() {
       localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
       localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
       localStorage.setItem(HR_KEY, JSON.stringify(hrData));
+      if (typeof DEPURACION_KEY !== "undefined" && typeof depuracionData !== "undefined") {
+        localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
+      }
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -1608,6 +1640,15 @@ async function syncFromCloud() {
     } else if (!(hrData.applications && hrData.applications.length)) {
       hrData = emptyHrData();
     }
+    if (typeof applyRemoteDepuracionData === "function") {
+      if (remote.depuracion && typeof remote.depuracion === "object") {
+        applyRemoteDepuracionData(remote.depuracion);
+      } else if (typeof emptyDepuracionData === "function" && typeof depuracionData !== "undefined") {
+        if (!(depuracionData.candidates && depuracionData.candidates.length)) {
+          depuracionData = emptyDepuracionData();
+        }
+      }
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1622,6 +1663,9 @@ async function syncFromCloud() {
     localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
     localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
     localStorage.setItem(HR_KEY, JSON.stringify(hrData));
+    if (typeof DEPURACION_KEY !== "undefined" && typeof depuracionData !== "undefined") {
+      localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
+    }
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -2162,6 +2206,7 @@ const MODULE_DEFS = [
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "cajachica", label: "Caja chica", view: "cajaView" },
   { key: "rrhh", label: "Recursos Humanos", view: "hrView" },
+  { key: "depuracion", label: "Depuración", view: "depuracionView" },
   { key: "cotizaciones", label: "Cotizaciones", view: "quotesView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
   { key: "messages", label: "Mensajes", view: "messagesView" },
@@ -2199,6 +2244,7 @@ const VIEW_TO_MODULE = {
   detailView: "clients",
   cajaView: "cajachica",
   hrView: "rrhh",
+  depuracionView: "depuracion",
   quotesView: "cotizaciones",
   loginView: null,
 };
@@ -2225,6 +2271,10 @@ function normalizeUser(u = {}) {
     }
     if (m.key === "rrhh" && !Object.prototype.hasOwnProperty.call(incoming, "rrhh")) {
       modules.rrhh = false;
+      return;
+    }
+    if (m.key === "depuracion" && !Object.prototype.hasOwnProperty.call(incoming, "depuracion")) {
+      modules.depuracion = false;
       return;
     }
     if (m.key === "cotizaciones" && !Object.prototype.hasOwnProperty.call(incoming, "cotizaciones")) {
@@ -2349,10 +2399,17 @@ function canAccessQuotes() {
   return !!(currentUser.modules && currentUser.modules.cotizaciones);
 }
 
+function canAccessDepuracion() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  return !!(currentUser.modules && currentUser.modules.depuracion);
+}
+
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
   if (viewId === "hrView") return canAccessRrhh();
+  if (viewId === "depuracionView") return canAccessDepuracion();
   if (viewId === "quotesView") return canAccessQuotes();
   const mod = VIEW_TO_MODULE[viewId];
   if (!mod) return !!currentUser;
@@ -2360,7 +2417,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "hrView", "quotesView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -2823,6 +2880,7 @@ function clearUserForm() {
     finance: false,
     cajachica: false,
     rrhh: false,
+    depuracion: false,
     cotizaciones: false,
     reports: true,
     messages: true,
@@ -7668,6 +7726,9 @@ function switchView(viewId) {
   if (viewId === "financeView") renderFinance();
   if (viewId === "cajaView") renderCajaModule();
   if (viewId === "hrView") renderHrModule();
+  if (viewId === "depuracionView") {
+    if (typeof renderDepuracionModule === "function") renderDepuracionModule();
+  }
   if (viewId === "quotesView") {
     if (typeof renderQuotesModule === "function") renderQuotesModule();
   }
@@ -8058,6 +8119,7 @@ function exportBackup() {
     lva: lvaState,
     pettyCash,
     hr: hrData,
+    depuracion: typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -8180,6 +8242,10 @@ function restoreBackupMerge() {
         applyRemoteHrData(data.hr);
         saveHrData(true);
       }
+      if (data.depuracion && typeof data.depuracion === "object" && typeof applyRemoteDepuracionData === "function") {
+        applyRemoteDepuracionData(data.depuracion);
+        saveDepuracionData(true);
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -8198,6 +8264,7 @@ function restoreBackupMerge() {
       renderAdminList();
       renderCajaModule();
       renderHrModule();
+      if (typeof renderDepuracionModule === "function") renderDepuracionModule();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
     .catch((err) => {
@@ -8244,6 +8311,12 @@ function restoreBackupReplace() {
         hrData = normalizeHrData(data.hr);
         localStorage.setItem(HR_KEY, JSON.stringify(hrData));
       }
+      if (data.depuracion && typeof data.depuracion === "object" && typeof normalizeDepuracionData === "function") {
+        depuracionData = normalizeDepuracionData(data.depuracion);
+        if (typeof DEPURACION_KEY !== "undefined") {
+          localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
+        }
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -8256,6 +8329,7 @@ function restoreBackupReplace() {
       saveRadioState(true);
       savePettyCash(true);
       saveHrData(true);
+      if (typeof saveDepuracionData === "function") saveDepuracionData(true);
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -8265,6 +8339,9 @@ function restoreBackupReplace() {
       renderLoans();
       renderMonorrielHome();
       renderAdminList();
+      if (typeof renderCajaModule === "function") renderCajaModule();
+      if (typeof renderHrModule === "function") renderHrModule();
+      if (typeof renderDepuracionModule === "function") renderDepuracionModule();
       toast("Respaldo restaurado (reemplazo completo).");
     })
     .catch((err) => {
@@ -8433,6 +8510,7 @@ function bindUi() {
   bindLoansUi();
   bindCajaUi();
   bindHrUi();
+  if (typeof bindDepuracionUi === "function") bindDepuracionUi();
   bindMonorrielUi();
   bindLvaUi();
   bindPrintUi();
@@ -8509,6 +8587,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
   pettyCash = normalizePettyCash(loadJsonObject(PETTY_KEY, emptyPettyCash()));
   hrData = normalizeHrData(loadJsonObject(HR_KEY, emptyHrData()));
+  if (typeof normalizeDepuracionData === "function" && typeof emptyDepuracionData === "function") {
+    depuracionData = normalizeDepuracionData(loadJsonObject(DEPURACION_KEY, emptyDepuracionData()));
+  }
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
@@ -8518,6 +8599,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
   localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
   localStorage.setItem(HR_KEY, JSON.stringify(hrData));
+  if (typeof DEPURACION_KEY !== "undefined" && typeof depuracionData !== "undefined") {
+    localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
+  }
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();

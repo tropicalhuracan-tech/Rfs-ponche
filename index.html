@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=63" />
+  <link rel="stylesheet" href="styles.css?v=64" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=63" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=64" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=63" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=64" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=63" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=64" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v63 · Cotizaciones</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v64 · Cotizaciones</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -74,6 +74,7 @@
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
           <button class="welcome-action" type="button" data-go="cajaView">Caja chica</button>
           <button class="welcome-action" type="button" data-go="hrView">Recursos Humanos</button>
+          <button class="welcome-action" type="button" data-go="depuracionView">Depuración</button>
           <button class="welcome-action" type="button" data-go="quotesView">Cotizaciones</button>
           <button class="welcome-action ghost" type="button" data-go="adminView">Admin</button>
         </div>
@@ -772,6 +773,135 @@
       </div>
     </section>
 
+    <section id="depuracionView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Depuración de candidatos</h1>
+          <p id="depSummary">Cédula, consentimiento, checklist y consulta Verifik (cuando tengas token).</p>
+        </div>
+      </div>
+
+      <button id="btnDepNew" class="btn primary" type="button" style="margin-bottom:10px">＋ Nuevo candidato</button>
+
+      <div class="emp-tabs dep-tabs" role="tablist">
+        <button class="emp-tab active" type="button" data-dep-tab="list">Lista</button>
+        <button class="emp-tab" type="button" data-dep-tab="form">Ficha</button>
+      </div>
+
+      <div id="depTabList" class="dep-tab-panel">
+        <div class="form-card">
+          <label class="search-label">Buscar
+            <input id="depSearch" type="search" placeholder="Nombre, cédula, teléfono o veredicto" />
+          </label>
+        </div>
+        <div id="depCandidateList" class="card-list"></div>
+      </div>
+
+      <div id="depTabForm" class="dep-tab-panel" hidden>
+        <div class="form-card">
+          <div class="section-head-row">
+            <div>
+              <h2 style="margin:0">Ficha de depuración</h2>
+              <p class="muted" id="depFormMeta" style="margin:6px 0 0"></p>
+            </div>
+            <button id="btnDepBackList" class="btn ghost" type="button" style="width:auto">← Lista</button>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h2>1. Datos del candidato</h2>
+          <label>Cédula (11 dígitos)
+            <input id="depCedula" type="text" inputmode="numeric" maxlength="11" placeholder="00112345678" />
+          </label>
+          <label>Nombre completo
+            <input id="depFullName" type="text" placeholder="Como aparece en la cédula" />
+          </label>
+          <div class="coords-row">
+            <label>Teléfono
+              <input id="depPhone" type="tel" placeholder="809…" />
+            </label>
+            <label>Email
+              <input id="depEmail" type="email" placeholder="opcional" />
+            </label>
+          </div>
+          <label>Dirección
+            <input id="depAddress" type="text" />
+          </label>
+          <label>Notas internas
+            <textarea id="depNotes" rows="2" placeholder="Observaciones del proceso"></textarea>
+          </label>
+        </div>
+
+        <div class="form-card">
+          <h2>2. Consentimiento</h2>
+          <p class="muted tight">Obligatorio antes de consultar Verifik u otros servicios externos. El candidato autoriza a Reaction Force Security a verificar identidad y documentos para fines de empleo.</p>
+          <label class="check-row dep-check-row">
+            <input id="depConsent" type="checkbox" />
+            <span>El candidato aceptó / firmó el consentimiento de verificación</span>
+          </label>
+          <p class="muted tight" id="depConsentMeta">Pendiente de aceptación del candidato</p>
+        </div>
+
+        <div class="form-card">
+          <h2>3. Checklist de depuración</h2>
+          <div id="depChecklistBox" class="dep-checklist"></div>
+          <label style="margin-top:10px">Nota sobre antecedentes (si aportó certificado)
+            <textarea id="depAntecedentesNote" rows="2" placeholder="Ej. Presentó certificado Procuraduría · fecha…"></textarea>
+          </label>
+        </div>
+
+        <div class="form-card">
+          <h2>4. Foto de cédula</h2>
+          <label class="photo-label">Subir foto / escaneo
+            <input id="depCedulaPhoto" type="file" accept="image/*" />
+          </label>
+          <div id="depCedulaPreviewWrap" hidden style="margin-top:10px">
+            <img id="depCedulaPreview" alt="Cédula" style="max-width:100%;border-radius:8px;border:1px solid #333" />
+            <button id="btnDepClearPhoto" class="btn ghost" type="button" style="width:auto;margin-top:8px">Quitar foto</button>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h2>5. Referencias</h2>
+          <div id="depReferencesBox"></div>
+        </div>
+
+        <div class="form-card">
+          <h2>6. Verifik (identidad)</h2>
+          <p class="muted tight">Cuando tengas cuenta en Verifik, pega el token API. Consulta solo nombre/identidad oficial por cédula. Antecedentes penales y crédito siguen siendo procesos aparte con consentimiento.</p>
+          <label>Token API Verifik
+            <input id="depVerifikToken" type="password" autocomplete="off" placeholder="Bearer token de Verifik" />
+          </label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+            <button id="btnDepSaveToken" class="btn secondary" type="button" style="width:auto">Guardar token</button>
+            <button id="btnDepVerifik" class="btn primary" type="button" style="width:auto">Consultar Verifik</button>
+          </div>
+          <div id="depVerifikResult"></div>
+        </div>
+
+        <div class="form-card">
+          <h2>7. Veredicto</h2>
+          <label>Resultado
+            <select id="depVerdict">
+              <option value="pending">Pendiente</option>
+              <option value="apto">Apto</option>
+              <option value="observacion">Con observación</option>
+              <option value="no_apto">No apto</option>
+            </select>
+          </label>
+          <label>Comentario del veredicto
+            <textarea id="depVerdictNote" rows="2" placeholder="Motivo o condiciones"></textarea>
+          </label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <button id="btnDepSave" class="btn primary" type="button" style="width:auto">Guardar ficha</button>
+            <button id="btnDepPrint" class="btn secondary" type="button" style="width:auto">Imprimir ficha</button>
+            <button id="btnDepToHr" class="btn secondary" type="button" style="width:auto">Enviar a RRHH</button>
+            <button id="btnDepDelete" class="btn danger" type="button" style="width:auto">Eliminar</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="hrView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -1283,6 +1413,7 @@
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="cajachica" /><span>Caja chica</span></label>
             <label class="check-row"><input type="checkbox" data-perm="rrhh" /><span>Recursos Humanos</span></label>
+            <label class="check-row"><input type="checkbox" data-perm="depuracion" /><span>Depuración</span></label>
             <label class="check-row"><input type="checkbox" data-perm="cotizaciones" /><span>Cotizaciones</span></label>
             <label class="check-row"><input type="checkbox" data-perm="reports" checked /><span>Reportes</span></label>
             <label class="check-row"><input type="checkbox" data-perm="messages" checked /><span>Mensajes</span></label>
@@ -1395,17 +1526,19 @@
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
       <button class="tab" data-view="hrView" type="button"><span>RRHH</span></button>
+      <button class="tab" data-view="depuracionView" type="button"><span>Depur.</span></button>
       <button class="tab" data-view="quotesView" type="button"><span>Cotiz.</span></button>
       <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
     </nav>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=63"></script>
-  <script src="monorriel-data.js?v=63"></script>
-  <script src="cloud.js?v=63"></script>
-  <script src="hr.js?v=63"></script>
-  <script src="quotes.js?v=63"></script>
-  <script src="app.js?v=63"></script>
+  <script src="cloud-config.js?v=64"></script>
+  <script src="monorriel-data.js?v=64"></script>
+  <script src="cloud.js?v=64"></script>
+  <script src="hr.js?v=64"></script>
+  <script src="depuracion.js?v=64"></script>
+  <script src="quotes.js?v=64"></script>
+  <script src="app.js?v=64"></script>
 </body>
 </html>

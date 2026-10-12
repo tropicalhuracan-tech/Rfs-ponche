@@ -1,24 +1,26 @@
-const CACHE = "rfs-ops-v63";
+const CACHE = "rfs-ops-v64";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=63",
+  "styles.css?v=64",
   "app.js",
-  "app.js?v=63",
+  "app.js?v=64",
   "hr.js",
-  "hr.js?v=63",
+  "hr.js?v=64",
+  "depuracion.js",
+  "depuracion.js?v=64",
   "quotes.js",
-  "quotes.js?v=63",
+  "quotes.js?v=64",
   "cloud.js",
-  "cloud.js?v=63",
+  "cloud.js?v=64",
   "cloud-config.js",
-  "cloud-config.js?v=63",
+  "cloud-config.js?v=64",
   "monorriel-data.js",
-  "monorriel-data.js?v=63",
+  "monorriel-data.js?v=64",
   "manifest.json",
   "logo.jpg",
-  "logo.jpg?v=63",
+  "logo.jpg?v=64",
   "quote-assets/clientes-rfs-1.jpg",
   "quote-assets/clientes-rfs-2.jpg",
   "import-posts.json",
@@ -32,19 +34,14 @@ self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
   self.skipWaiting();
 });
-
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
-});
-
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
-});
-
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -56,12 +53,12 @@ self.addEventListener("fetch", (event) => {
     path.startsWith("styles.css") ||
     path.startsWith("app.js") ||
     path.startsWith("hr.js") ||
+    path.startsWith("depuracion.js") ||
     path.startsWith("quotes.js") ||
     path.includes("quote-assets") ||
     path.startsWith("cloud") ||
     path.startsWith("monorriel") ||
     path.startsWith("sw.js");
-
   // HTML/CSS/JS: red primero para que el inicio se actualice
   if (isShell) {
     event.respondWith(
@@ -75,8 +72,5 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
-
   event.respondWith(
     caches.match(req).then((cached) => cached || fetch(req).catch(() => cached))
-  );
-});

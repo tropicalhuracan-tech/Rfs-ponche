@@ -1951,6 +1951,40 @@ body.lightbox-open {
   }
 }
 
+/* ==== DEPURACIÓN ==== */
+.dep-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+.dep-checklist {
+  display: grid;
+  gap: 8px;
+}
+
+.dep-check-row {
+  align-items: flex-start;
+}
+
+.dep-ref-card {
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dep-verifik-raw {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #101012;
+  border: 1px solid #333;
+  font-size: 11px;
+  word-break: break-word;
+  color: #d4d4d8;
+}
+
 /* ==== RRHH ==== */
 .hr-tabs,
 .hr-section-tabs {
