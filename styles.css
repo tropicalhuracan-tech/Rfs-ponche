@@ -2124,6 +2124,24 @@ body.lightbox-open {
   margin-top: 4px;
 }
 
+.quote-check-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.quote-check-label input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
 @media (max-width: 520px) {
   .quote-shift-grid {
     grid-template-columns: 1fr 1fr;

@@ -13,7 +13,7 @@ const RFS_COMPANY = {
   address: "Calle Penetración No. 2, sector El Paraíso, Gurabo, Santiago, R.D.",
   phones: "809-581-8181 / 809-694-3232",
   email: "reactionforce45@gmail.com",
-  signer: "Edward Cruz",
+  signerTitle: "Gerente de ventas",
 };
 
 const QUOTE_REF_CLIENTS = [
@@ -74,11 +74,13 @@ function emptyQuoteForm() {
     modelId: "ejecutiva",
     clientName: "",
     clientRnc: "",
+    attentionTo: "",
     dayMen: 1,
     nightMen: 0,
     hourlyRate: 155,
     discountType: "none",
     discountValue: 0,
+    includeItbis: true,
     note: "",
     date: new Date().toISOString().slice(0, 10),
   };
@@ -118,7 +120,8 @@ function calcQuoteTotals(input = {}) {
   else if (dtype === "amount") discount = Math.min(dval, gross);
 
   const subtotal = Math.max(0, gross - discount);
-  const itbis = subtotal * QUOTE_ITBIS;
+  const includeItbis = input.includeItbis !== false;
+  const itbis = includeItbis ? subtotal * QUOTE_ITBIS : 0;
   const total = subtotal + itbis;
 
   return {
@@ -134,6 +137,7 @@ function calcQuoteTotals(input = {}) {
     discount,
     discountType: dtype,
     discountValue: dval,
+    includeItbis,
     subtotal,
     itbis,
     total,
@@ -162,17 +166,37 @@ function readQuoteForm() {
     modelId,
     clientName: String(document.getElementById("quoteClientName")?.value || "").trim(),
     clientRnc: String(document.getElementById("quoteClientRnc")?.value || "").trim(),
+    attentionTo: String(document.getElementById("quoteAttentionTo")?.value || "").trim(),
     dayMen: Number(document.getElementById("quoteDayMen")?.value || 0),
     nightMen: Number(document.getElementById("quoteNightMen")?.value || 0),
     hourlyRate: Number(document.getElementById("quoteHourlyRate")?.value || 0),
     discountType,
     discountValue: Number(document.getElementById("quoteDiscountValue")?.value || 0),
+    includeItbis: !!document.getElementById("quoteIncludeItbis")?.checked,
     note: String(document.getElementById("quoteNote")?.value || "").trim(),
     date: document.getElementById("quoteDate")?.value || new Date().toISOString().slice(0, 10),
-    preparedBy:
-      (typeof currentUser !== "undefined" && currentUser && (currentUser.displayName || currentUser.username)) ||
-      RFS_COMPANY.signer,
   };
+}
+
+function quoteCompanySignBlock() {
+  return `<div class="sign-line">${escapeHtml(RFS_COMPANY.signerTitle)}<br/>${escapeHtml(RFS_COMPANY.name)}<br/>Tel: ${escapeHtml(
+    RFS_COMPANY.phones
+  )}<br/>${escapeHtml(RFS_COMPANY.email)}</div>`;
+}
+
+function quoteMandatoryNoteHtml() {
+  return `<p class="footer" style="margin-top:14px;padding:10px;border:1px solid #ccc;background:#f7f7f7;font-size:11px;line-height:1.4"><strong>Nota importante:</strong> ${escapeHtml(
+    quoteNoteBlock()
+  )}</p>`;
+}
+
+function quoteAttentionHtml(data) {
+  if (!data.attentionTo && !data.clientRnc) return "";
+  return `
+    <div class="meta" style="margin:8px 0 12px">
+      ${data.clientRnc ? `<div><strong>RNC</strong><br/>${escapeHtml(data.clientRnc)}</div>` : ""}
+      ${data.attentionTo ? `<div><strong>Atención a</strong><br/>${escapeHtml(data.attentionTo)}</div>` : ""}
+    </div>`;
 }
 
 function formatQuoteDate(iso) {
@@ -192,7 +216,7 @@ function quoteShiftLabel(calc) {
 }
 
 function quoteNoteBlock() {
-  return `Los valores fueron calculados para un período de ${QUOTE_DAYS} días. Cada hombre labora ${QUOTE_HOURS_PER_MAN} horas por jornada. La facturación puede variar en meses de 28, 29 o 31 días, así como por la incidencia de días feriados, conforme al calendario y a las condiciones del servicio.`;
+  return "Los valores fueron calculados para un período de 30 días. Cada hombre labora 12 horas por jornada. La facturación puede variar en meses de 28, 29 o 31 días, así como por la incidencia de días feriados, conforme al calendario y a las condiciones del servicio.";
 }
 
 function buildQuoteHeader() {
@@ -284,7 +308,11 @@ function buildQuoteTotalsTable(data, calc) {
         </tr>
         ${discountRow}
         <tr><td colspan="3"><strong>Subtotal</strong></td><td class="right"><strong>${moneyRD(calc.subtotal)}</strong></td></tr>
-        <tr><td colspan="3">ITBIS (18%)</td><td class="right">${moneyRD(calc.itbis)}</td></tr>
+        ${
+          calc.includeItbis
+            ? `<tr><td colspan="3">ITBIS (18%)</td><td class="right">${moneyRD(calc.itbis)}</td></tr>`
+            : `<tr><td colspan="3">ITBIS</td><td class="right">No incluido</td></tr>`
+        }
         <tr><td colspan="3"><strong>TOTAL MENSUAL</strong></td><td class="right"><strong>${moneyRD(calc.total)}</strong></td></tr>
       </tbody>
     </table>`;
@@ -298,6 +326,7 @@ function buildModelEjecutiva(data, calc) {
     <div class="meta">
       <div><strong>Cliente</strong><br/>${escapeHtml(data.clientName)}</div>
       <div><strong>RNC</strong><br/>${escapeHtml(data.clientRnc || "—")}</div>
+      <div><strong>Atención a</strong><br/>${escapeHtml(data.attentionTo || "—")}</div>
       <div><strong>Turnos</strong><br/>${escapeHtml(quoteShiftLabel(calc))}</div>
       <div><strong>Personal</strong><br/>${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${calc.hoursPerDay} h/día</div>
     </div>
@@ -325,7 +354,7 @@ function buildModelEjecutiva(data, calc) {
 
     <h3>Inversión del servicio</h3>
     ${buildQuoteTotalsTable(data, calc)}
-    <p class="footer">${escapeHtml(quoteNoteBlock())}</p>
+    ${quoteMandatoryNoteHtml()}
     ${data.note ? `<p><strong>Nota adicional:</strong> ${escapeHtml(data.note)}</p>` : ""}
 
     ${buildClientsBlock()}
@@ -340,9 +369,12 @@ function buildModelEjecutiva(data, calc) {
 
     <p style="margin-top:18px"><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
     <div class="sign-box">
-      <div><div class="sign-line">${escapeHtml(data.preparedBy || RFS_COMPANY.signer)}<br/>Reaction Force Security</div></div>
-      <div><div class="sign-line">Recibido por el cliente<br/>Nombre / Firma</div></div>
-    </div>`;
+      <div>${quoteCompanySignBlock()}</div>
+      <div><div class="sign-line">Recibido por el cliente<br/>${
+        data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
+      }Nombre / Firma</div></div>
+    </div>
+    ${quoteMandatoryNoteHtml()}`;
 }
 
 function buildModelCotizacion(data, calc) {
@@ -350,24 +382,25 @@ function buildModelCotizacion(data, calc) {
     ${buildQuoteHeader()}
     <p style="margin:0 0 12px">Santiago, Rep. Dom. · ${escapeHtml(formatQuoteDate(data.date))}</p>
     <p style="margin:0 0 4px"><strong>Señores:</strong> ${escapeHtml(data.clientName)}</p>
-    ${data.clientRnc ? `<p style="margin:0 0 12px"><strong>RNC:</strong> ${escapeHtml(data.clientRnc)}</p>` : ""}
+    ${quoteAttentionHtml(data)}
     <p>Después de saludarles, le remitimos la cotización requerida para el servicio de seguridad privada, con personal diurno y/o nocturno, supervisión y herramientas de control (GPS, app de ponche Reaction Force Security y reportes al cliente).</p>
     <h2 style="margin:16px 0 8px">Cotización</h2>
     <p style="font-size:12px;color:#444;margin:0 0 8px">Turnos: <strong>${escapeHtml(
       quoteShiftLabel(calc)
     )}</strong> · Cada hombre: ${QUOTE_HOURS_PER_MAN} h · Horas/día: <strong>${calc.hoursPerDay}</strong></p>
     ${buildQuoteTotalsTable(data, calc)}
-    <p class="footer" style="margin-top:12px">${escapeHtml(quoteNoteBlock())}</p>
+    ${quoteMandatoryNoteHtml()}
     ${data.note ? `<p><strong>Nota:</strong> ${escapeHtml(data.note)}</p>` : ""}
     ${buildTechBlock()}
     ${buildClientsBlock()}
     <p style="margin-top:18px">Atentamente,</p>
     <div class="sign-box">
-      <div><div class="sign-line">${escapeHtml(data.preparedBy || "Gerente de ventas")}<br/>${escapeHtml(
-    RFS_COMPANY.name
-  )}<br/>Tel: ${escapeHtml(RFS_COMPANY.phones)}<br/>${escapeHtml(RFS_COMPANY.email)}</div></div>
-      <div></div>
-    </div>`;
+      <div>${quoteCompanySignBlock()}</div>
+      <div><div class="sign-line">Recibido por el cliente<br/>${
+        data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
+      }Nombre / Firma</div></div>
+    </div>
+    ${quoteMandatoryNoteHtml()}`;
 }
 
 function buildModelInstitucional(data, calc) {
@@ -375,9 +408,8 @@ function buildModelInstitucional(data, calc) {
     ${buildQuoteHeader()}
     <h2 style="margin:0 0 6px">Propuesta de servicios de seguridad</h2>
     <p style="margin:0 0 14px;color:#444">Santiago de los Caballeros, ${escapeHtml(formatQuoteDate(data.date))}</p>
-    <p><strong>Señores:</strong> ${escapeHtml(data.clientName)}${
-    data.clientRnc ? ` · RNC ${escapeHtml(data.clientRnc)}` : ""
-  }</p>
+    <p><strong>Señores:</strong> ${escapeHtml(data.clientName)}</p>
+    ${quoteAttentionHtml(data)}
     <p>En nombre de ${escapeHtml(
       RFS_COMPANY.name
     )}, nos complace presentar nuestra propuesta de servicios de seguridad, orientada a brindar protección integral a sus instalaciones. Detallamos cobertura, personal (diurno/nocturno), logística tecnológica y esquema económico, con el compromiso de profesionalidad, supervisión y respuesta inmediata.</p>
@@ -390,7 +422,9 @@ function buildModelInstitucional(data, calc) {
     <h3>Objetivo</h3>
     <p>Brindar un servicio integral de seguridad a <strong>${escapeHtml(
       data.clientName
-    )}</strong>, garantizando la protección de personas, activos e instalaciones mediante agentes asignados en turnos diurnos y/o nocturnos, con soporte de supervisión y evidencia digital del servicio.</p>
+    )}</strong>${
+      data.attentionTo ? `, a la atención de <strong>${escapeHtml(data.attentionTo)}</strong>` : ""
+    }, garantizando la protección de personas, activos e instalaciones mediante agentes asignados en turnos diurnos y/o nocturnos, con soporte de supervisión y evidencia digital del servicio.</p>
 
     <h3>Cobertura propuesta</h3>
     <ul>
@@ -405,7 +439,7 @@ function buildModelInstitucional(data, calc) {
 
     <h3>Detalle económico</h3>
     ${buildQuoteTotalsTable(data, calc)}
-    <p class="footer">${escapeHtml(quoteNoteBlock())}</p>
+    ${quoteMandatoryNoteHtml()}
     ${data.note ? `<p><strong>Observaciones:</strong> ${escapeHtml(data.note)}</p>` : ""}
 
     <h3>Beneficios de elegirnos</h3>
@@ -425,11 +459,12 @@ function buildModelInstitucional(data, calc) {
   )}, asegurando tranquilidad, disciplina y resguardo permanente.</p>
     <p><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
     <div class="sign-box">
-      <div><div class="sign-line">${escapeHtml(data.preparedBy || RFS_COMPANY.signer)}<br/>${escapeHtml(
-    RFS_COMPANY.name
-  )}</div></div>
-      <div><div class="sign-line">Aceptación del cliente<br/>Nombre / Firma / Sello</div></div>
-    </div>`;
+      <div>${quoteCompanySignBlock()}</div>
+      <div><div class="sign-line">Aceptación del cliente<br/>${
+        data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
+      }Nombre / Firma / Sello</div></div>
+    </div>
+    ${quoteMandatoryNoteHtml()}`;
 }
 
 function buildQuoteBodyHtml(data, calc) {
@@ -458,10 +493,14 @@ function updateQuoteTotalsUi() {
       <div><span>Bruto</span><strong>${moneyRD(calc.gross)}</strong></div>
       <div><span>Descuento</span><strong>${calc.discount ? "− " + moneyRD(calc.discount) : "—"}</strong></div>
       <div><span>Subtotal</span><strong>${moneyRD(calc.subtotal)}</strong></div>
-      <div><span>ITBIS 18%</span><strong>${moneyRD(calc.itbis)}</strong></div>
+      <div><span>${calc.includeItbis ? "ITBIS 18%" : "ITBIS"}</span><strong>${
+        calc.includeItbis ? moneyRD(calc.itbis) : "No incluido"
+      }</strong></div>
       <div><span>Total mensual</span><strong>${moneyRD(calc.total)}</strong></div>
     </div>
-    <p class="muted tight" style="margin-top:8px">Cada hombre = ${QUOTE_HOURS_PER_MAN} h · Cálculo a ${QUOTE_DAYS} días</p>`;
+    <p class="muted tight" style="margin-top:8px">Cada hombre = ${QUOTE_HOURS_PER_MAN} h · Cálculo a ${QUOTE_DAYS} días${
+      calc.includeItbis ? "" : " · sin ITBIS"
+    }</p>`;
 }
 
 function selectQuoteModel(modelId) {
@@ -503,7 +542,9 @@ function renderQuotesHistory() {
         <p class="muted">${escapeHtml(model?.label || q.modelId)} · ${escapeHtml(q.date || "")} · ${escapeHtml(
         quoteShiftLabel(calc)
       )} · ${calc.hoursPerDay} h/día</p>
-        <p><strong>${moneyRD(calc.total)}</strong> <span class="muted">(con ITBIS)</span></p>
+        <p><strong>${moneyRD(calc.total)}</strong> <span class="muted">${
+          calc.includeItbis ? "(con ITBIS)" : "(sin ITBIS)"
+        }</span></p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-quote-load" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Cargar</button>
           <button type="button" class="btn primary btn-quote-reprint" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
@@ -533,6 +574,7 @@ function fillQuoteForm(data) {
   };
   set("quoteClientName", d.clientName || "");
   set("quoteClientRnc", d.clientRnc || "");
+  set("quoteAttentionTo", d.attentionTo || "");
   set("quoteDayMen", d.dayMen ?? 1);
   set("quoteNightMen", d.nightMen ?? 0);
   set("quoteHourlyRate", d.hourlyRate ?? 155);
@@ -540,6 +582,8 @@ function fillQuoteForm(data) {
   set("quoteDiscountValue", d.discountValue || 0);
   set("quoteNote", d.note || "");
   set("quoteDate", d.date || new Date().toISOString().slice(0, 10));
+  const itbisEl = document.getElementById("quoteIncludeItbis");
+  if (itbisEl) itbisEl.checked = d.includeItbis !== false;
   renderQuoteModelCards();
   toggleQuoteDiscountField();
   updateQuoteTotalsUi();
@@ -631,12 +675,13 @@ function wireQuotesModule() {
   fillQuoteForm(emptyQuoteForm());
   renderQuotesHistory();
 
-  ["quoteClientName", "quoteClientRnc", "quoteDayMen", "quoteNightMen", "quoteHourlyRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
+  ["quoteClientName", "quoteClientRnc", "quoteAttentionTo", "quoteDayMen", "quoteNightMen", "quoteHourlyRate", "quoteDiscountValue", "quoteNote", "quoteDate"].forEach(
     (id) => {
       document.getElementById(id)?.addEventListener("input", updateQuoteTotalsUi);
       document.getElementById(id)?.addEventListener("change", updateQuoteTotalsUi);
     }
   );
+  document.getElementById("quoteIncludeItbis")?.addEventListener("change", updateQuoteTotalsUi);
   document.getElementById("quoteDiscountType")?.addEventListener("change", () => {
     toggleQuoteDiscountField();
     updateQuoteTotalsUi();
