@@ -62,6 +62,21 @@ const QUOTE_MODELS = [
 
 let quotesHistory = [];
 let selectedQuoteModel = "ejecutiva";
+let lastSharedQuoteId = "";
+
+function currentQuoteUserLabel() {
+  if (typeof currentUser !== "undefined" && currentUser) {
+    return String(currentUser.displayName || currentUser.username || "").trim() || "Usuario";
+  }
+  return "Usuario";
+}
+
+function currentQuoteUsername() {
+  if (typeof currentUser !== "undefined" && currentUser) {
+    return String(currentUser.username || "").trim().toLowerCase();
+  }
+  return "";
+}
 
 function moneyRD(n) {
   const v = Number(n);
@@ -613,17 +628,26 @@ function renderQuotesHistory() {
     .map((q) => {
       const calc = calcQuoteTotals(q);
       const model = QUOTE_MODELS.find((m) => m.id === q.modelId);
+      const creator = q.createdBy || q.createdByUsername || "—";
+      const when = q.createdAt
+        ? new Date(q.createdAt).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })
+        : q.date || "";
       return `<article class="report-card">
         <h3>${escapeHtml(q.clientName || "Sin cliente")}</h3>
         <p class="muted">${escapeHtml(model?.label || q.modelId)} · ${escapeHtml(q.date || "")} · ${escapeHtml(
         quoteShiftLabel(calc)
       )} · ${calc.hoursPerDay} h/día</p>
+        <p class="quote-creator-line">Creada por: <strong>${escapeHtml(creator)}</strong>${
+          when ? ` · ${escapeHtml(when)}` : ""
+        }</p>
         <p><strong>${moneyRD(calc.total)}</strong> <span class="muted">${
           calc.includeItbis ? "(con ITBIS)" : "(sin ITBIS)"
         }</span></p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-quote-load" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Cargar</button>
           <button type="button" class="btn primary btn-quote-reprint" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
+          <button type="button" class="btn secondary btn-quote-wa" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">WhatsApp</button>
+          <button type="button" class="btn secondary btn-quote-mail" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Correo</button>
           <button type="button" class="btn danger btn-quote-delete" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Eliminar</button>
         </div>
       </article>`;
@@ -634,6 +658,12 @@ function renderQuotesHistory() {
   });
   list.querySelectorAll(".btn-quote-reprint").forEach((btn) => {
     btn.addEventListener("click", () => reprintSavedQuote(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-quote-wa").forEach((btn) => {
+    btn.addEventListener("click", () => shareQuoteByWhatsApp(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-quote-mail").forEach((btn) => {
+    btn.addEventListener("click", () => shareQuoteByEmail(btn.dataset.id));
   });
   list.querySelectorAll(".btn-quote-delete").forEach((btn) => {
     btn.addEventListener("click", () => deleteSavedQuote(btn.dataset.id));
@@ -719,17 +749,101 @@ function validateQuoteForm(data, calc) {
 }
 
 function persistQuote(data, calc) {
+  const existing = data.id ? quotesHistory.find((q) => q.id === data.id) : null;
+  const now = new Date().toISOString();
   const row = {
     ...data,
     id: data.id || `quote-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    createdAt: data.createdAt || new Date().toISOString(),
+    createdAt: (existing && existing.createdAt) || data.createdAt || now,
+    createdBy: (existing && existing.createdBy) || data.createdBy || currentQuoteUserLabel(),
+    createdByUsername:
+      (existing && existing.createdByUsername) || data.createdByUsername || currentQuoteUsername(),
+    updatedAt: now,
+    updatedBy: currentQuoteUserLabel(),
     menCount: calc.men,
     total: calc.total,
   };
+  // Nunca enviar createdBy al PDF del cliente: solo vive en historial interno
   quotesHistory = [row, ...quotesHistory.filter((q) => q.id !== row.id)].slice(0, 80);
   saveQuotesHistory();
   renderQuotesHistory();
+  lastSharedQuoteId = row.id;
+  showQuoteShareBox(row);
   return row;
+}
+
+function showQuoteShareBox(row) {
+  const box = document.getElementById("quoteShareBox");
+  const hint = document.getElementById("quoteShareHint");
+  if (!box) return;
+  box.hidden = false;
+  if (hint) {
+    hint.textContent = `Propuesta de ${row.clientName || "cliente"} lista · Creada por ${
+      row.createdBy || "—"
+    }. Puedes enviarla por WhatsApp o correo (resumen). Para el PDF usa Imprimir.`;
+  }
+}
+
+function buildQuoteShareText(data, calc) {
+  const attn = data.attentionTo ? `\nAtención a: ${data.attentionTo}` : "";
+  const itbisLine = calc.includeItbis
+    ? `ITBIS 18%: ${moneyRD(calc.itbis)}\nTotal mensual: ${moneyRD(calc.total)}`
+    : `Total mensual (sin ITBIS): ${moneyRD(calc.total)}`;
+  return (
+    `*Propuesta de seguridad — Reaction Force Security*\n` +
+    `Cliente: ${data.clientName || "—"}${attn}\n` +
+    `Fecha: ${formatQuoteDate(data.date)}\n` +
+    `Turnos: ${quoteShiftLabel(calc)}\n` +
+    `Personal: ${calc.men} hombre(s) · ${calc.hoursPerDay} h/día · ${calc.hoursMonth} h/mes\n` +
+    `Tarifa: ${moneyRD(calc.rate)} / hora\n` +
+    `Subtotal: ${moneyRD(calc.subtotal)}\n` +
+    `${itbisLine}\n\n` +
+    `Contacto RFS: ${RFS_COMPANY.phones}\n` +
+    `${RFS_COMPANY.email}\n` +
+    `\n_Nota: los valores se calculan a 30 días; cada hombre labora 12 h. La facturación puede variar según el mes y feriados._`
+  );
+}
+
+function resolveQuoteForShare(id) {
+  if (id) {
+    const found = quotesHistory.find((q) => q.id === id);
+    if (found) return found;
+  }
+  if (lastSharedQuoteId) {
+    const last = quotesHistory.find((q) => q.id === lastSharedQuoteId);
+    if (last) return last;
+  }
+  const data = readQuoteForm();
+  const calc = calcQuoteTotals(data);
+  if (!validateQuoteForm(data, calc)) return null;
+  return persistQuote(data, calc);
+}
+
+function shareQuoteByWhatsApp(id) {
+  const q = resolveQuoteForShare(id);
+  if (!q) return;
+  const calc = calcQuoteTotals(q);
+  const text = buildQuoteShareText(q, calc);
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, "_blank");
+  if (typeof logActivity === "function") {
+    logActivity("quote_share_wa", `Cotización WhatsApp: ${q.clientName} · ${moneyRD(calc.total)}`);
+  }
+  toast("Abriendo WhatsApp con el resumen. Si necesitas el PDF, usa Imprimir y adjúntalo.");
+}
+
+function shareQuoteByEmail(id) {
+  const q = resolveQuoteForShare(id);
+  if (!q) return;
+  const calc = calcQuoteTotals(q);
+  const text = buildQuoteShareText(q, calc);
+  const subject = `Propuesta de seguridad — ${q.clientName || "Cliente"} · Reaction Force Security`;
+  const href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  window.location.href = href;
+  if (typeof logActivity === "function") {
+    logActivity("quote_share_mail", `Cotización correo: ${q.clientName} · ${moneyRD(calc.total)}`);
+  }
+  toast("Abriendo el correo con el resumen. Adjunta el PDF si lo guardaste.");
 }
 
 function printQuoteProposal(dataIn) {
@@ -750,10 +864,10 @@ function printQuoteProposal(dataIn) {
   if (typeof logActivity === "function") {
     logActivity(
       "quote_print",
-      `Cotización ${saved.modelId || model?.id || ""}: ${saved.clientName} · ${quoteShiftLabel(calc)} · ${calc.hoursPerDay}h/día · ${moneyRD(calc.total)}`
+      `Cotización ${saved.modelId || model?.id || ""}: ${saved.clientName} · por ${saved.createdBy || "—"} · ${quoteShiftLabel(calc)} · ${calc.hoursPerDay}h/día · ${moneyRD(calc.total)}`
     );
   }
-  toast("Propuesta lista para imprimir o guardar PDF.");
+  toast("Propuesta lista. Luego puedes compartirla por WhatsApp o correo.");
 }
 
 function renderQuotesModule() {
@@ -784,8 +898,15 @@ function wireQuotesModule() {
     updateQuoteTotalsUi();
   });
   document.getElementById("btnQuotePrint")?.addEventListener("click", () => printQuoteProposal());
+  document.getElementById("btnQuoteWhatsApp")?.addEventListener("click", () => shareQuoteByWhatsApp());
+  document.getElementById("btnQuoteEmail")?.addEventListener("click", () => shareQuoteByEmail());
+  document.getElementById("btnQuoteShareWa")?.addEventListener("click", () => shareQuoteByWhatsApp(lastSharedQuoteId));
+  document.getElementById("btnQuoteShareMail")?.addEventListener("click", () => shareQuoteByEmail(lastSharedQuoteId));
   document.getElementById("btnQuoteReset")?.addEventListener("click", () => {
     fillQuoteForm(emptyQuoteForm());
+    const box = document.getElementById("quoteShareBox");
+    if (box) box.hidden = true;
+    lastSharedQuoteId = "";
     toast("Formulario limpio.");
   });
 }
