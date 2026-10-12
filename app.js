@@ -3844,6 +3844,8 @@ function openPrintWindow(title, bodyHtml, options = {}) {
     }
   })();
   const afterPrintKey = options && options.afterPrintKey ? String(options.afterPrintKey) : "";
+  const extraCss = options && options.extraCss ? String(options.extraCss) : "";
+  const bodyClass = options && options.bodyClass ? String(options.bodyClass) : "";
   const win = window.open("", "_blank");
   if (!win) {
     toast("Permite ventanas emergentes para imprimir, o elige una impresora en el diálogo del sistema.");
@@ -3874,7 +3876,8 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   .print-bar .btn-print{background:#d41414;color:#fff}
   .print-bar .hint{font-size:12px;color:#ccc;flex:1;min-width:160px}
   @media print{body{padding:0} .no-print{display:none !important}}
-</style></head><body>
+  ${extraCss}
+</style></head><body${bodyClass ? ` class="${escapeHtml(bodyClass)}"` : ""}>
   <div class="print-bar no-print">
     <button type="button" class="btn-back" id="btnPrintBack">← Volver a la aplicación</button>
     <button type="button" class="btn-print" id="btnPrintNow">Imprimir ahora</button>
@@ -8583,7 +8586,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=58").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=59").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8599,7 +8602,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v58").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v59").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

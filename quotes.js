@@ -184,18 +184,93 @@ function quoteCompanySignBlock() {
   )}<br/>${escapeHtml(RFS_COMPANY.email)}</div>`;
 }
 
+function quotePrintCss() {
+  return `
+  body.quote-print{color:#141414}
+  body.quote-print .brand{
+    background:#0b0b0c;
+    color:#fff;
+    border:1px solid #0b0b0c;
+    border-left:6px solid #d41414;
+    border-radius:10px;
+    padding:12px 14px;
+    margin-bottom:14px;
+    gap:14px;
+  }
+  body.quote-print .brand img{
+    width:64px;height:64px;border:2px solid #d41414;border-radius:12px;background:#fff;
+  }
+  body.quote-print .brand h1{color:#fff;margin:0 0 2px;font-size:20px;letter-spacing:.04em}
+  body.quote-print .brand > div > div{color:#f0f0f0;font-size:12px}
+  body.quote-print .brand > div > div::before{
+    content:"";display:inline-block;width:18px;height:3px;background:#d41414;margin-right:8px;vertical-align:middle;border-radius:2px;
+  }
+  .q-doc h2.q-title{
+    margin:0 0 8px;font-size:16px;font-weight:800;color:#0b0b0c;letter-spacing:.01em;
+    border-bottom:2px solid #d41414;padding-bottom:6px;
+  }
+  .q-doc h3{
+    margin:18px 0 8px;font-size:13px;font-weight:800;color:#0b0b0c;
+    border-left:4px solid #d41414;padding:4px 0 4px 10px;background:linear-gradient(90deg,#f5f5f5 0%,#fff 70%);
+  }
+  .q-doc .q-date{margin:0 0 14px;color:#444;font-size:12px}
+  .q-doc .meta{gap:10px;margin:0 0 16px}
+  .q-doc .meta > div{
+    min-width:148px;flex:1 1 148px;background:#fafafa;border:1px solid #ddd;
+    border-top:3px solid #d41414;border-radius:6px;padding:8px 10px;
+  }
+  .q-doc .meta > div strong{display:block;color:#d41414;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+  .q-doc table{border:1px solid #0b0b0c;margin:10px 0 6px}
+  .q-doc th{background:#0b0b0c;color:#fff;border-color:#0b0b0c;font-size:11px;letter-spacing:.03em}
+  .q-doc td{border-color:#bbb}
+  .q-doc tbody tr:nth-child(even){background:#f7f7f7}
+  .q-doc tbody tr:last-child{background:#0b0b0c;color:#fff}
+  .q-doc tbody tr:last-child td{border-color:#0b0b0c;font-size:13px}
+  .q-doc tbody tr:last-child strong{color:#fff}
+  .q-note{
+    margin:14px 0;padding:10px 12px;border:1px solid #ccc;border-left:5px solid #d41414;
+    background:#f8f8f8;font-size:11px;line-height:1.45;color:#333;
+  }
+  .q-note strong{color:#d41414}
+  .q-letterhead{
+    display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;
+    margin:0 0 14px;padding:0 0 12px;border-bottom:1px solid #ddd;
+  }
+  .q-letterhead .q-co{font-size:11.5px;color:#333;line-height:1.45}
+  .q-letterhead .q-co strong{color:#0b0b0c;font-size:12.5px}
+  .q-badge{
+    background:#0b0b0c;color:#fff;border:1px solid #0b0b0c;border-bottom:3px solid #d41414;
+    border-radius:8px;padding:8px 10px;font-size:10px;text-align:center;min-width:110px;line-height:1.3;
+  }
+  .q-badge span{display:block;color:#d41414;font-weight:800;letter-spacing:.08em;font-size:9px;margin-bottom:2px}
+  .q-rule{height:4px;margin:0 0 16px;border-radius:3px;background:linear-gradient(90deg,#0b0b0c 0%,#d41414 45%,#0b0b0c 100%)}
+  .q-clients img{border:1px solid #bbb;border-top:3px solid #d41414;border-radius:8px}
+  .q-doc .sign-box{margin-top:28px;padding-top:8px;border-top:1px dashed #bbb}
+  .q-doc .sign-line{border-top:2px solid #0b0b0c;margin-top:48px;padding-top:8px;font-size:11px}
+  .q-contact{
+    margin:16px 0 0;padding:10px 12px;background:#0b0b0c;color:#fff;border-radius:8px;
+    border-left:5px solid #d41414;font-size:12px;
+  }
+  .q-contact strong{color:#d41414}
+  .q-footer-bar{height:6px;margin:22px 0 8px;border-radius:3px;background:linear-gradient(90deg,#d41414 0%,#0b0b0c 55%,#d41414 100%)}
+  @media print{
+    body.quote-print .brand{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .q-doc th,.q-doc tbody tr:last-child,.q-contact,.q-badge,.q-rule,.q-footer-bar,.q-doc h3,.q-doc .meta > div{
+      -webkit-print-color-adjust:exact;print-color-adjust:exact
+    }
+  }`;
+}
+
 function quoteMandatoryNoteHtml() {
-  return `<p class="footer" style="margin-top:14px;padding:10px;border:1px solid #ccc;background:#f7f7f7;font-size:11px;line-height:1.4"><strong>Nota importante:</strong> ${escapeHtml(
-    quoteNoteBlock()
-  )}</p>`;
+  return `<p class="q-note"><strong>Nota importante:</strong> ${escapeHtml(quoteNoteBlock())}</p>`;
 }
 
 function quoteAttentionHtml(data) {
   if (!data.attentionTo && !data.clientRnc) return "";
   return `
-    <div class="meta" style="margin:8px 0 12px">
-      ${data.clientRnc ? `<div><strong>RNC</strong><br/>${escapeHtml(data.clientRnc)}</div>` : ""}
-      ${data.attentionTo ? `<div><strong>Atención a</strong><br/>${escapeHtml(data.attentionTo)}</div>` : ""}
+    <div class="meta">
+      ${data.clientRnc ? `<div><strong>RNC</strong>${escapeHtml(data.clientRnc)}</div>` : ""}
+      ${data.attentionTo ? `<div><strong>Atención a</strong>${escapeHtml(data.attentionTo)}</div>` : ""}
     </div>`;
 }
 
@@ -221,12 +296,17 @@ function quoteNoteBlock() {
 
 function buildQuoteHeader() {
   return `
-    <p style="margin:0 0 12px;color:#444;font-size:12px">
-      <strong>${escapeHtml(RFS_COMPANY.name)}</strong> · “${escapeHtml(RFS_COMPANY.slogan)}”<br/>
-      RNC: ${escapeHtml(RFS_COMPANY.rnc)} · ${escapeHtml(RFS_COMPANY.license)}<br/>
-      ${escapeHtml(RFS_COMPANY.address)}<br/>
-      Tel: ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}
-    </p>`;
+    <div class="q-rule"></div>
+    <div class="q-letterhead">
+      <div class="q-co">
+        <strong>${escapeHtml(RFS_COMPANY.name)}</strong><br/>
+        “${escapeHtml(RFS_COMPANY.slogan)}”<br/>
+        RNC: ${escapeHtml(RFS_COMPANY.rnc)} · ${escapeHtml(RFS_COMPANY.license)}<br/>
+        ${escapeHtml(RFS_COMPANY.address)}<br/>
+        Tel: ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}
+      </div>
+      <div class="q-badge"><span>PROPUESTA</span>Seguridad privada<br/>Santiago, R.D.</div>
+    </div>`;
 }
 
 function buildTechBlock() {
@@ -246,11 +326,11 @@ function buildClientsBlock() {
     <p>La confianza de empresas e instituciones que ya operan con Reaction Force Security respalda nuestra propuesta. Trabajamos con clientes de alto tráfico, industria, comercio, residenciales y proyectos de infraestructura, manteniendo supervisión, disciplina y respuesta oportuna.</p>
     <p style="font-size:12px;line-height:1.45"><strong>Referencias:</strong> ${escapeHtml(QUOTE_REF_CLIENTS.join(" · "))}</p>
     <p style="margin:10px 0 6px;font-size:12px;color:#444">Logotipos / cartera de clientes (material RFS):</p>
-    <div style="display:grid;gap:10px;margin:8px 0 14px">
+    <div class="q-clients" style="display:grid;gap:10px;margin:8px 0 14px">
       <img src="quote-assets/clientes-rfs-1.jpg" alt="Clientes Reaction Force Security 1"
-        style="width:100%;max-width:640px;border:1px solid #ccc;border-radius:8px" />
+        style="width:100%;max-width:640px" />
       <img src="quote-assets/clientes-rfs-2.jpg" alt="Clientes Reaction Force Security 2"
-        style="width:100%;max-width:640px;border:1px solid #ccc;border-radius:8px" />
+        style="width:100%;max-width:640px" />
     </div>
     <p style="font-size:12px;color:#444">Esta cartera demuestra experiencia comprobada y la tranquilidad de quienes ya nos eligieron como su aliado de seguridad.</p>`;
 }
@@ -321,14 +401,14 @@ function buildQuoteTotalsTable(data, calc) {
 function buildModelEjecutiva(data, calc) {
   return `
     ${buildQuoteHeader()}
-    <h2 style="margin:0 0 6px">Propuesta ejecutiva de servicios de seguridad privada</h2>
-    <p style="margin:0 0 14px;color:#444">Santiago, ${escapeHtml(formatQuoteDate(data.date))}</p>
+    <h2 class="q-title">Propuesta ejecutiva de servicios de seguridad privada</h2>
+    <p class="q-date">Santiago, ${escapeHtml(formatQuoteDate(data.date))}</p>
     <div class="meta">
-      <div><strong>Cliente</strong><br/>${escapeHtml(data.clientName)}</div>
-      <div><strong>RNC</strong><br/>${escapeHtml(data.clientRnc || "—")}</div>
-      <div><strong>Atención a</strong><br/>${escapeHtml(data.attentionTo || "—")}</div>
-      <div><strong>Turnos</strong><br/>${escapeHtml(quoteShiftLabel(calc))}</div>
-      <div><strong>Personal</strong><br/>${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${calc.hoursPerDay} h/día</div>
+      <div><strong>Cliente</strong>${escapeHtml(data.clientName)}</div>
+      <div><strong>RNC</strong>${escapeHtml(data.clientRnc || "—")}</div>
+      <div><strong>Atención a</strong>${escapeHtml(data.attentionTo || "—")}</div>
+      <div><strong>Turnos</strong>${escapeHtml(quoteShiftLabel(calc))}</div>
+      <div><strong>Personal</strong>${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${calc.hoursPerDay} h/día</div>
     </div>
 
     <h3>Presentación</h3>
@@ -367,24 +447,25 @@ function buildModelEjecutiva(data, calc) {
       data.clientName
     )}</strong>. Será un honor contar con su confianza.</p>
 
-    <p style="margin-top:18px"><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
+    <p class="q-contact"><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
     <div class="sign-box">
       <div>${quoteCompanySignBlock()}</div>
       <div><div class="sign-line">Recibido por el cliente<br/>${
         data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
       }Nombre / Firma</div></div>
     </div>
-    ${quoteMandatoryNoteHtml()}`;
+    ${quoteMandatoryNoteHtml()}
+    <div class="q-footer-bar"></div>`;
 }
 
 function buildModelCotizacion(data, calc) {
   return `
     ${buildQuoteHeader()}
-    <p style="margin:0 0 12px">Santiago, Rep. Dom. · ${escapeHtml(formatQuoteDate(data.date))}</p>
+    <p class="q-date">Santiago, Rep. Dom. · ${escapeHtml(formatQuoteDate(data.date))}</p>
     <p style="margin:0 0 4px"><strong>Señores:</strong> ${escapeHtml(data.clientName)}</p>
     ${quoteAttentionHtml(data)}
     <p>Después de saludarles, le remitimos la cotización requerida para el servicio de seguridad privada, con personal diurno y/o nocturno, supervisión y herramientas de control (GPS, app de ponche Reaction Force Security y reportes al cliente).</p>
-    <h2 style="margin:16px 0 8px">Cotización</h2>
+    <h2 class="q-title">Cotización</h2>
     <p style="font-size:12px;color:#444;margin:0 0 8px">Turnos: <strong>${escapeHtml(
       quoteShiftLabel(calc)
     )}</strong> · Cada hombre: ${QUOTE_HOURS_PER_MAN} h · Horas/día: <strong>${calc.hoursPerDay}</strong></p>
@@ -400,14 +481,15 @@ function buildModelCotizacion(data, calc) {
         data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
       }Nombre / Firma</div></div>
     </div>
-    ${quoteMandatoryNoteHtml()}`;
+    ${quoteMandatoryNoteHtml()}
+    <div class="q-footer-bar"></div>`;
 }
 
 function buildModelInstitucional(data, calc) {
   return `
     ${buildQuoteHeader()}
-    <h2 style="margin:0 0 6px">Propuesta de servicios de seguridad</h2>
-    <p style="margin:0 0 14px;color:#444">Santiago de los Caballeros, ${escapeHtml(formatQuoteDate(data.date))}</p>
+    <h2 class="q-title">Propuesta de servicios de seguridad</h2>
+    <p class="q-date">Santiago de los Caballeros, ${escapeHtml(formatQuoteDate(data.date))}</p>
     <p><strong>Señores:</strong> ${escapeHtml(data.clientName)}</p>
     ${quoteAttentionHtml(data)}
     <p>En nombre de ${escapeHtml(
@@ -457,20 +539,23 @@ function buildModelInstitucional(data, calc) {
     <p style="margin-top:16px">${escapeHtml(RFS_COMPANY.name)} reitera su compromiso de ser la mejor alternativa de seguridad para ${escapeHtml(
     data.clientName
   )}, asegurando tranquilidad, disciplina y resguardo permanente.</p>
-    <p><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
+    <p class="q-contact"><strong>Contacto:</strong> ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}</p>
     <div class="sign-box">
       <div>${quoteCompanySignBlock()}</div>
       <div><div class="sign-line">Aceptación del cliente<br/>${
         data.attentionTo ? escapeHtml(data.attentionTo) + "<br/>" : ""
       }Nombre / Firma / Sello</div></div>
     </div>
-    ${quoteMandatoryNoteHtml()}`;
+    ${quoteMandatoryNoteHtml()}
+    <div class="q-footer-bar"></div>`;
 }
 
 function buildQuoteBodyHtml(data, calc) {
-  if (data.modelId === "cotizacion") return buildModelCotizacion(data, calc);
-  if (data.modelId === "institucional") return buildModelInstitucional(data, calc);
-  return buildModelEjecutiva(data, calc);
+  let inner = "";
+  if (data.modelId === "cotizacion") inner = buildModelCotizacion(data, calc);
+  else if (data.modelId === "institucional") inner = buildModelInstitucional(data, calc);
+  else inner = buildModelEjecutiva(data, calc);
+  return `<div class="q-doc">${inner}</div>`;
 }
 
 function updateQuoteTotalsUi() {
@@ -649,7 +734,10 @@ function printQuoteProposal(dataIn) {
   const saved = persistQuote(data, calc);
   const model = QUOTE_MODELS.find((m) => m.id === saved.modelId);
   const body = buildQuoteBodyHtml(saved, calc);
-  openPrintWindow(model?.label || "Cotización RFS", body);
+  openPrintWindow(model?.label || "Cotización RFS", body, {
+    bodyClass: "quote-print",
+    extraCss: quotePrintCss(),
+  });
   if (typeof logActivity === "function") {
     logActivity(
       "quote_print",
