@@ -233,16 +233,11 @@ function quotePrintCss() {
   }
   .q-note strong{color:#d41414}
   .q-letterhead{
-    display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;
     margin:0 0 14px;padding:0 0 12px;border-bottom:1px solid #ddd;
   }
   .q-letterhead .q-co{font-size:11.5px;color:#333;line-height:1.45}
   .q-letterhead .q-co strong{color:#0b0b0c;font-size:12.5px}
-  .q-badge{
-    background:#0b0b0c;color:#fff;border:1px solid #0b0b0c;border-bottom:3px solid #d41414;
-    border-radius:8px;padding:8px 10px;font-size:10px;text-align:center;min-width:110px;line-height:1.3;
-  }
-  .q-badge span{display:block;color:#d41414;font-weight:800;letter-spacing:.08em;font-size:9px;margin-bottom:2px}
+  body.quote-print .brand > div > div{display:none}
   .q-rule{height:4px;margin:0 0 16px;border-radius:3px;background:linear-gradient(90deg,#0b0b0c 0%,#d41414 45%,#0b0b0c 100%)}
   .q-clients img{border:1px solid #bbb;border-top:3px solid #d41414;border-radius:8px}
   .q-doc .sign-box{margin-top:28px;padding-top:8px;border-top:1px dashed #bbb}
@@ -255,7 +250,7 @@ function quotePrintCss() {
   .q-footer-bar{height:6px;margin:22px 0 8px;border-radius:3px;background:linear-gradient(90deg,#d41414 0%,#0b0b0c 55%,#d41414 100%)}
   @media print{
     body.quote-print .brand{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .q-doc th,.q-doc tbody tr:last-child,.q-contact,.q-badge,.q-rule,.q-footer-bar,.q-doc h3,.q-doc .meta > div{
+    .q-doc th,.q-doc tbody tr:last-child,.q-contact,.q-rule,.q-footer-bar,.q-doc h3,.q-doc .meta > div{
       -webkit-print-color-adjust:exact;print-color-adjust:exact
     }
   }`;
@@ -305,7 +300,6 @@ function buildQuoteHeader() {
         ${escapeHtml(RFS_COMPANY.address)}<br/>
         Tel: ${escapeHtml(RFS_COMPANY.phones)} · ${escapeHtml(RFS_COMPANY.email)}
       </div>
-      <div class="q-badge"><span>PROPUESTA</span>Seguridad privada<br/>Santiago, R.D.</div>
     </div>`;
 }
 
@@ -752,14 +746,14 @@ function printQuoteProposal(dataIn) {
   const saved = persistQuote(data, calc);
   const model = QUOTE_MODELS.find((m) => m.id === saved.modelId);
   const body = buildQuoteBodyHtml(saved, calc);
-  openPrintWindow(model?.label || "Cotización RFS", body, {
+  openPrintWindow("Propuesta de servicios de seguridad", body, {
     bodyClass: "quote-print",
     extraCss: quotePrintCss(),
   });
   if (typeof logActivity === "function") {
     logActivity(
       "quote_print",
-      `Cotización ${saved.modelId}: ${saved.clientName} · ${quoteShiftLabel(calc)} · ${calc.hoursPerDay}h/día · ${moneyRD(calc.total)}`
+      `Cotización ${saved.modelId || model?.id || ""}: ${saved.clientName} · ${quoteShiftLabel(calc)} · ${calc.hoursPerDay}h/día · ${moneyRD(calc.total)}`
     );
   }
   toast("Propuesta lista para imprimir o guardar PDF.");
