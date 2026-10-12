@@ -1461,16 +1461,52 @@ function queueCloudSave() {
 
 let cloudSavePending = false;
 
-async function mergeRemoteMessagesBeforeSave() {
-  if (!window.RFSCloudApi) return;
+async function mergeRemoteBundleBeforeSave() {
+  if (!window.RFSCloudApi) return true;
   try {
     const remote = await window.RFSCloudApi.loadCloud();
-    if (!remote || remote.empty) return;
-    if (Array.isArray(remote.messages)) {
+    if (!remote) return false;
+    if (!remote.empty && Array.isArray(remote.messages)) {
       chatMessages = mergeChatMessages(chatMessages, remote.messages.map(normalizeChatMessage));
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
     }
-  } catch (_) {}
+    if (remote.lva && typeof remote.lva === "object") {
+      applyRemoteLva(remote.lva);
+    }
+    if (typeof applyRemoteLoans === "function") {
+      applyRemoteLoans(remote.loans || [], remote.loanTrash || []);
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function mergeRemoteMessagesBeforeSave() {
+  return mergeRemoteBundleBeforeSave();
+}
+
+function cloudDepuracionPayload() {
+  return typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } };
+}
+
+async function saveCloudBundle() {
+  return window.RFSCloudApi.saveCloud(
+    posts,
+    reports,
+    employees,
+    loans,
+    monorrielReports,
+    appUsers,
+    chatMessages,
+    radioState,
+    activityLog,
+    lvaState,
+    pettyCash,
+    hrData,
+    cloudDepuracionPayload(),
+    typeof loanTrashIds !== "undefined" ? loanTrashIds : []
+  );
 }
 
 /** Subida dedicada del chat: no reescribe empleados/fotos y no borra mensajes ajenos */
@@ -1483,21 +1519,7 @@ async function pushMessagesToCloud() {
     await window.RFSCloudApi.saveMessages(chatMessages);
   } else {
     await mergeRemoteMessagesBeforeSave();
-    await window.RFSCloudApi.saveCloud(
-      posts,
-      reports,
-      employees,
-      loans,
-      monorrielReports,
-      appUsers,
-      chatMessages,
-      radioState,
-      activityLog,
-      lvaState,
-      pettyCash,
-      hrData,
-      typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } }
-    );
+    await saveCloudBundle();
   }
   cloudReady = true;
 }
@@ -1512,24 +1534,14 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
-    // Fusionar chat y La Vega remotos antes de guardar (evita borrar lo digitado en otra PC)
-    await mergeRemoteMessagesBeforeSave();
-    await mergeRemoteLvaBeforeSave();
-    await window.RFSCloudApi.saveCloud(
-      posts,
-      reports,
-      employees,
-      loans,
-      monorrielReports,
-      appUsers,
-      chatMessages,
-      radioState,
-      activityLog,
-      lvaState,
-      pettyCash,
-      hrData,
-      typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } }
-    );
+    // Una sola lectura remota: chat + La Vega + préstamos (evita borrar en otra PC y reduce 429)
+    const merged = await mergeRemoteBundleBeforeSave();
+    if (!merged) {
+      cloudSavePending = true;
+      setCloudStatus("Nube: esperando fusión (reintento)…");
+      return;
+    }
+    await saveCloudBundle();
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -1544,7 +1556,7 @@ async function pushToCloud() {
     cloudSaving = false;
     if (cloudSavePending) {
       cloudSavePending = false;
-      pushToCloud().catch(() => {});
+      setTimeout(() => pushToCloud().catch(() => {}), 2500);
     }
   }
 }
@@ -1568,23 +1580,12 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(
-        localPosts,
-        localReports,
-        employees,
-        localLoans,
-        localMono,
-        appUsers,
-        chatMessages,
-        radioState,
-        activityLog,
-        lvaState,
-        pettyCash,
-        hrData,
-        typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } }
-      );
+      await saveCloudBundle();
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+      if (typeof LOAN_TRASH_KEY !== "undefined") {
+        localStorage.setItem(LOAN_TRASH_KEY, JSON.stringify(loanTrashIds || []));
+      }
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
@@ -1604,9 +1605,13 @@ async function syncFromCloud() {
     posts = remote.posts.map(normalizePost);
     reports = Array.isArray(remote.reports) ? remote.reports : [];
     employees = Array.isArray(remote.employees) ? remote.employees.map(normalizeEmployee) : [];
-    // Si la nube aún no tiene préstamos/monorriel, conservar los locales
-    const remoteLoans = Array.isArray(remote.loans) ? remote.loans.map(normalizeLoan) : [];
-    loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
+    // Préstamos: fusionar por id + papelera de borrados (evita que reaparezcan)
+    if (typeof applyRemoteLoans === "function") {
+      applyRemoteLoans(remote.loans, remote.loanTrash);
+    } else {
+      const remoteLoans = Array.isArray(remote.loans) ? remote.loans.map(normalizeLoan) : [];
+      loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
+    }
     const remoteMono = Array.isArray(remote.monorrielReports) ? remote.monorrielReports.map(normalizeMonoReport) : [];
     monorrielReports = remoteMono.length ? remoteMono : localMono.map(normalizeMonoReport);
     const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
@@ -1656,6 +1661,9 @@ async function syncFromCloud() {
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+    if (typeof LOAN_TRASH_KEY !== "undefined") {
+      localStorage.setItem(LOAN_TRASH_KEY, JSON.stringify(loanTrashIds || []));
+    }
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
@@ -1668,7 +1676,8 @@ async function syncFromCloud() {
       localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
     }
     cloudReady = true;
-    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
+    const lvaCount = (lvaState.posts || []).filter((p) => p.active !== false).length;
+    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · LVA ${lvaCount} · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
   } catch (err) {
     console.error(err);
@@ -3592,6 +3601,7 @@ function shareWhatsApp() {
 
 /* ==== MÓDULO PRÉSTAMOS ==== */
 const LOANS_KEY = "rfs-ops-loans";
+const LOAN_TRASH_KEY = "rfs-ops-loan-trash";
 const LOAN_RATE_AUTH = "021112";
 const DEFAULT_LOAN_RATE = 0.1;
 const ADVANCE_PACKAGES = {
@@ -3601,9 +3611,50 @@ const ADVANCE_PACKAGES = {
 };
 
 let loans = [];
+let loanTrashIds = [];
 let selectedLoanId = null;
 let loanSelectedEmployeeId = null;
 let loanRateUnlocked = false;
+
+function normalizeLoanTrash(ids) {
+  return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 500);
+}
+
+function mergeLoanTrash(localIds, remoteIds) {
+  return normalizeLoanTrash([...(localIds || []), ...(remoteIds || [])]);
+}
+
+function mergeLoansById(localList, remoteList) {
+  const map = new Map();
+  [...(localList || []), ...(remoteList || [])].forEach((row) => {
+    if (!row) return;
+    const next = normalizeLoan(row);
+    if (!next.id) return;
+    const prev = map.get(next.id);
+    if (!prev || String(next.updatedAt || "") >= String(prev.updatedAt || "")) {
+      map.set(next.id, next);
+    }
+  });
+  return [...map.values()];
+}
+
+function persistLoanTrashLocal() {
+  loanTrashIds = normalizeLoanTrash(loanTrashIds);
+  localStorage.setItem(LOAN_TRASH_KEY, JSON.stringify(loanTrashIds));
+}
+
+function applyRemoteLoans(remoteLoans, remoteTrash) {
+  loanTrashIds = mergeLoanTrash(loanTrashIds, remoteTrash);
+  const remoteNorm = Array.isArray(remoteLoans) ? remoteLoans.map(normalizeLoan) : [];
+  loans = mergeLoansById(loans, remoteNorm).filter((l) => !loanTrashIds.includes(l.id));
+  localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+  persistLoanTrashLocal();
+  return true;
+}
+
+async function mergeRemoteLoansBeforeSave() {
+  return mergeRemoteBundleBeforeSave();
+}
 
 function roundMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -3740,7 +3791,9 @@ function refreshLoanDerived(loan) {
 }
 
 function saveLoans() {
+  loans = loans.filter((l) => l && l.id && !loanTrashIds.includes(l.id));
   localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+  persistLoanTrashLocal();
   queueCloudSave();
 }
 
@@ -4219,8 +4272,11 @@ function deleteSelectedLoan() {
   }
   const ok = window.confirm("Clave correcta. ¿Eliminar este préstamo? Esta acción no se puede deshacer.");
   if (!ok) return;
-  loans = loans.filter((l) => l.id !== selectedLoanId);
+  const deletedId = selectedLoanId;
+  loanTrashIds = mergeLoanTrash(loanTrashIds, [deletedId]);
+  loans = loans.filter((l) => l.id !== deletedId);
   selectedLoanId = null;
+  persistLoanTrashLocal();
   saveLoans();
   switchView("loansView");
   renderLoans();
@@ -5317,13 +5373,7 @@ function applyRemoteLva(remote) {
 }
 
 async function mergeRemoteLvaBeforeSave() {
-  if (!window.RFSCloudApi) return;
-  try {
-    const remote = await window.RFSCloudApi.loadCloud();
-    if (remote && remote.lva && typeof remote.lva === "object") {
-      applyRemoteLva(remote.lva);
-    }
-  } catch (_) {}
+  return mergeRemoteBundleBeforeSave();
 }
 
 function pushLvaHistory(action, detail) {
@@ -8525,6 +8575,7 @@ function exportBackup() {
     reports,
     employees,
     loans,
+    loanTrash: loanTrashIds,
     monorrielReports,
     users: appUsers,
     messages: chatMessages,
@@ -8603,14 +8654,12 @@ function restoreBackupMerge() {
         });
         employees = [...byKey.values()];
       }
+      if (Array.isArray(data.loanTrash)) {
+        loanTrashIds = mergeLoanTrash(loanTrashIds, data.loanTrash);
+        persistLoanTrashLocal();
+      }
       if (Array.isArray(data.loans)) {
-        const byId = new Map(loans.map((l) => [l.id, l]));
-        data.loans.map(normalizeLoan).forEach((incoming) => {
-          if (!byId.has(incoming.id)) {
-            loans.push(incoming);
-            byId.set(incoming.id, incoming);
-          }
-        });
+        applyRemoteLoans(data.loans, data.loanTrash || []);
       }
       if (Array.isArray(data.monorrielReports)) {
         const byId = new Map(monorrielReports.map((r) => [r.id, r]));
@@ -8697,7 +8746,11 @@ function restoreBackupReplace() {
       posts = data.posts.map(normalizePost);
       reports = Array.isArray(data.reports) ? data.reports : [];
       employees = Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [];
-      loans = Array.isArray(data.loans) ? data.loans.map(normalizeLoan) : [];
+      loanTrashIds = normalizeLoanTrash(data.loanTrash || []);
+      loans = (Array.isArray(data.loans) ? data.loans.map(normalizeLoan) : []).filter(
+        (l) => l && l.id && !loanTrashIds.includes(l.id)
+      );
+      persistLoanTrashLocal();
       monorrielReports = Array.isArray(data.monorrielReports) ? data.monorrielReports.map(normalizeMonoReport) : [];
       if (Array.isArray(data.users)) {
         appUsers = data.users.map(normalizeUser);
@@ -8992,7 +9045,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);
   reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS);
   employees = loadJson(EMPLOYEES_KEY, []).map(normalizeEmployee);
-  loans = loadJson(LOANS_KEY, []).map(normalizeLoan);
+  loanTrashIds = normalizeLoanTrash(loadJson(LOAN_TRASH_KEY, []));
+  loans = loadJson(LOANS_KEY, [])
+    .map(normalizeLoan)
+    .filter((l) => l && l.id && !loanTrashIds.includes(l.id));
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);

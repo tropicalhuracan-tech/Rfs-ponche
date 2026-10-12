@@ -153,6 +153,7 @@
       reports: parseArrayField(fields, "reportsJson"),
       employees: parseArrayField(fields, "employeesJson"),
       loans: parseArrayField(fields, "loansJson"),
+      loanTrash: parseArrayField(fields, "loanTrashJson"),
       monorrielReports: parseArrayField(fields, "monorrielReportsJson"),
       users: parseArrayField(fields, "usersJson"),
       messages: parseArrayField(fields, "messagesJson"),
@@ -395,6 +396,9 @@
         ? parseArrayField(employees, "employeesJson")
         : (legacy && legacy.employees) || [],
       loans: loans.loansJson ? parseArrayField(loans, "loansJson") : (legacy && legacy.loans) || [],
+      loanTrash: loans.loanTrashJson
+        ? parseArrayField(loans, "loanTrashJson")
+        : (legacy && legacy.loanTrash) || [],
       monorrielReports: parseArrayField(main, "monorrielReportsJson"),
       users: parseArrayField(main, "usersJson"),
       messages: parseArrayField(main, "messagesJson"),
@@ -468,6 +472,7 @@
         reports: [],
         employees: [],
         loans: [],
+        loanTrash: [],
         monorrielReports: [],
         users: [],
         messages: [],
@@ -524,7 +529,8 @@
     lva,
     pettyCash,
     hr,
-    depuracion
+    depuracion,
+    loanTrash
   ) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
 
@@ -540,6 +546,7 @@
     ]);
 
     const updatedAt = new Date().toISOString();
+    const trashIds = [...new Set((loanTrash || []).map(String).filter(Boolean))].slice(0, 500);
     const writes = [
       patchDoc(partPath("main"), {
         usersJson: { stringValue: JSON.stringify(users || []) },
@@ -569,6 +576,7 @@
       }),
       patchDoc(partPath("loans"), {
         loansJson: { stringValue: JSON.stringify(loans || []) },
+        loanTrashJson: { stringValue: JSON.stringify(trashIds) },
         updatedAt: { stringValue: updatedAt },
       }),
       patchDoc(partPath("activity"), {
