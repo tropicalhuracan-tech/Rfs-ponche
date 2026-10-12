@@ -1512,8 +1512,9 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
-    // Fusionar chat remoto antes de guardar el documento completo (evita borrar mensajes nuevos)
+    // Fusionar chat y La Vega remotos antes de guardar (evita borrar lo digitado en otra PC)
     await mergeRemoteMessagesBeforeSave();
+    await mergeRemoteLvaBeforeSave();
     await window.RFSCloudApi.saveCloud(
       posts,
       reports,
@@ -5221,7 +5222,9 @@ function normalizeLvaPost(p = {}) {
     id: p.id || `lva-post-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     name: String(p.name || "").trim(),
     note: String(p.note || "").trim(),
+    active: p.active === false ? false : true,
     createdAt: p.createdAt || new Date().toISOString(),
+    updatedAt: p.updatedAt || p.createdAt || new Date().toISOString(),
   };
 }
 
@@ -5260,6 +5263,21 @@ function normalizeLvaState(raw = {}) {
   };
 }
 
+function lvaStamp(row) {
+  return String((row && (row.updatedAt || row.createdAt || row.at)) || "");
+}
+
+function mergeLvaById(localList, remoteList, normalizeFn) {
+  const map = new Map();
+  [...(localList || []), ...(remoteList || [])].forEach((row) => {
+    if (!row || !row.id) return;
+    const next = normalizeFn(row);
+    const prev = map.get(next.id);
+    if (!prev || lvaStamp(next) >= lvaStamp(prev)) map.set(next.id, next);
+  });
+  return [...map.values()];
+}
+
 function saveLvaState(push = true) {
   lvaState = normalizeLvaState(lvaState);
   localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
@@ -5269,23 +5287,43 @@ function saveLvaState(push = true) {
 function applyRemoteLva(remote) {
   if (!remote || typeof remote !== "object") return false;
   const prev = JSON.stringify(lvaState);
+  const localNorm = normalizeLvaState(lvaState);
   const remoteNorm = normalizeLvaState(remote);
   const hasRemoteData = remoteNorm.posts.length || remoteNorm.staff.length || remoteNorm.history.length;
-  if (!hasRemoteData) return false;
+  const hasLocalData = localNorm.posts.length || localNorm.staff.length || localNorm.history.length;
+
+  // Nube vacía no debe borrar lo que ya digitaron en este equipo
+  if (!hasRemoteData) {
+    if (hasLocalData) {
+      // Forzar subida de lo local en el próximo guardado
+      queueCloudSave();
+    }
+    return false;
+  }
 
   const histMap = new Map();
-  [...(lvaState.history || []), ...(remoteNorm.history || [])].forEach((h) => {
+  [...(localNorm.history || []), ...(remoteNorm.history || [])].forEach((h) => {
     if (h && h.id) histMap.set(h.id, normalizeLvaHistory(h));
   });
 
-  // Puestos/empleados: la nube manda (todas las PCs ven lo mismo)
+  // Fusionar puestos y personal por id (gana el más reciente); no pisar a ciegas
   lvaState = normalizeLvaState({
-    posts: remoteNorm.posts,
-    staff: remoteNorm.staff,
+    posts: mergeLvaById(localNorm.posts, remoteNorm.posts, normalizeLvaPost),
+    staff: mergeLvaById(localNorm.staff, remoteNorm.staff, normalizeLvaStaff),
     history: [...histMap.values()],
   });
   localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
   return JSON.stringify(lvaState) !== prev;
+}
+
+async function mergeRemoteLvaBeforeSave() {
+  if (!window.RFSCloudApi) return;
+  try {
+    const remote = await window.RFSCloudApi.loadCloud();
+    if (remote && remote.lva && typeof remote.lva === "object") {
+      applyRemoteLva(remote.lva);
+    }
+  } catch (_) {}
 }
 
 function pushLvaHistory(action, detail) {
@@ -5358,6 +5396,7 @@ function fillLvaPostSelect() {
   sel.innerHTML =
     `<option value="">Selecciona puesto</option>` +
     lvaState.posts
+      .filter((p) => p.active !== false)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, "es"))
       .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`)
@@ -5369,6 +5408,7 @@ function renderLvaPosts() {
   const list = document.getElementById("lvaPostsList");
   if (!list) return;
   const rows = lvaState.posts
+    .filter((p) => p.active !== false)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "es"))
     .map((p) => {
@@ -5419,7 +5459,8 @@ function renderLvaStaff() {
   list.innerHTML = rows || `<p class="empty">No hay empleados en este proyecto todavía.</p>`;
   const summary = document.getElementById("lvaSummary");
   if (summary) {
-    summary.textContent = `${lvaState.posts.length} puestos · ${active.length} empleados en el proyecto`;
+    const activePosts = lvaState.posts.filter((p) => p.active !== false).length;
+    summary.textContent = `${activePosts} puestos · ${active.length} empleados en el proyecto`;
   }
   list.querySelectorAll(".btn-lva-del-staff").forEach((btn) => {
     btn.addEventListener("click", () => removeLvaStaff(btn.dataset.id));
@@ -5469,25 +5510,30 @@ function renderLvaModule() {
 }
 
 function addLvaPost() {
+  if (!canAccessModule("lavega")) {
+    toast("No tienes acceso a La Vega Autopista.");
+    return;
+  }
   const name = document.getElementById("lvaPostName").value.trim();
   const note = document.getElementById("lvaPostNote").value.trim();
   if (!name) {
     toast("Escribe el nombre del puesto.");
     return;
   }
-  const dup = lvaState.posts.find((p) => employeeKey(p.name) === employeeKey(name));
+  const dup = lvaState.posts.find((p) => p.active !== false && employeeKey(p.name) === employeeKey(name));
   if (dup) {
     toast("Ese puesto ya existe.");
     return;
   }
-  const post = normalizeLvaPost({ name, note });
+  const now = new Date().toISOString();
+  const post = normalizeLvaPost({ name, note, active: true, createdAt: now, updatedAt: now });
   lvaState.posts.push(post);
-  pushLvaHistory("Puesto agregado", post.name);
+  pushLvaHistory("Puesto agregado", `${post.name} · por ${currentUser ? currentUser.displayName || currentUser.username : "—"}`);
   document.getElementById("lvaPostName").value = "";
   document.getElementById("lvaPostNote").value = "";
   saveLvaState(true);
   renderLvaModule();
-  toast("Puesto agregado.");
+  toast("Puesto agregado. Se sincroniza con la nube.");
 }
 
 function removeLvaPost(postId) {
@@ -5500,13 +5546,18 @@ function removeLvaPost(postId) {
       : `¿Quitar el puesto "${post.name}"?`
   );
   if (!ok) return;
+  const now = new Date().toISOString();
   assigned.forEach((s) => {
     s.active = false;
-    s.updatedAt = new Date().toISOString();
+    s.updatedAt = now;
     if (s.employeeId) removeLvaSiteFromEmployee(s.employeeId);
     else removeLvaSiteFromEmployee(s.name);
   });
-  lvaState.posts = lvaState.posts.filter((p) => p.id !== postId);
+  // Baja lógica: así la nube no “revive” el puesto al sincronizar
+  const idx = lvaState.posts.findIndex((p) => p.id === postId);
+  if (idx >= 0) {
+    lvaState.posts[idx] = { ...lvaState.posts[idx], active: false, updatedAt: now };
+  }
   pushLvaHistory("Puesto quitado", `${post.name}${assigned.length ? ` (${assigned.length} empleados liberados)` : ""}`);
   saveEmployees();
   saveLvaState(true);
@@ -5516,8 +5567,8 @@ function removeLvaPost(postId) {
 }
 
 function addLvaStaff() {
-  if (!canWriteEmployees()) {
-    toast("No tienes permiso para crear empleados.");
+  if (!canAccessModule("lavega")) {
+    toast("No tienes acceso a La Vega Autopista.");
     return;
   }
   const name = document.getElementById("lvaStaffName").value.trim();
@@ -5549,6 +5600,7 @@ function addLvaStaff() {
     const msg = "Hay nombres parecidos en empleados:\n" + formatDupHint(similar) + "\n\n¿Agregar de todos modos a este proyecto?";
     if (!window.confirm(msg)) return;
   }
+  const now = new Date().toISOString();
   let staff = normalizeLvaStaff({
     name,
     postId,
@@ -5556,11 +5608,16 @@ function addLvaStaff() {
     phone,
     cedula,
     active: true,
+    createdAt: now,
+    updatedAt: now,
   });
   const emp = upsertEmployeeFromLva(staff);
   staff.employeeId = emp ? emp.id : "";
   lvaState.staff.push(staff);
-  pushLvaHistory("Empleado agregado", `${name} → ${postName}`);
+  pushLvaHistory(
+    "Empleado agregado",
+    `${name} → ${postName} · por ${currentUser ? currentUser.displayName || currentUser.username : "—"}`
+  );
   document.getElementById("lvaStaffName").value = "";
   document.getElementById("lvaStaffPhone").value = "";
   document.getElementById("lvaStaffCedula").value = "";
@@ -5568,7 +5625,7 @@ function addLvaStaff() {
   saveLvaState(true);
   renderEmployees();
   renderLvaModule();
-  toast("Empleado agregado al proyecto y a la lista general.");
+  toast("Empleado agregado. Se sincroniza con la nube.");
 }
 
 function removeLvaStaff(staffId) {
@@ -9027,7 +9084,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=69").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=70").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9043,7 +9100,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v69").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v70").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
