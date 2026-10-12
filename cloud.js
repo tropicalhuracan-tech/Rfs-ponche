@@ -74,7 +74,7 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function getDoc(path, retries = 4) {
+  async function getDoc(path, retries = 1) {
     let lastErr = null;
     for (let i = 0; i <= retries; i += 1) {
       try {
@@ -82,20 +82,21 @@
         if (res.status === 404) return null;
         if (res.status === 429) {
           lastErr = new Error(`cloud load ${path} 429`);
-          await sleep(Math.min(60000, 2000 * Math.pow(2, i)));
+          // Fallar rápido: no congelar el login con esperas largas
+          if (i < retries) await sleep(1500);
           continue;
         }
         if (!res.ok) throw new Error(`cloud load ${path} ${res.status}`);
         return res.json();
       } catch (err) {
         lastErr = err;
-        if (i < retries) await sleep(800 * (i + 1));
+        if (i < retries) await sleep(400);
       }
     }
     throw lastErr || new Error(`cloud load ${path} failed`);
   }
 
-  async function patchDoc(path, fields, fieldPaths, retries = 3) {
+  async function patchDoc(path, fields, fieldPaths, retries = 2) {
     let lastErr = null;
     for (let i = 0; i <= retries; i += 1) {
       try {
@@ -110,7 +111,7 @@
         });
         if (res.status === 429) {
           lastErr = new Error(`cloud save ${path} 429`);
-          await sleep(Math.min(60000, 2500 * Math.pow(2, i)));
+          if (i < retries) await sleep(2000 * (i + 1));
           continue;
         }
         if (!res.ok) {
@@ -121,10 +122,10 @@
       } catch (err) {
         lastErr = err;
         if (String(err && err.message).includes("429")) {
-          await sleep(Math.min(60000, 2500 * Math.pow(2, i)));
+          if (i < retries) await sleep(2000 * (i + 1));
           continue;
         }
-        if (i < retries) await sleep(800 * (i + 1));
+        if (i < retries) await sleep(400);
         else break;
       }
     }

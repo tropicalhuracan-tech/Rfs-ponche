@@ -3200,7 +3200,23 @@ function tryAppLogin() {
   const user = document.getElementById("loginUsername").value.trim().toLowerCase();
   const pass = document.getElementById("loginPassword").value;
   const error = document.getElementById("loginError");
-  const found = appUsers.find((u) => u.active && u.username === user && u.password === pass);
+  let found = appUsers.find((u) => u.active && u.username === user && u.password === pass);
+  // Rescate: si la nube falló y el dueño local quedó sin clave usable
+  if (!found && user === OWNER_USERNAME && pass === ADMIN_PASSWORD) {
+    ensureOwnerUser();
+    const owner = appUsers.find((u) => u.username === OWNER_USERNAME || u.role === "owner");
+    if (owner) {
+      owner.password = ADMIN_PASSWORD;
+      owner.active = true;
+      owner.role = "owner";
+      found = normalizeUser(owner);
+      const idx = appUsers.findIndex((u) => u.id === found.id || u.username === OWNER_USERNAME);
+      if (idx >= 0) appUsers[idx] = found;
+      else appUsers.unshift(found);
+      if (typeof saveUsers === "function") saveUsers();
+      else localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+    }
+  }
   if (!found) {
     if (error) error.hidden = false;
     toast("Usuario o clave incorrectos.");
@@ -9125,35 +9141,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "loginView"));
   }
 
-  // 1) Intentar nube primero
-  const cloud = await syncFromCloud();
-
-  // 2) Si la nube estaba vacía o falló, completar con importación Word (solo agregar faltantes)
-  const added = await mergeImportedPosts();
-  rebuildEmployeesFromPosts(employees);
-  if (added > 0) {
-    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
-    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
-    localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
-    localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
-    await pushToCloud();
-    toast(`Se importaron ${added} servicios y se subieron a la nube.`);
-  } else {
-    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
-    localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
-    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
-    localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
-    localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
-    // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length || chatMessages.length || radioState.streamUrl)) await pushToCloud();
-  }
-
+  // Login usable YA (no esperar la nube: si hay 429 la UI quedaba congelada)
   bindUi();
   if (typeof wireQuotesModule === "function") wireQuotesModule();
   setupInstallPrompt();
@@ -9161,7 +9149,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderGuardsEditor([emptyGuard()]);
   updateMonthPreview();
   ensureClientNumbers(true);
-  initMap();
+  try {
+    initMap();
+  } catch (_) {}
   renderShifts();
   fillReportPostSelect();
   renderReports();
@@ -9172,10 +9162,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyAccessControl();
   requireLoginOrContinue();
   refreshBiometricLoginUi();
-
-  if (cloud.usedCloud && !added && currentUser) {
-    toast("Datos sincronizados desde la nube.");
-  }
+  setCloudStatus("Nube: sincronizando en segundo plano…");
 
   if ("serviceWorker" in navigator) {
     let refreshing = false;
@@ -9184,7 +9171,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=70").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=73").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9197,11 +9184,58 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
       });
     }).catch(() => {});
-    // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v70").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v73").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
+
+  // Nube en segundo plano: no bloquea Entrar
+  (async () => {
+    try {
+      const cloud = await syncFromCloud();
+      const added = await mergeImportedPosts();
+      rebuildEmployeesFromPosts(employees);
+      localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+      localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+      localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+      localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+      localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+      localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+      localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+      localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
+      localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
+      if (added > 0) {
+        await pushToCloud();
+        toast(`Se importaron ${added} servicios y se subieron a la nube.`);
+      } else if (
+        cloud.usedCloud &&
+        (employees.length ||
+          loans.length ||
+          monorrielReports.length ||
+          appUsers.length ||
+          chatMessages.length ||
+          radioState.streamUrl ||
+          hasLocalLvaData())
+      ) {
+        await pushToCloud();
+      }
+      renderShifts();
+      renderEmployees();
+      renderLoans();
+      renderMonorrielHome();
+      renderFinance();
+      renderReports();
+      if (typeof renderLvaModule === "function") renderLvaModule();
+      applyAccessControl();
+      refreshBiometricLoginUi();
+      if (cloud.usedCloud && !added && currentUser) {
+        toast("Datos sincronizados desde la nube.");
+      }
+    } catch (err) {
+      console.error(err);
+      setCloudStatus("Nube: sin conexión (usando datos locales)");
+    }
+  })();
 });
