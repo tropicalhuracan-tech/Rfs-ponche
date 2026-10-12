@@ -2230,6 +2230,9 @@ function renderReports() {
             <button type="button" class="btn secondary btn-rep-dl" data-id="${escapeHtml(
               r.id
             )}" style="width:auto;padding:8px 10px;font-size:12px">Descargar</button>
+            <button type="button" class="btn danger btn-rep-del" data-id="${escapeHtml(
+              r.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Eliminar</button>
           </div>
         </article>`;
     })
@@ -2246,6 +2249,28 @@ function renderReports() {
   list.querySelectorAll(".btn-rep-dl").forEach((btn) => {
     btn.addEventListener("click", () => downloadIncidentReport(btn.dataset.id));
   });
+  list.querySelectorAll(".btn-rep-del").forEach((btn) => {
+    btn.addEventListener("click", () => deleteIncidentReport(btn.dataset.id));
+  });
+}
+
+function deleteIncidentReport(id) {
+  const report = getReportById(id);
+  if (!report) return;
+  const label = report.number || report.siteName || "este reporte";
+  if (!confirm(`¿Eliminar el reporte ${label}?`)) return;
+  reports = reports.filter((r) => r.id !== id);
+  saveReports();
+  renderReports();
+  if (typeof logActivity === "function") {
+    logActivity(
+      "report_delete",
+      `Reporte eliminado: ${report.number || id} · ${report.siteName || ""} · por ${
+        currentUser ? currentUser.displayName || currentUser.username : "—"
+      }`
+    );
+  }
+  toast("Reporte eliminado.");
 }
 
 function renderFinance() {
@@ -9002,7 +9027,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=68").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=67").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9018,7 +9043,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v68").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v67").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
