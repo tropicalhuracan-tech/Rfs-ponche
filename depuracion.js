@@ -11,6 +11,7 @@ const DEP_VERDICT = {
 const DEP_CHECKLIST_ITEMS = [
   { key: "cedulaCopy", label: "Copia / foto de cédula" },
   { key: "antecedentesDoc", label: "Certificado de no antecedentes (Procuraduría)" },
+  { key: "certnOk", label: "Certn: antecedentes penales RD" },
   { key: "referencesOk", label: "Referencias laborales / personales verificadas" },
   { key: "interviewOk", label: "Entrevista realizada" },
   { key: "consentOk", label: "Consentimiento firmado / aceptado" },
@@ -18,10 +19,92 @@ const DEP_CHECKLIST_ITEMS = [
   { key: "employerHistoryOk", label: "Historial de empleos / servicios revisado" },
 ];
 
+const CERTN_STATUS_LABELS = {
+  DRAFT: "Borrador",
+  CASE_ORDERED: "Caso ordenado",
+  INVITE_UNDELIVERABLE: "Invite no entregado",
+  APPLICANT_EXPIRED: "Invite vencido",
+  APPLICANT_INVITED: "Invite enviado",
+  APPLICANT_OPENED: "Candidato abrió el enlace",
+  APPLICANT_STARTED: "Candidato empezó el formulario",
+  APPLICANT_SUBMITTED: "Candidato envió datos",
+  IN_PROGRESS: "En proceso",
+  APPLICANT_ACTION_REQUIRED: "Acción del candidato",
+  CLIENT_ACTION_REQUIRED: "Acción de RFS / Certn",
+  IN_DISPUTE: "En disputa",
+  CANCELLED: "Cancelado",
+  COMPLETE: "Completo",
+};
+
+const CERTN_BASE_URLS = {
+  sandbox: "https://api.sandbox.certn.co",
+  ca: "https://api.ca.certn.co",
+  uk: "https://api.uk.certn.co",
+  au: "https://api.au.certn.co",
+};
+
 let depuracionData = { candidates: [], settings: {} };
 let selectedDepId = "";
 let depTab = "list";
 let pendingDepCedulaPhoto = null;
+
+
+function emptyDepCertn() {
+  return {
+    caseId: "",
+    status: "",
+    inviteLink: "",
+    orderedAt: "",
+    lastPolledAt: "",
+    email: "",
+    resultNote: "",
+    error: "",
+  };
+}
+
+function normalizeDepCertn(raw = {}) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    caseId: String(src.caseId || "").trim(),
+    status: String(src.status || "").trim(),
+    inviteLink: String(src.inviteLink || "").trim(),
+    orderedAt: src.orderedAt || "",
+    lastPolledAt: src.lastPolledAt || "",
+    email: String(src.email || "").trim(),
+    resultNote: String(src.resultNote || "").trim(),
+    error: String(src.error || "").trim(),
+  };
+}
+
+function emptyDepSettings() {
+  return {
+    certnApiKey: "",
+    certnUseSandbox: true,
+    certnRegion: "ca",
+  };
+}
+
+function normalizeDepSettings(raw = {}) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const region = ["ca", "uk", "au"].includes(src.certnRegion) ? src.certnRegion : "ca";
+  return {
+    certnApiKey: String(src.certnApiKey || "").trim(),
+    certnUseSandbox: src.certnUseSandbox !== false,
+    certnRegion: region,
+  };
+}
+
+function getCertnBaseUrl(settings) {
+  const s = normalizeDepSettings(settings || (depuracionData && depuracionData.settings) || {});
+  if (s.certnUseSandbox) return CERTN_BASE_URLS.sandbox;
+  return CERTN_BASE_URLS[s.certnRegion] || CERTN_BASE_URLS.ca;
+}
+
+function certnStatusLabel(status) {
+  const key = String(status || "").trim();
+  if (!key) return "Sin pedido";
+  return CERTN_STATUS_LABELS[key] || key;
+}
 
 function emptyDepChecklist() {
   const o = {};
@@ -54,6 +137,7 @@ function emptyDepCandidate() {
     fieldCheckNote: "",
     employerHistoryNote: "",
     riskFlagsNote: "",
+    certn: emptyDepCertn(),
     verdict: "pending",
     verdictNote: "",
     hrApplicationId: "",
@@ -108,6 +192,7 @@ function normalizeDepCandidate(c = {}) {
     fieldCheckNote: String(c.fieldCheckNote || "").trim(),
     employerHistoryNote: String(c.employerHistoryNote || "").trim(),
     riskFlagsNote: String(c.riskFlagsNote || "").trim(),
+    certn: normalizeDepCertn(c.certn),
     verdict,
     verdictNote: String(c.verdictNote || "").trim(),
     hrApplicationId: c.hrApplicationId || "",
@@ -118,13 +203,13 @@ function normalizeDepCandidate(c = {}) {
 }
 
 function emptyDepuracionData() {
-  return { candidates: [], settings: {} };
+  return { candidates: [], settings: emptyDepSettings() };
 }
 
 function normalizeDepuracionData(raw = {}) {
   return {
     candidates: Array.isArray(raw.candidates) ? raw.candidates.map(normalizeDepCandidate) : [],
-    settings: {},
+    settings: normalizeDepSettings(raw.settings),
   };
 }
 
@@ -143,9 +228,16 @@ function applyRemoteDepuracionData(remote) {
     const prev = map.get(c.id);
     if (!prev || String(c.updatedAt) > String(prev.updatedAt)) map.set(c.id, c);
   });
+  const localSettings = normalizeDepSettings(local.settings);
+  const remoteSettings = normalizeDepSettings(remoteNorm.settings);
+  const mergedSettings = {
+    ...localSettings,
+    ...remoteSettings,
+    certnApiKey: remoteSettings.certnApiKey || localSettings.certnApiKey,
+  };
   depuracionData = {
     candidates: [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
-    settings: {},
+    settings: normalizeDepSettings(mergedSettings),
   };
   localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
 }
@@ -277,6 +369,73 @@ function fillDepForm(c) {
         }`
       : "Pendiente de aceptación del candidato";
   }
+  renderDepCertnPanel(c);
+}
+
+function renderDepCertnSettings() {
+  const s = normalizeDepSettings(depuracionData.settings);
+  const keyEl = document.getElementById("depCertnApiKey");
+  const sandEl = document.getElementById("depCertnSandbox");
+  const regionEl = document.getElementById("depCertnRegion");
+  if (keyEl && document.activeElement !== keyEl) keyEl.value = s.certnApiKey || "";
+  if (sandEl) sandEl.checked = !!s.certnUseSandbox;
+  if (regionEl) regionEl.value = s.certnRegion || "ca";
+  if (regionEl) regionEl.disabled = !!s.certnUseSandbox;
+  const hint = document.getElementById("depCertnSettingsHint");
+  if (hint) {
+    const base = getCertnBaseUrl(s);
+    hint.textContent = s.certnApiKey
+      ? `API lista · ${base}`
+      : "Pega tu Api-Key de Certn (Client Portal → Integrations).";
+  }
+}
+
+function saveDepCertnSettingsFromForm() {
+  const prev = normalizeDepSettings(depuracionData.settings);
+  const keyEl = document.getElementById("depCertnApiKey");
+  const sandEl = document.getElementById("depCertnSandbox");
+  const regionEl = document.getElementById("depCertnRegion");
+  depuracionData.settings = normalizeDepSettings({
+    certnApiKey: keyEl ? keyEl.value : prev.certnApiKey,
+    certnUseSandbox: sandEl ? sandEl.checked : prev.certnUseSandbox,
+    certnRegion: regionEl ? regionEl.value : prev.certnRegion,
+  });
+  saveDepuracionData(true);
+  renderDepCertnSettings();
+  toast("Configuración Certn guardada.");
+}
+
+function renderDepCertnPanel(c) {
+  const statusEl = document.getElementById("depCertnStatus");
+  const metaEl = document.getElementById("depCertnMeta");
+  const linkEl = document.getElementById("depCertnInviteLink");
+  const linkWrap = document.getElementById("depCertnInviteWrap");
+  const errEl = document.getElementById("depCertnError");
+  const certn = normalizeDepCertn(c && c.certn);
+  if (statusEl) statusEl.textContent = certnStatusLabel(certn.status);
+  if (metaEl) {
+    const bits = [];
+    if (certn.caseId) bits.push(`Caso ${certn.caseId.slice(0, 8)}…`);
+    if (certn.orderedAt) bits.push(`pedido ${new Date(certn.orderedAt).toLocaleString("es")}`);
+    if (certn.lastPolledAt) bits.push(`actualizado ${new Date(certn.lastPolledAt).toLocaleString("es")}`);
+    if (certn.email) bits.push(certn.email);
+    metaEl.textContent = bits.length ? bits.join(" · ") : "Aún no se ha pedido el check a Certn.";
+  }
+  if (linkWrap && linkEl) {
+    if (certn.inviteLink) {
+      linkWrap.hidden = false;
+      linkEl.href = certn.inviteLink;
+      linkEl.textContent = certn.inviteLink;
+    } else {
+      linkWrap.hidden = true;
+      linkEl.removeAttribute("href");
+      linkEl.textContent = "";
+    }
+  }
+  if (errEl) {
+    errEl.hidden = !certn.error;
+    errEl.textContent = certn.error || "";
+  }
 }
 
 function readDepFormInto(c) {
@@ -316,6 +475,9 @@ function readDepFormInto(c) {
   c.checklist.consentOk = c.consentSigned;
   if (c.fieldCheckNote) c.checklist.fieldCheckOk = true;
   if (c.employerHistoryNote) c.checklist.employerHistoryOk = true;
+  if (c.certn && String(c.certn.status || "").toUpperCase() === "COMPLETE") {
+    c.checklist.certnOk = true;
+  }
   const refs = [];
   document.querySelectorAll(".dep-ref-name").forEach((el) => {
     const idx = Number(el.dataset.idx);
@@ -452,6 +614,7 @@ function renderDepList() {
       )}</p>
         <p><span class="caja-code-pill">${escapeHtml(DEP_VERDICT[c.verdict] || c.verdict)}</span>
           <span class="muted"> · Checklist ${checks}/${DEP_CHECKLIST_ITEMS.length}
+          ${c.certn && c.certn.status ? ` · Certn: ${escapeHtml(certnStatusLabel(c.certn.status))}` : ""}
           ${c.riskFlagsNote ? " · Con señales de riesgo" : ""}</span></p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-dep-open" data-id="${escapeHtml(
@@ -479,8 +642,9 @@ function renderDepuracionModule() {
   const aptos = rows.filter((c) => c.verdict === "apto").length;
   const pending = rows.filter((c) => c.verdict === "pending").length;
   if (summary) {
-    summary.textContent = `${rows.length} candidato(s) · ${pending} pendiente(s) · ${aptos} apto(s). Depuración interna RFS.`;
+    summary.textContent = `${rows.length} candidato(s) · ${pending} pendiente(s) · ${aptos} apto(s). Certn + depuración interna RFS.`;
   }
+  renderDepCertnSettings();
   if (depTab === "list") renderDepList();
   else if (selectedDepId && getDepCandidate(selectedDepId)) fillDepForm(getDepCandidate(selectedDepId));
 }
@@ -567,6 +731,10 @@ function printDepCandidateSheet() {
     <strong>Empleos previos:</strong> ${escapeHtml(c.employerHistoryNote || "—")}<br/>
     <strong>Señales de riesgo:</strong> ${escapeHtml(c.riskFlagsNote || "—")}</p>
     <p><strong>Antecedentes (nota):</strong> ${escapeHtml(c.antecedentesNote || "—")}</p>
+    <h3>Certn</h3>
+    <p>Estado: ${escapeHtml(certnStatusLabel(c.certn && c.certn.status))}<br/>
+    Caso: ${escapeHtml((c.certn && c.certn.caseId) || "—")}<br/>
+    ${escapeHtml((c.certn && c.certn.resultNote) || "")}</p>
     <h3>Veredicto</h3>
     <p><strong>${escapeHtml(DEP_VERDICT[c.verdict] || c.verdict)}</strong><br/>
     ${escapeHtml(c.verdictNote || "")}</p>
@@ -575,6 +743,196 @@ function printDepCandidateSheet() {
   `;
   if (typeof openPrintWindow === "function") {
     openPrintWindow(`Depuración — ${c.fullName || c.cedula}`, body);
+  }
+}
+
+
+async function certnApiFetch(path, options = {}) {
+  const settings = normalizeDepSettings(depuracionData.settings);
+  if (!settings.certnApiKey) {
+    throw new Error("Configura la Api-Key de Certn en la pestaña Lista.");
+  }
+  const base = getCertnBaseUrl(settings).replace(/\/$/, "");
+  const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: options.method || "GET",
+      headers: {
+        Authorization: `Api-Key ${settings.certnApiKey}`,
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    if (/Failed to fetch|NetworkError|CORS|Load failed/i.test(msg)) {
+      throw new Error(
+        "El navegador bloqueó la llamada a Certn (CORS). Pide a Certn que autorice el origen https://tropicalhuracan-tech.github.io o usa sandbox con origen permitido."
+      );
+    }
+    throw err;
+  }
+  let data = null;
+  const textBody = await res.text();
+  try {
+    data = textBody ? JSON.parse(textBody) : null;
+  } catch (_) {
+    data = { raw: textBody };
+  }
+  if (!res.ok) {
+    const detail =
+      (data && (data.detail || data.message || data.error)) ||
+      (data && data.non_field_errors && data.non_field_errors.join(", ")) ||
+      textBody.slice(0, 220) ||
+      res.statusText;
+    throw new Error(`Certn ${res.status}: ${detail}`);
+  }
+  return data;
+}
+
+function applyCertnCaseToCandidate(c, caseData, extra = {}) {
+  c.certn = normalizeDepCertn(c.certn);
+  if (caseData && caseData.id) c.certn.caseId = String(caseData.id);
+  if (caseData && caseData.overall_status) c.certn.status = String(caseData.overall_status);
+  else if (caseData && caseData.status) c.certn.status = String(caseData.status);
+  const invite =
+    (caseData && (caseData.invite_url || caseData.invite_link || caseData.application_url)) ||
+    extra.inviteLink ||
+    "";
+  if (invite) c.certn.inviteLink = String(invite);
+  if (extra.email) c.certn.email = String(extra.email);
+  if (extra.orderedAt) c.certn.orderedAt = extra.orderedAt;
+  c.certn.lastPolledAt = new Date().toISOString();
+  c.certn.error = "";
+  if (String(c.certn.status || "").toUpperCase() === "COMPLETE") {
+    c.checklist = normalizeDepChecklist(c.checklist);
+    c.checklist.certnOk = true;
+    if (!c.antecedentesNote) {
+      c.antecedentesNote = `Certn COMPLETE · caso ${c.certn.caseId || "—"} · ${new Date().toLocaleDateString("es")}`;
+    }
+  }
+  const checks = Array.isArray(caseData && caseData.checks) ? caseData.checks : [];
+  if (checks.length) {
+    const bits = checks.map((ch) => {
+      const t = ch.check_type || ch.type || "check";
+      const st = ch.status || ch.overall_status || "";
+      return `${t}: ${st}`;
+    });
+    c.certn.resultNote = bits.join(" · ").slice(0, 500);
+  }
+  c.updatedAt = new Date().toISOString();
+}
+
+async function orderCertnCriminalCheck() {
+  if (typeof canAccessDepuracion === "function" && !canAccessDepuracion()) {
+    toast("No tienes acceso a Depuración.");
+    return;
+  }
+  const c = getDepCandidate(selectedDepId);
+  if (!c) {
+    toast("Abre o crea un candidato.");
+    return;
+  }
+  readDepFormInto(c);
+  if (!c.consentSigned) {
+    toast("Marca el consentimiento antes de pedir Certn.");
+    return;
+  }
+  if (!c.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)) {
+    toast("Certn necesita el email del candidato para el invite.");
+    return;
+  }
+  if (!c.fullName) {
+    toast("Escribe el nombre del candidato.");
+    return;
+  }
+  if (c.certn && c.certn.caseId && !confirm("Ya hay un caso Certn. ¿Pedir otro?")) {
+    return;
+  }
+  const btn = document.getElementById("btnDepCertnOrder");
+  if (btn) btn.disabled = true;
+  try {
+    const body = {
+      email_address: c.email,
+      send_invite_email: true,
+      return_invite_link: true,
+      permissible_purpose: "EMPLOYMENT",
+      check_types_with_arguments: {
+        CRIMINAL_RECORD_REPORT_1: {
+          ordering_type: "EXPLICIT_ORDERING",
+          explicit_check_type: ["DO_CRIMINAL_RECORD_1"],
+        },
+        IDENTITY_VERIFICATION_1: {},
+      },
+    };
+    const data = await certnApiFetch("/api/public/cases/order/", { method: "POST", body });
+    applyCertnCaseToCandidate(c, data, {
+      email: c.email,
+      orderedAt: new Date().toISOString(),
+      inviteLink: data && (data.invite_url || data.invite_link || data.application_url),
+    });
+    saveDepuracionData(true);
+    fillDepForm(c);
+    if (typeof logActivity === "function") {
+      logActivity("dep_certn_order", `Certn invite: ${c.fullName} · ${c.email}`);
+    }
+    toast("Invite Certn enviado al email del candidato.");
+  } catch (err) {
+    c.certn = normalizeDepCertn(c.certn);
+    c.certn.error = String(err && err.message ? err.message : err);
+    c.updatedAt = new Date().toISOString();
+    saveDepuracionData(true);
+    renderDepCertnPanel(c);
+    toast(c.certn.error);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function pollCertnCriminalCheck() {
+  const c = getDepCandidate(selectedDepId);
+  if (!c) {
+    toast("Abre un candidato.");
+    return;
+  }
+  readDepFormInto(c);
+  c.certn = normalizeDepCertn(c.certn);
+  if (!c.certn.caseId) {
+    toast("Primero pide el check Certn.");
+    return;
+  }
+  const btn = document.getElementById("btnDepCertnPoll");
+  if (btn) btn.disabled = true;
+  try {
+    const data = await certnApiFetch(`/api/public/cases/${encodeURIComponent(c.certn.caseId)}/`);
+    applyCertnCaseToCandidate(c, data, { email: c.certn.email || c.email });
+    saveDepuracionData(true);
+    fillDepForm(c);
+    toast(`Certn: ${certnStatusLabel(c.certn.status)}`);
+  } catch (err) {
+    c.certn.error = String(err && err.message ? err.message : err);
+    c.updatedAt = new Date().toISOString();
+    saveDepuracionData(true);
+    renderDepCertnPanel(c);
+    toast(c.certn.error);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function copyCertnInviteLink() {
+  const c = getDepCandidate(selectedDepId);
+  if (!c || !c.certn || !c.certn.inviteLink) {
+    toast("No hay enlace de invite.");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(c.certn.inviteLink);
+    toast("Enlace copiado.");
+  } catch (_) {
+    prompt("Copia el enlace Certn:", c.certn.inviteLink);
   }
 }
 
@@ -602,6 +960,15 @@ function bindDepuracionUi() {
   document.getElementById("depCedula")?.addEventListener("input", (e) => {
     e.target.value = String(e.target.value || "").replace(/\D/g, "").slice(0, 11);
   });
+  document.getElementById("btnDepCertnSaveSettings")?.addEventListener("click", saveDepCertnSettingsFromForm);
+  document.getElementById("depCertnSandbox")?.addEventListener("change", () => {
+    const regionEl = document.getElementById("depCertnRegion");
+    const sandEl = document.getElementById("depCertnSandbox");
+    if (regionEl && sandEl) regionEl.disabled = !!sandEl.checked;
+  });
+  document.getElementById("btnDepCertnOrder")?.addEventListener("click", orderCertnCriminalCheck);
+  document.getElementById("btnDepCertnPoll")?.addEventListener("click", pollCertnCriminalCheck);
+  document.getElementById("btnDepCertnCopyLink")?.addEventListener("click", copyCertnInviteLink);
 }
 
 /* ==== FIN DEPURACIÓN ==== */
