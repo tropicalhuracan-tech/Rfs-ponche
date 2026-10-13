@@ -413,6 +413,11 @@ function isEmployeeActive(emp) {
 
 function applyMonorrielFlag(emp, isMono) {
   const out = normalizeEmployee(emp);
+  const keepLva =
+    typeof isLvaEmployee === "function"
+      ? isLvaEmployee(out)
+      : /\(la vega/i.test(out.name || "") ||
+        (out.sites || []).some((s) => /la vega/i.test(s || ""));
   let name = monoBaseName(out.name) || out.name;
   if (isMono) {
     name = monoDisplayName(name);
@@ -421,6 +426,11 @@ function applyMonorrielFlag(emp, isMono) {
   } else {
     out.sites = (out.sites || []).filter((s) => !/monorriel/i.test(s));
     out.roles = (out.roles || []).filter((r) => !/monorriel/i.test(r));
+    if (keepLva && typeof lvaDisplayName === "function") {
+      name = lvaDisplayName(name);
+      out.sites = [...new Set([...(out.sites || []), typeof LVA_SITE !== "undefined" ? LVA_SITE : "La Vega Autopista"])];
+      out.roles = [...new Set([...(out.roles || []), typeof LVA_SITE !== "undefined" ? LVA_SITE : "La Vega Autopista"])];
+    }
   }
   out.name = name;
   out.key = employeeKey(out.name);
@@ -1636,6 +1646,7 @@ async function syncFromCloud() {
     if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
+      ensureLvaEmployeesImported();
       ensureOwnerUser();
       await saveCloudBundle();
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
@@ -1727,6 +1738,7 @@ async function syncFromCloud() {
     }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
+    ensureLvaEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
@@ -5117,6 +5129,74 @@ function printMonorrielIndexSheet() {
     <p class="footer">Para imprimir un reporte completo, ábrelo y usa Imprimir en su detalle.</p>`);
 }
 
+function printLvaActiveSheet() {
+  if (!canAccessModule("lavega")) {
+    toast("No tienes acceso a La Vega Autopista.");
+    return;
+  }
+  ensureLvaEmployeesImported();
+  const active = (lvaState.staff || [])
+    .filter((s) => s && s.active !== false && (s.name || "").trim())
+    .slice()
+    .sort((a, b) => {
+      const pa = (a.postName || getLvaPostName(a.postId) || "").localeCompare(
+        b.postName || getLvaPostName(b.postId) || "",
+        "es"
+      );
+      if (pa !== 0) return pa;
+      return String(a.name || "").localeCompare(String(b.name || ""), "es");
+    });
+  const today = new Date().toLocaleDateString("es-DO", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const rows = active
+    .map((s, i) => {
+      const post = s.postName || getLvaPostName(s.postId) || "—";
+      const display = lvaDisplayName(s.name);
+      return `<tr>
+      <td class="right">${i + 1}</td>
+      <td>${escapeHtml(display)}</td>
+      <td>${escapeHtml(post)}</td>
+      <td>${escapeHtml(s.phone || "—")}</td>
+      <td>${escapeHtml(s.cedula || "—")}</td>
+    </tr>`;
+    })
+    .join("");
+  openPrintWindow("Lista activa — Autopista La Vega", `
+    <h2>Proyecto Autopista La Vega · Lista activa a la fecha</h2>
+    <div class="meta">
+      <div><strong>Fecha del reporte:</strong><br/>${escapeHtml(today)}</div>
+      <div><strong>Servicios / empleados activos:</strong><br/>${active.length}</div>
+      <div><strong>Empresa:</strong><br/>Reaction Force Security</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th class="right">#</th>
+          <th>Empleado</th>
+          <th>Puesto</th>
+          <th>Teléfono</th>
+          <th>Cédula</th>
+        </tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="5">Sin personal activo en el proyecto</td></tr>`}</tbody>
+    </table>
+    <div class="sign-box">
+      <div class="sign-line">Supervisión / Coordinación</div>
+      <div class="sign-line">Operaciones RFS</div>
+    </div>
+    <p class="footer">Documento interno · Personal activo del proyecto Autopista La Vega a la fecha indicada.</p>`, {
+      share: {
+        subject: "Lista activa Autopista La Vega — Reaction Force Security",
+        text: `Lista activa del proyecto Autopista La Vega (${active.length} servicios) — ${today}`,
+        fileName: `lista-activa-la-vega-${new Date().toISOString().slice(0, 10)}.pdf`,
+      },
+      autoPrint: false,
+    });
+}
+
 function printCurrentView() {
   const active = document.querySelector(".view.active");
   const id = active && active.id;
@@ -5132,6 +5212,7 @@ function printCurrentView() {
   }
   if (id === "monoReportDetailView") return printMonoReport();
   if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
+  if (id === "lvaView") return printLvaActiveSheet();
   if (id === "detailView") {
     const post = getPost(selectedId);
     if (!post) return toast("No hay ficha para imprimir.");
@@ -5151,7 +5232,7 @@ function printCurrentView() {
       <p><strong>Vigilantes:</strong> ${escapeHtml(guardsSummary(post))}</p>
       <p><strong>Nota:</strong> ${escapeHtml(post.note || "—")}</p>`);
   }
-  toast("Abre Clientes, Empleados, Préstamos, Finanzas o Monorriel para imprimir.");
+  toast("Abre Clientes, Empleados, Préstamos, Finanzas, Monorriel o La Vega para imprimir.");
 }
 
 function bindPrintUi() {
@@ -5165,6 +5246,8 @@ function bindPrintUi() {
     ["btnPrintLoanSheet", () => printLoanSheet()],
     ["btnPrintFinance", printFinanceSheet],
     ["btnPrintMonorrielList", printMonorrielIndexSheet],
+    ["btnPrintLvaList", printLvaActiveSheet],
+    ["btnPrintLvaRoster", printLvaActiveSheet],
   ];
   map.forEach(([id, fn]) => {
     const el = document.getElementById(id);
@@ -5224,6 +5307,7 @@ function monoDisplayName(baseName) {
 function monoBaseName(displayName) {
   return String(displayName || "")
     .replace(/\s*\(monorriel\)\s*$/i, "")
+    .replace(/\s*\(la vega(?: autopista)?\)\s*$/i, "")
     .trim();
 }
 
@@ -5980,18 +6064,59 @@ function pushLvaHistory(action, detail) {
   logActivity("lva_change", `${action}: ${detail}`);
 }
 
+const LVA_TAG = "La Vega";
+
+function lvaDisplayName(baseName) {
+  const raw = String(baseName || "").trim();
+  if (!raw) return "";
+  if (/\(la vega(?: autopista)?\)/i.test(raw)) return raw.replace(/\(la vega autopista\)/i, "(La Vega)");
+  return `${monoBaseName(raw)} (${LVA_TAG})`;
+}
+
+function lvaBaseName(displayName) {
+  return monoBaseName(displayName);
+}
+
+function isLvaEmployee(emp) {
+  if (!emp) return false;
+  if (/\(la vega/i.test(emp.name || "")) return true;
+  if ((emp.sites || []).some((s) => /la vega/i.test(s || ""))) return true;
+  if ((emp.roles || []).some((r) => /la vega/i.test(r || ""))) return true;
+  return false;
+}
+
+function applyLvaFlag(emp, isLva) {
+  const out = normalizeEmployee(emp);
+  const keepMono = /\(monorriel\)/i.test(out.name || "") || (out.sites || []).some((s) => /monorriel/i.test(s || ""));
+  let base = monoBaseName(out.name) || out.name;
+  if (isLva) {
+    if (!keepMono) out.name = lvaDisplayName(base);
+    out.sites = [...new Set([...(out.sites || []), LVA_SITE])];
+    out.roles = [...new Set([...(out.roles || []), LVA_SITE])];
+  } else {
+    out.sites = (out.sites || []).filter((s) => !/la vega/i.test(s || ""));
+    out.roles = (out.roles || []).filter((r) => !/la vega/i.test(r || ""));
+    out.name = keepMono ? monoDisplayName(base) : base;
+  }
+  out.key = employeeKey(out.name);
+  return out;
+}
+
 function upsertEmployeeFromLva(staff) {
-  const name = (staff.name || "").trim();
-  if (!name) return null;
-  const key = employeeKey(name);
-  const keyBase = employeeKey(monoBaseName(name));
+  const base = lvaBaseName((staff.name || "").trim());
+  if (!base) return null;
+  const display = lvaDisplayName(base);
+  const key = employeeKey(display);
+  const keyBase = employeeKey(base);
   let idx = employees.findIndex(
     (e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase
   );
   if (idx >= 0) {
     const cur = employees[idx];
+    const keepMono = /\(monorriel\)/i.test(cur.name || "");
     employees[idx] = normalizeEmployee({
       ...cur,
+      name: keepMono ? cur.name : display,
       phone: staff.phone || cur.phone,
       cedula: staff.cedula || cur.cedula,
       sites: [...new Set([...(cur.sites || []), LVA_SITE])],
@@ -6002,7 +6127,7 @@ function upsertEmployeeFromLva(staff) {
     return employees[idx];
   }
   const emp = normalizeEmployee({
-    name,
+    name: display,
     phone: staff.phone || "",
     cedula: staff.cedula || "",
     sites: [LVA_SITE],
@@ -6014,18 +6139,58 @@ function upsertEmployeeFromLva(staff) {
   return emp;
 }
 
+/** Sube el personal activo de La Vega a Empleados general con etiqueta (La Vega) */
+function ensureLvaEmployeesImported() {
+  const active = (lvaState.staff || []).filter((s) => s && s.active !== false && (s.name || "").trim());
+  if (!active.length) return { added: 0, changed: false, lvaTouched: false };
+  let added = 0;
+  let lvaTouched = false;
+  const beforeEmp = JSON.stringify(employees.map((e) => [e.id, e.name, e.phone, e.cedula, e.sites, e.roles]));
+  active.forEach((s) => {
+    const base = lvaBaseName(s.name);
+    const existed = employees.some(
+      (e) =>
+        employeeKey(monoBaseName(e.name)) === employeeKey(base) ||
+        employeeKey(e.name) === employeeKey(lvaDisplayName(base))
+    );
+    const emp = upsertEmployeeFromLva(s);
+    if (!emp) return;
+    if (s.employeeId !== emp.id) {
+      s.employeeId = emp.id;
+      lvaTouched = true;
+    }
+    const postName = s.postName || getLvaPostName(s.postId) || "";
+    if (postName && s.postName !== postName) {
+      s.postName = postName;
+      lvaTouched = true;
+    }
+    // Normalizar nombre en LVA sin la etiqueta (la etiqueta vive en Empleados)
+    const clean = lvaBaseName(s.name);
+    if (clean && s.name !== clean) {
+      s.name = clean;
+      lvaTouched = true;
+    }
+    if (!existed) added += 1;
+  });
+  const afterEmp = JSON.stringify(employees.map((e) => [e.id, e.name, e.phone, e.cedula, e.sites, e.roles]));
+  const changed = beforeEmp !== afterEmp;
+  if (changed) {
+    employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
+    saveEmployees();
+  }
+  return { added, changed, lvaTouched };
+}
+
 function removeLvaSiteFromEmployee(employeeIdOrName) {
   const idx = employees.findIndex(
-    (e) => e.id === employeeIdOrName || employeeKey(e.name) === employeeKey(employeeIdOrName)
+    (e) =>
+      e.id === employeeIdOrName ||
+      employeeKey(e.name) === employeeKey(employeeIdOrName) ||
+      employeeKey(monoBaseName(e.name)) === employeeKey(monoBaseName(employeeIdOrName))
   );
   if (idx < 0) return;
-  const cur = employees[idx];
-  employees[idx] = normalizeEmployee({
-    ...cur,
-    sites: (cur.sites || []).filter((s) => s !== LVA_SITE),
-    roles: (cur.roles || []).filter((r) => r !== LVA_SITE),
-    updatedAt: new Date().toISOString(),
-  });
+  employees[idx] = applyLvaFlag(employees[idx], false);
+  employees[idx].updatedAt = new Date().toISOString();
 }
 
 function getLvaPostName(postId) {
@@ -6160,7 +6325,12 @@ function renderLvaHistory() {
 function renderLvaModule() {
   if (!canAccessModule("lavega")) return;
   const pruned = pruneEmptyLvaPosts(false);
-  if (pruned) saveLvaState(true);
+  const imported = ensureLvaEmployeesImported();
+  if (pruned || (imported && imported.lvaTouched)) saveLvaState(true);
+  if (imported && imported.added) {
+    toast(`${imported.added} empleado(s) de La Vega subidos a Empleados con etiqueta (La Vega).`);
+    if (typeof renderEmployees === "function") renderEmployees();
+  }
   fillLvaPostSelect();
   renderLvaStaff();
   renderLvaHistory();
@@ -9345,6 +9515,7 @@ function restoreBackupMerge() {
         saveContabilidadData(true);
       }
       ensureMonorrielEmployeesImported();
+    ensureLvaEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
@@ -9428,6 +9599,7 @@ function restoreBackupReplace() {
       }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
+    ensureLvaEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
@@ -9726,6 +9898,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
+    ensureLvaEmployeesImported();
   restoreSessionUser();
   applyAccessControl();
   if (!currentUser) {
@@ -9763,7 +9936,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=82").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=83").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9778,7 +9951,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v82").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v83").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

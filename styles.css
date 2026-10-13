@@ -2306,3 +2306,8 @@ body.lightbox-open {
     flex-wrap: wrap;
   }
 }
+
+#lvaView .lva-print-btn {
+  width: 100%;
+  margin-top: 12px;
+}
