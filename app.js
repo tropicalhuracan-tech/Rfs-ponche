@@ -2049,20 +2049,51 @@ function nextIncidentReportNumber(type) {
   return `${prefix}-${day}-${String(sameDay).padStart(3, "0")}`;
 }
 
-/** Redacta un informe ejecutivo claro a partir de las notas del operador */
-function polishExecutiveNarrative(rawText, ctx = {}) {
-  let notes = String(rawText || "")
+/** Limpia muletillas / dictado oral sin usar el texto crudo en el informe al cliente */
+function sanitizeOperatorNotes(rawText) {
+  let t = String(rawText || "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!notes) return "";
-  if (!/[.!?…]$/.test(notes)) notes += ".";
-  notes = notes.charAt(0).toUpperCase() + notes.slice(1);
+  if (!t) return "";
+  t = t
+    .replace(/\b(este|esta|eh|ah|em+|mmm+|o sea|digamos|bueno|entonces pues|tipo que)\b/gi, " ")
+    .replace(/\b(okey|okay|ok)\b/gi, "de acuerdo")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Pasar primera persona informal a tercera (aprox.)
+  t = t
+    .replace(/\byo (vi|vine|llegué|llamé|avisé|quedé|estaba)\b/gi, "el personal $1")
+    .replace(/\bme (dijeron|avisaron|llamaron)\b/gi, "se $1 al personal")
+    .replace(/\bnosotros\b/gi, "el equipo de seguridad");
+  if (!/[.!?…]$/.test(t)) t += ".";
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  return t;
+}
+
+/** Parte los hechos en oraciones útiles para redactar, sin citar el narrado tal cual */
+function splitFactSentences(text) {
+  return String(text || "")
+    .split(/(?<=[.!?…])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 3);
+}
+
+/** Redacta un informe ejecutivo amplio; no transcribe el narrado de forma directa */
+function polishExecutiveNarrative(rawText, ctx = {}) {
+  const notesPlain = String(rawText || "").replace(/\s+/g, " ").trim();
+  const cleaned = sanitizeOperatorNotes(notesPlain);
+  if (!cleaned) return "";
 
   const site = ctx.site || "el puesto asignado";
   const type = ctx.type || "novedad";
   const when = ctx.whenLabel || new Date().toLocaleString("es");
   const guards = ctx.guards || "el personal de seguridad asignado";
   const number = ctx.number || "";
+  const facts = splitFactSentences(cleaned);
+  const factBlock =
+    facts.length > 1
+      ? facts.map((f, i) => `(${i + 1}) ${f}`).join(" ")
+      : cleaned;
 
   const titleLine =
     type === "incidente"
@@ -2073,72 +2104,85 @@ function polishExecutiveNarrative(rawText, ctx = {}) {
 
   const opening =
     type === "incidente"
-      ? `Por medio del presente, ${reportCompany().name} informa a ustedes sobre un incidente registrado en el servicio de seguridad privada correspondiente a <strong>${escapeHtml(
+      ? `Por medio del presente, ${reportCompany().name} informa a ustedes, de manera formal y para los fines correspondientes, sobre un incidente registrado en el servicio de seguridad privada correspondiente a <strong>${escapeHtml(
           site
-        )}</strong>, el día <strong>${escapeHtml(when)}</strong>.`
+        )}</strong>, ocurrido / reportado el día <strong>${escapeHtml(
+          when
+        )}</strong>. El propósito de este documento es dejar constancia clara de los hechos, las acciones tomadas por el personal en sitio y el estado del servicio tras la intervención.`
       : type === "checkin"
         ? `Por medio del presente, ${reportCompany().name} deja constancia de la supervisión / check-in realizado en <strong>${escapeHtml(
             site
-          )}</strong>, el día <strong>${escapeHtml(when)}</strong>.`
+          )}</strong>, el día <strong>${escapeHtml(
+            when
+          )}</strong>, como parte del seguimiento operativo del servicio contratado.`
         : `Por medio del presente, ${reportCompany().name} comunica una novedad operativa en el servicio de <strong>${escapeHtml(
             site
-          )}</strong>, registrada el día <strong>${escapeHtml(when)}</strong>.`;
+          )}</strong>, registrada el día <strong>${escapeHtml(
+            when
+          )}</strong>, a fin de mantener informado al cliente y asegurar la continuidad del control preventivo.`;
 
-  const body =
-    type === "incidente"
-      ? `Según el reporte del personal en sitio (${escapeHtml(
-          guards
-        )}), los hechos se describen de la siguiente manera: ${escapeHtml(
-          notes
-        )} Nuestro equipo actuó conforme a los protocolos de seguridad, priorizando la protección de personas, instalaciones y activos del cliente, y mantuvo el control de la situación.`
-      : `El personal asignado (${escapeHtml(
-          guards
-        )}) reportó lo siguiente: ${escapeHtml(
-          notes
-        )} La información queda registrada para el seguimiento del servicio y la coordinación con el cliente.`;
+  let body = "";
+  if (type === "incidente") {
+    body =
+      `<p>Con base en la información consolidada del personal en sitio (<strong>${escapeHtml(
+        guards
+      )}</strong>), se establece el siguiente relato ejecutivo de los hechos, redactado para su comprensión y archivo (no constituye una transcripción literal del relato oral):</p>` +
+      `<p>${escapeHtml(factBlock)}</p>` +
+      `<p>Ante lo ocurrido, el personal de Reaction Force Security procedió conforme a los protocolos vigentes: contención y verificación en el área, comunicación con supervisión cuando correspondió, y priorización de la protección de personas, instalaciones y activos del cliente. Se mantuvo vigilancia reforzada en el punto hasta estabilizar la situación.</p>` +
+      `<p>Al cierre de esta intervención, el servicio permanece bajo control operativo. Cualquier seguimiento adicional, evidencia complementaria o coordinación con autoridades / administración del cliente se realizará según las indicaciones que ustedes dispongan.</p>`;
+  } else if (type === "checkin") {
+    body =
+      `<p>Durante la supervisión en <strong>${escapeHtml(
+        site
+      )}</strong>, a cargo de / con participación de <strong>${escapeHtml(
+        guards
+      )}</strong>, se verificó el estado del puesto y se consolidó la siguiente información operativa:</p>` +
+      `<p>${escapeHtml(factBlock)}</p>` +
+      `<p>La visita deja registro del cumplimiento de rutinas de seguridad, presencia del personal asignado y condiciones generales del servicio al momento de la supervisión. Las observaciones quedan disponibles para el seguimiento interno y la coordinación con el cliente.</p>`;
+  } else {
+    body =
+      `<p>El personal asignado (<strong>${escapeHtml(
+        guards
+      )}</strong>) reportó una novedad del turno. A continuación se resume de forma ejecutiva lo acontecido, sin reproducir el relato hablado palabra por palabra:</p>` +
+      `<p>${escapeHtml(factBlock)}</p>` +
+      `<p>La novedad queda documentada para el control del servicio, la continuidad operativa y la comunicación oportuna con el cliente. El personal mantiene las medidas preventivas habituales en el puesto.</p>`;
+  }
 
   const closing =
     type === "incidente"
       ? `Reaction Force Security permanece atenta a cualquier indicación adicional de su parte y reitera su compromiso de brindar un servicio profesional, preventivo y transparente. Este documento constituye el ${escapeHtml(
           titleLine.toLowerCase()
-        )}${number ? ` N.º <strong>${escapeHtml(number)}</strong>` : ""} para su conocimiento y archivo.`
-      : `Quedamos a disposición para ampliar cualquier detalle. Documento de referencia${
+        )}${number ? ` N.º <strong>${escapeHtml(number)}</strong>` : ""} para su conocimiento, evaluación y archivo. Para ampliaciones, favor contactar a Supervisión / Operaciones.`
+      : `Quedamos a disposición para ampliar cualquier detalle que requieran. Este documento de referencia${
           number ? ` N.º <strong>${escapeHtml(number)}</strong>` : ""
-        }.`;
+        } forma parte del expediente operativo del servicio. Contacto de Supervisión / Operaciones disponible en el pie de este informe.`;
 
-  return { titleLine, opening, body, closing, notesPlain: notes };
+  return { titleLine, opening, body, closing, notesPlain };
 }
 
 function buildIncidentReportHtml(report, post) {
   const co = reportCompany();
   const site = post ? post.site : report.siteName || "Puesto";
   const guards = post ? guardsSummary(post) : report.guardsLabel || "—";
-  const polished =
-    report.narrativeHtml ||
-    (() => {
-      const p = polishExecutiveNarrative(report.text, {
-        site,
-        type: report.type,
-        whenLabel: report.whenLabel,
-        guards,
-        number: report.number,
-      });
-      return p;
-    })();
+  // Siempre regenerar: el narrado no se transcribe literal; evita cache viejo con notas crudas
   const parts =
-    typeof polished === "object"
-      ? polished
-      : polishExecutiveNarrative(report.text, {
-          site,
-          type: report.type,
-          whenLabel: report.whenLabel,
-          guards,
-          number: report.number,
-        });
+    polishExecutiveNarrative(report.text, {
+      site,
+      type: report.type,
+      whenLabel: report.whenLabel,
+      guards,
+      number: report.number,
+    }) || {
+      titleLine: "Reporte",
+      opening: "",
+      body: "",
+      closing: "",
+      notesPlain: report.text || "",
+    };
   const photo = report.photo
-    ? `<div style="margin:16px 0"><p><strong>Evidencia fotográfica (opcional adjunta)</strong></p>
+    ? `<div style="margin:16px 0">
        <img src="${report.photo}" alt="Evidencia" style="max-width:100%;max-height:360px;border:1px solid #ccc;border-radius:8px" /></div>`
-    : `<p class="muted" style="font-size:11px;color:#666">Sin evidencia fotográfica adjunta.</p>`;
+    : `<p class="muted" style="font-size:11px;color:#666">Sin evidencia fotográfica. La descripción narrativa es suficiente para este informe.</p>`;
   const creator = report.createdBy ? `<p style="font-size:11px;color:#666">Elaborado en sistema por: ${escapeHtml(report.createdBy)}</p>` : "";
 
   return `
@@ -2171,14 +2215,10 @@ function buildIncidentReportHtml(report, post) {
       <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">1. Presentación</h3>
       <p>${parts.opening}</p>
       <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">2. Descripción de los hechos</h3>
-      <p>${parts.body}</p>
-      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">3. Notas del operador (origen)</h3>
-      <p style="background:#f7f7f7;border-left:4px solid #999;padding:10px;font-size:12px">${escapeHtml(
-        report.text || parts.notesPlain || ""
-      )}</p>
-      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">4. Evidencia</h3>
+      <div>${parts.body}</div>
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">3. Evidencia fotográfica</h3>
       ${photo}
-      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">5. Cierre</h3>
+      <h3 style="border-left:4px solid #d41414;padding-left:10px;margin:16px 0 8px">4. Cierre</h3>
       <p>${parts.closing}</p>
       <p style="margin-top:18px;padding:10px 12px;background:#0b0b0c;color:#fff;border-left:5px solid #d41414;border-radius:8px">
         <strong style="color:#d41414">Contacto:</strong> ${escapeHtml(co.phones || "")} · ${escapeHtml(co.email || "")}
@@ -2217,8 +2257,11 @@ function buildIncidentShareText(report, post) {
       .replace(/<[^>]+>/g, "")
       .replace(/&nbsp;/g, " ")}\n\n` +
     `${String(narrative.body || "")
+      .replace(/<\/p>/gi, "\n\n")
       .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")}\n\n` +
+      .replace(/&nbsp;/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()}\n\n` +
     `${String(narrative.closing || "")
       .replace(/<[^>]+>/g, "")
       .replace(/&nbsp;/g, " ")}\n\n` +
@@ -2349,6 +2392,13 @@ function renderReports() {
             <button type="button" class="btn secondary btn-rep-dl" data-id="${escapeHtml(
               r.id
             )}" style="width:auto;padding:8px 10px;font-size:12px">Descargar</button>
+            ${
+              r.photo
+                ? `<button type="button" class="btn ghost btn-rep-del-photo" data-id="${escapeHtml(
+                    r.id
+                  )}" style="width:auto;padding:8px 10px;font-size:12px">Quitar foto</button>`
+                : ""
+            }
             <button type="button" class="btn danger btn-rep-del" data-id="${escapeHtml(
               r.id
             )}" style="width:auto;padding:8px 10px;font-size:12px">Eliminar</button>
@@ -2368,9 +2418,35 @@ function renderReports() {
   list.querySelectorAll(".btn-rep-dl").forEach((btn) => {
     btn.addEventListener("click", () => downloadIncidentReport(btn.dataset.id));
   });
+  list.querySelectorAll(".btn-rep-del-photo").forEach((btn) => {
+    btn.addEventListener("click", () => removeReportPhoto(btn.dataset.id));
+  });
   list.querySelectorAll(".btn-rep-del").forEach((btn) => {
     btn.addEventListener("click", () => deleteIncidentReport(btn.dataset.id));
   });
+}
+
+function removeReportPhoto(id) {
+  const report = getReportById(id);
+  if (!report) return;
+  if (!report.photo) {
+    toast("Este reporte no tiene foto.");
+    return;
+  }
+  const label = report.number || report.siteName || "este reporte";
+  if (!confirm(`¿Quitar la foto del reporte ${label}? El informe escrito se mantiene.`)) return;
+  report.photo = "";
+  saveReports();
+  renderReports();
+  if (typeof logActivity === "function") {
+    logActivity(
+      "report_photo_delete",
+      `Foto quitada del reporte ${report.number || id} · por ${
+        currentUser ? currentUser.displayName || currentUser.username : "—"
+      }`
+    );
+  }
+  toast("Foto eliminada del reporte.");
 }
 
 function deleteIncidentReport(id) {
@@ -9308,7 +9384,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=78").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=79").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9323,7 +9399,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v78").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v79").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

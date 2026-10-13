@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=78" />
+  <link rel="stylesheet" href="styles.css?v=79" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=78" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=79" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=78" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=79" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=78" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=79" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v78 · Contabilidad</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v79 · Reportes</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -130,11 +130,11 @@
             <option value="checkin">Check-in / supervisión</option>
           </select>
         </label>
-        <label>Detalle (en tus palabras)
-          <textarea id="reportText" rows="4" placeholder="Ej.: A las 2:10 am un desconocido intentó entrar por la reja lateral; el vigilante lo detuvo, se llamó al supervisor y la situación quedó controlada…"></textarea>
+        <label>Detalle de lo ocurrido (explica con calma)
+          <textarea id="reportText" rows="7" placeholder="Cuenta qué pasó, a qué hora aprox., quién intervino, qué se hizo y cómo quedó el puesto. Ejemplo: Cerca de las 2:10 am una persona intentó entrar por la reja lateral. El vigilante lo detuvo, avisó al supervisor y se reforzó el área. La situación quedó controlada y no hubo daños."></textarea>
         </label>
-        <p class="muted tight">No hace falta redactar formal: a partir de este texto se arma el informe corporativo para el cliente.</p>
-        <label class="photo-label">Foto (opcional)<input id="reportPhoto" type="file" accept="image/*" capture="environment" /></label>
+        <p class="muted tight">Escribe con tus palabras de forma un poco más completa (qué, cuándo, acciones y resultado). El sistema lo convierte en informe formal para el cliente: <strong>no se pega el narrado tal cual</strong>. La foto es opcional; si no hay foto, la explicación basta.</p>
+        <label class="photo-label">Foto (opcional — no es obligatoria)<input id="reportPhoto" type="file" accept="image/*" capture="environment" /></label>
         <div id="photoPreviewWrap" class="photo-preview" hidden>
           <img id="photoPreview" alt="Vista previa" />
           <button id="btnClearPhoto" class="btn ghost" type="button">Quitar foto</button>
@@ -1684,13 +1684,13 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=78"></script>
-  <script src="monorriel-data.js?v=78"></script>
-  <script src="cloud.js?v=78"></script>
-  <script src="hr.js?v=78"></script>
-  <script src="depuracion.js?v=78"></script>
-  <script src="contabilidad.js?v=78"></script>
-  <script src="quotes.js?v=78"></script>
-  <script src="app.js?v=78"></script>
+  <script src="cloud-config.js?v=79"></script>
+  <script src="monorriel-data.js?v=79"></script>
+  <script src="cloud.js?v=79"></script>
+  <script src="hr.js?v=79"></script>
+  <script src="depuracion.js?v=79"></script>
+  <script src="contabilidad.js?v=79"></script>
+  <script src="quotes.js?v=79"></script>
+  <script src="app.js?v=79"></script>
 </body>
 </html>
