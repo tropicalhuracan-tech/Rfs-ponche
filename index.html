@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=76" />
+  <link rel="stylesheet" href="styles.css?v=77" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=76" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=77" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=76" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=77" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=76" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=77" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v76 · Certn depuración</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v77 · Depuración sin Certn</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -783,7 +783,7 @@
       <div class="section-head section-head-row">
         <div>
           <h1>Depuración de candidatos</h1>
-          <p id="depSummary">Certn antecedentes RD + checklist interno, referencias y veredicto.</p>
+          <p id="depSummary">Depuración interna: cédula, consentimiento, checklist, CNAP, referencias y veredicto.</p>
         </div>
       </div>
 
@@ -799,26 +799,6 @@
           <label class="search-label">Buscar
             <input id="depSearch" type="search" placeholder="Nombre, cédula, teléfono o veredicto" />
           </label>
-        </div>
-        <div class="form-card">
-          <h2>Certn (API)</h2>
-          <p class="muted tight">Antecedentes penales RD vía invite al candidato (<code>DO_CRIMINAL_RECORD_1</code>). La llave queda en este dispositivo / nube RFS.</p>
-          <label>Api-Key Certn
-            <input id="depCertnApiKey" type="password" autocomplete="off" placeholder="Pegar Api-Key del Client Portal" />
-          </label>
-          <label class="check-row dep-check-row">
-            <input id="depCertnSandbox" type="checkbox" checked />
-            <span>Usar sandbox (pruebas, sin cobro real)</span>
-          </label>
-          <label>Región producción
-            <select id="depCertnRegion">
-              <option value="ca">Norteamérica (api.ca.certn.co)</option>
-              <option value="uk">UK / EMEA (api.uk.certn.co)</option>
-              <option value="au">Asia-Pacífico (api.au.certn.co)</option>
-            </select>
-          </label>
-          <p class="muted tight" id="depCertnSettingsHint">Pega tu Api-Key de Certn (Client Portal → Integrations).</p>
-          <button id="btnDepCertnSaveSettings" class="btn secondary" type="button" style="width:auto;margin-top:8px">Guardar Certn</button>
         </div>
         <div id="depCandidateList" class="card-list"></div>
       </div>
@@ -893,24 +873,7 @@
         </div>
 
         <div class="form-card">
-          <h2>6. Certn — antecedentes penales RD</h2>
-          <p class="muted tight">Envía un invite al email del candidato. Él completa el formulario seguro en Certn (incluye verificación de identidad). Requiere consentimiento marcado y Api-Key configurada en Lista.</p>
-          <p><strong>Estado:</strong> <span id="depCertnStatus">Sin pedido</span></p>
-          <p class="muted tight" id="depCertnMeta">Aún no se ha pedido el check a Certn.</p>
-          <p id="depCertnError" class="muted tight" hidden style="color:#c45c26"></p>
-          <div id="depCertnInviteWrap" hidden style="margin:8px 0">
-            <p class="muted tight">Enlace invite</p>
-            <a id="depCertnInviteLink" href="#" target="_blank" rel="noopener noreferrer" style="word-break:break-all"></a>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-            <button id="btnDepCertnOrder" class="btn primary" type="button" style="width:auto">Pedir check Certn</button>
-            <button id="btnDepCertnPoll" class="btn secondary" type="button" style="width:auto">Actualizar estado</button>
-            <button id="btnDepCertnCopyLink" class="btn ghost" type="button" style="width:auto">Copiar enlace</button>
-          </div>
-        </div>
-
-        <div class="form-card">
-          <h2>7. Verificación operativa (interna)</h2>
+          <h2>6. Verificación operativa (interna)</h2>
           <p class="muted tight">Lo que realmente importa para RFS: indagación, zona, empleos previos y señales de riesgo. Llénalo a mano según su proceso.</p>
           <label>Indagación / visita / zona
             <textarea id="depFieldCheckNote" rows="2" placeholder="Ej. Se habló con vecinos · supervisor del sector · resultado…"></textarea>
@@ -924,7 +887,7 @@
         </div>
 
         <div class="form-card">
-          <h2>8. Veredicto</h2>
+          <h2>7. Veredicto</h2>
           <label>Resultado
             <select id="depVerdict">
               <option value="pending">Pendiente</option>
@@ -1601,12 +1564,12 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=76"></script>
-  <script src="monorriel-data.js?v=76"></script>
-  <script src="cloud.js?v=76"></script>
-  <script src="hr.js?v=76"></script>
-  <script src="depuracion.js?v=76"></script>
-  <script src="quotes.js?v=76"></script>
-  <script src="app.js?v=76"></script>
+  <script src="cloud-config.js?v=77"></script>
+  <script src="monorriel-data.js?v=77"></script>
+  <script src="cloud.js?v=77"></script>
+  <script src="hr.js?v=77"></script>
+  <script src="depuracion.js?v=77"></script>
+  <script src="quotes.js?v=77"></script>
+  <script src="app.js?v=77"></script>
 </body>
 </html>
