@@ -181,7 +181,7 @@
   }
 
   function emptyDepuracion() {
-    return { candidates: [], settings: { verifikToken: "" } };
+    return { candidates: [], settings: {} };
   }
 
   function decodeLegacyMain(doc) {
@@ -293,7 +293,7 @@
     const mediaJobs = [];
     const light = {
       ...src,
-      settings: src.settings && typeof src.settings === "object" ? src.settings : { verifikToken: "" },
+      settings: src.settings && typeof src.settings === "object" ? src.settings : {},
       candidates: (Array.isArray(src.candidates) ? src.candidates : []).map((row) => {
         const copy = { ...(row || {}) };
         if (isHeavyMedia(copy.cedulaPhoto)) {

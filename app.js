@@ -1519,7 +1519,7 @@ async function mergeRemoteMessagesBeforeSave() {
 }
 
 function cloudDepuracionPayload() {
-  return typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } };
+  return typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: {} };
 }
 
 async function saveCloudBundle(options) {
@@ -8717,7 +8717,7 @@ function exportBackup() {
     lva: lvaState,
     pettyCash,
     hr: hrData,
-    depuracion: typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: { verifikToken: "" } },
+    depuracion: typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: {} },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -9246,7 +9246,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=74").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=75").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9261,7 +9261,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v74").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v75").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

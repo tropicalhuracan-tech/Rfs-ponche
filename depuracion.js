@@ -14,10 +14,11 @@ const DEP_CHECKLIST_ITEMS = [
   { key: "referencesOk", label: "Referencias laborales / personales verificadas" },
   { key: "interviewOk", label: "Entrevista realizada" },
   { key: "consentOk", label: "Consentimiento firmado / aceptado" },
-  { key: "verifikOk", label: "Consulta Verifik (identidad) realizada" },
+  { key: "fieldCheckOk", label: "Indagación / verificación en zona" },
+  { key: "employerHistoryOk", label: "Historial de empleos / servicios revisado" },
 ];
 
-let depuracionData = { candidates: [], settings: { verifikToken: "" } };
+let depuracionData = { candidates: [], settings: {} };
 let selectedDepId = "";
 let depTab = "list";
 let pendingDepCedulaPhoto = null;
@@ -50,14 +51,9 @@ function emptyDepCandidate() {
     cedulaPhoto: "",
     cedulaPhotoMediaId: "",
     antecedentesNote: "",
-    verifik: {
-      status: "idle",
-      message: "",
-      fullName: "",
-      documentNumber: "",
-      checkedAt: "",
-      rawSummary: "",
-    },
+    fieldCheckNote: "",
+    employerHistoryNote: "",
+    riskFlagsNote: "",
     verdict: "pending",
     verdictNote: "",
     hrApplicationId: "",
@@ -87,8 +83,12 @@ function normalizeDepReference(r = {}) {
 function normalizeDepCandidate(c = {}) {
   const refs = Array.isArray(c.references) ? c.references.map(normalizeDepReference) : [];
   while (refs.length < 2) refs.push({ name: "", phone: "", note: "" });
-  const verifik = c.verifik && typeof c.verifik === "object" ? c.verifik : {};
   const verdict = DEP_VERDICT[c.verdict] ? c.verdict : "pending";
+  const checklist = normalizeDepChecklist(c.checklist);
+  // Migrar checklist viejo de Verifik → indagación interna
+  if (c.checklist && c.checklist.verifikOk && !Object.prototype.hasOwnProperty.call(c.checklist, "fieldCheckOk")) {
+    checklist.fieldCheckOk = !!c.checklist.verifikOk;
+  }
   return {
     id: c.id || `dep-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     cedula: String(c.cedula || "").replace(/\D/g, "").slice(0, 11),
@@ -100,19 +100,14 @@ function normalizeDepCandidate(c = {}) {
     consentSigned: !!c.consentSigned,
     consentAt: c.consentAt || "",
     consentBy: c.consentBy || "",
-    checklist: normalizeDepChecklist(c.checklist),
+    checklist,
     references: refs.slice(0, 4),
     cedulaPhoto: typeof c.cedulaPhoto === "string" ? c.cedulaPhoto : "",
     cedulaPhotoMediaId: c.cedulaPhotoMediaId || "",
     antecedentesNote: String(c.antecedentesNote || "").trim(),
-    verifik: {
-      status: verifik.status || "idle",
-      message: verifik.message || "",
-      fullName: verifik.fullName || "",
-      documentNumber: verifik.documentNumber || "",
-      checkedAt: verifik.checkedAt || "",
-      rawSummary: verifik.rawSummary || "",
-    },
+    fieldCheckNote: String(c.fieldCheckNote || "").trim(),
+    employerHistoryNote: String(c.employerHistoryNote || "").trim(),
+    riskFlagsNote: String(c.riskFlagsNote || "").trim(),
     verdict,
     verdictNote: String(c.verdictNote || "").trim(),
     hrApplicationId: c.hrApplicationId || "",
@@ -123,16 +118,13 @@ function normalizeDepCandidate(c = {}) {
 }
 
 function emptyDepuracionData() {
-  return { candidates: [], settings: { verifikToken: "" } };
+  return { candidates: [], settings: {} };
 }
 
 function normalizeDepuracionData(raw = {}) {
-  const settings = raw.settings && typeof raw.settings === "object" ? raw.settings : {};
   return {
     candidates: Array.isArray(raw.candidates) ? raw.candidates.map(normalizeDepCandidate) : [],
-    settings: {
-      verifikToken: String(settings.verifikToken || "").trim(),
-    },
+    settings: {},
   };
 }
 
@@ -151,11 +143,9 @@ function applyRemoteDepuracionData(remote) {
     const prev = map.get(c.id);
     if (!prev || String(c.updatedAt) > String(prev.updatedAt)) map.set(c.id, c);
   });
-  const token =
-    remoteNorm.settings.verifikToken || local.settings.verifikToken || "";
   depuracionData = {
     candidates: [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
-    settings: { verifikToken: token },
+    settings: {},
   };
   localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
 }
@@ -273,9 +263,12 @@ function fillDepForm(c) {
       img.removeAttribute("src");
     }
   }
-  renderDepVerifikPanel(c);
-  const tokenEl = document.getElementById("depVerifikToken");
-  if (tokenEl) tokenEl.value = depuracionData.settings.verifikToken || "";
+  const fieldEl = document.getElementById("depFieldCheckNote");
+  if (fieldEl) fieldEl.value = c.fieldCheckNote || "";
+  const employerEl = document.getElementById("depEmployerHistoryNote");
+  if (employerEl) employerEl.value = c.employerHistoryNote || "";
+  const riskEl = document.getElementById("depRiskFlagsNote");
+  if (riskEl) riskEl.value = c.riskFlagsNote || "";
   const consentMeta = document.getElementById("depConsentMeta");
   if (consentMeta) {
     consentMeta.textContent = c.consentSigned
@@ -296,6 +289,9 @@ function readDepFormInto(c) {
   c.address = String(document.getElementById("depAddress")?.value || "").trim();
   c.notes = String(document.getElementById("depNotes")?.value || "").trim();
   c.antecedentesNote = String(document.getElementById("depAntecedentesNote")?.value || "").trim();
+  c.fieldCheckNote = String(document.getElementById("depFieldCheckNote")?.value || "").trim();
+  c.employerHistoryNote = String(document.getElementById("depEmployerHistoryNote")?.value || "").trim();
+  c.riskFlagsNote = String(document.getElementById("depRiskFlagsNote")?.value || "").trim();
   c.verdict = document.getElementById("depVerdict")?.value || "pending";
   if (!DEP_VERDICT[c.verdict]) c.verdict = "pending";
   c.verdictNote = String(document.getElementById("depVerdictNote")?.value || "").trim();
@@ -318,6 +314,8 @@ function readDepFormInto(c) {
     c.checklist[el.dataset.depCheck] = !!el.checked;
   });
   c.checklist.consentOk = c.consentSigned;
+  if (c.fieldCheckNote) c.checklist.fieldCheckOk = true;
+  if (c.employerHistoryNote) c.checklist.employerHistoryOk = true;
   const refs = [];
   document.querySelectorAll(".dep-ref-name").forEach((el) => {
     const idx = Number(el.dataset.idx);
@@ -387,169 +385,6 @@ function deleteDepCandidate(id) {
   toast("Candidato eliminado.");
 }
 
-function renderDepVerifikPanel(c) {
-  const box = document.getElementById("depVerifikResult");
-  if (!box) return;
-  const v = c.verifik || {};
-  const statusLabel = {
-    idle: "Sin consultar",
-    pending: "Consultando…",
-    ok: "Identidad encontrada",
-    not_found: "No encontrado",
-    error: "Error",
-    not_configured: "Token no configurado",
-    needs_consent: "Requiere consentimiento",
-  }[v.status] || v.status;
-  box.innerHTML = `
-    <div class="detail-grid">
-      <div><span>Estado</span><strong>${escapeHtml(statusLabel)}</strong></div>
-      <div><span>Nombre Verifik</span><strong>${escapeHtml(v.fullName || "—")}</strong></div>
-      <div><span>Documento</span><strong>${escapeHtml(v.documentNumber || "—")}</strong></div>
-      <div><span>Última consulta</span><strong>${
-        v.checkedAt ? escapeHtml(new Date(v.checkedAt).toLocaleString("es")) : "—"
-      }</strong></div>
-    </div>
-    <p class="muted tight" style="margin-top:8px">${escapeHtml(v.message || "Configura el token y pulsa Consultar Verifik.")}</p>
-    ${v.rawSummary ? `<p class="dep-verifik-raw">${escapeHtml(v.rawSummary)}</p>` : ""}
-  `;
-}
-
-function saveDepVerifikToken() {
-  const token = String(document.getElementById("depVerifikToken")?.value || "").trim();
-  depuracionData.settings.verifikToken = token;
-  saveDepuracionData(true);
-  toast(token ? "Token Verifik guardado." : "Token Verifik borrado.");
-}
-
-async function runVerifikLookup() {
-  if (typeof canAccessDepuracion === "function" && !canAccessDepuracion()) {
-    toast("No tienes acceso a Depuración.");
-    return;
-  }
-  const c = getDepCandidate(selectedDepId);
-  if (!c) {
-    toast("Abre un candidato primero.");
-    return;
-  }
-  readDepFormInto(c);
-  if (!c.consentSigned) {
-    c.verifik = {
-      ...c.verifik,
-      status: "needs_consent",
-      message: "Debes marcar el consentimiento del candidato antes de consultar datos externos.",
-      checkedAt: new Date().toISOString(),
-    };
-    saveDepuracionData(true);
-    fillDepForm(c);
-    toast("Marca el consentimiento primero.");
-    return;
-  }
-  if (!c.cedula || c.cedula.length !== 11) {
-    toast("La cédula debe tener 11 dígitos.");
-    return;
-  }
-  const token = String(depuracionData.settings.verifikToken || "").trim();
-  if (!token) {
-    c.verifik = {
-      status: "not_configured",
-      message:
-        "Aún no hay token de Verifik. Pégalo abajo (cuenta Verifik → API) y guarda. Luego vuelve a consultar.",
-      fullName: "",
-      documentNumber: c.cedula,
-      checkedAt: new Date().toISOString(),
-      rawSummary: "",
-    };
-    saveDepuracionData(true);
-    fillDepForm(c);
-    toast("Configura el token de Verifik.");
-    return;
-  }
-
-  c.verifik = {
-    ...c.verifik,
-    status: "pending",
-    message: "Consultando API Verifik…",
-    checkedAt: new Date().toISOString(),
-  };
-  saveDepuracionData(false);
-  fillDepForm(c);
-
-  const btn = document.getElementById("btnDepVerifik");
-  if (btn) btn.disabled = true;
-  try {
-    const url = new URL("https://api.verifik.co/v2/do/cedula");
-    url.searchParams.set("documentType", "CIE");
-    url.searchParams.set("documentNumber", c.cedula);
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const text = await res.text();
-    let data = null;
-    try {
-      data = JSON.parse(text);
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok) {
-      const msg =
-        (data && (data.message || data.code)) ||
-        `HTTP ${res.status}. Si falla por CORS, habrá que usar un proxy o llamar desde un backend.`;
-      c.verifik = {
-        status: res.status === 404 ? "not_found" : "error",
-        message: String(msg),
-        fullName: "",
-        documentNumber: c.cedula,
-        checkedAt: new Date().toISOString(),
-        rawSummary: text.slice(0, 400),
-      };
-    } else {
-      const payload = (data && data.data) || data || {};
-      const fullName =
-        payload.fullName ||
-        [payload.firstName, payload.lastName].filter(Boolean).join(" ") ||
-        "";
-      c.verifik = {
-        status: "ok",
-        message: "Respuesta recibida de Verifik (identidad).",
-        fullName: String(fullName || "").trim(),
-        documentNumber: String(payload.documentNumber || c.cedula),
-        checkedAt: new Date().toISOString(),
-        rawSummary: JSON.stringify(payload).slice(0, 500),
-      };
-      if (fullName && !c.fullName) c.fullName = String(fullName).trim();
-      c.checklist.verifikOk = true;
-    }
-    c.updatedAt = new Date().toISOString();
-    saveDepuracionData(true);
-    fillDepForm(c);
-    if (typeof logActivity === "function") {
-      logActivity("dep_verifik", `Verifik ${c.verifik.status}: ${formatCedulaDisplay(c.cedula)}`);
-    }
-    toast(c.verifik.status === "ok" ? "Verifik OK." : "Consulta Verifik terminó con aviso.");
-  } catch (err) {
-    c.verifik = {
-      status: "error",
-      message:
-        (err && err.message) ||
-        "No se pudo conectar. Puede ser red o bloqueo CORS del navegador; lo resolvemos al alimentar el token / proxy.",
-      fullName: "",
-      documentNumber: c.cedula,
-      checkedAt: new Date().toISOString(),
-      rawSummary: "",
-    };
-    c.updatedAt = new Date().toISOString();
-    saveDepuracionData(true);
-    fillDepForm(c);
-    toast("Error al consultar Verifik.");
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
 function sendDepToHr() {
   const c = getDepCandidate(selectedDepId);
   if (!c) return;
@@ -617,7 +452,7 @@ function renderDepList() {
       )}</p>
         <p><span class="caja-code-pill">${escapeHtml(DEP_VERDICT[c.verdict] || c.verdict)}</span>
           <span class="muted"> · Checklist ${checks}/${DEP_CHECKLIST_ITEMS.length}
-          · Verifik: ${escapeHtml(c.verifik?.status || "idle")}</span></p>
+          ${c.riskFlagsNote ? " · Con señales de riesgo" : ""}</span></p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-dep-open" data-id="${escapeHtml(
             c.id
@@ -644,7 +479,7 @@ function renderDepuracionModule() {
   const aptos = rows.filter((c) => c.verdict === "apto").length;
   const pending = rows.filter((c) => c.verdict === "pending").length;
   if (summary) {
-    summary.textContent = `${rows.length} candidato(s) · ${pending} pendiente(s) · ${aptos} apto(s). Verifik se activa con tu token.`;
+    summary.textContent = `${rows.length} candidato(s) · ${pending} pendiente(s) · ${aptos} apto(s). Depuración interna RFS.`;
   }
   if (depTab === "list") renderDepList();
   else if (selectedDepId && getDepCandidate(selectedDepId)) fillDepForm(getDepCandidate(selectedDepId));
@@ -727,10 +562,11 @@ function printDepCandidateSheet() {
     <ul>${checks}</ul>
     <h3>Referencias</h3>
     <ul>${refs || "<li>Sin referencias</li>"}</ul>
-    <h3>Verifik</h3>
-    <p>Estado: ${escapeHtml(c.verifik.status || "idle")}<br/>
-    Nombre: ${escapeHtml(c.verifik.fullName || "—")}<br/>
-    ${escapeHtml(c.verifik.message || "")}</p>
+    <h3>Verificación operativa</h3>
+    <p><strong>Indagación / zona:</strong> ${escapeHtml(c.fieldCheckNote || "—")}<br/>
+    <strong>Empleos previos:</strong> ${escapeHtml(c.employerHistoryNote || "—")}<br/>
+    <strong>Señales de riesgo:</strong> ${escapeHtml(c.riskFlagsNote || "—")}</p>
+    <p><strong>Antecedentes (nota):</strong> ${escapeHtml(c.antecedentesNote || "—")}</p>
     <h3>Veredicto</h3>
     <p><strong>${escapeHtml(DEP_VERDICT[c.verdict] || c.verdict)}</strong><br/>
     ${escapeHtml(c.verdictNote || "")}</p>
@@ -756,10 +592,6 @@ function bindDepuracionUi() {
   document.getElementById("btnDepSave")?.addEventListener("click", saveDepCandidateFromForm);
   document.getElementById("btnDepBackList")?.addEventListener("click", () => setDepTab("list"));
   document.getElementById("btnDepDelete")?.addEventListener("click", () => deleteDepCandidate());
-  document.getElementById("btnDepVerifik")?.addEventListener("click", () => {
-    runVerifikLookup();
-  });
-  document.getElementById("btnDepSaveToken")?.addEventListener("click", saveDepVerifikToken);
   document.getElementById("btnDepToHr")?.addEventListener("click", sendDepToHr);
   document.getElementById("btnDepPrint")?.addEventListener("click", printDepCandidateSheet);
   document.getElementById("depSearch")?.addEventListener("input", () => {
