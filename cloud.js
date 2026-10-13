@@ -18,6 +18,7 @@
     pettyCash: true,
     hr: true,
     depuracion: true,
+    contabilidad: true,
   };
 
   function baseUrl() {
@@ -184,6 +185,16 @@
     return { candidates: [], settings: {} };
   }
 
+  function emptyContabilidad() {
+    return {
+      expenses: [],
+      itbisCollected: [],
+      officeEmployees: [],
+      payrolls: [],
+      settings: { defaultBook: "EDWARD" },
+    };
+  }
+
   function decodeLegacyMain(doc) {
     const fields = (doc && doc.fields) || {};
     return {
@@ -205,6 +216,7 @@
         ? parseObjectField(fields, "hrJson")
         : emptyHr(),
       depuracion: emptyDepuracion(),
+      contabilidad: emptyContabilidad(),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
       schemaVersion: (fields.schemaVersion && fields.schemaVersion.stringValue) || "1",
     };
@@ -286,6 +298,11 @@
       }),
     };
     return { light, mediaJobs };
+  }
+
+  function stripContabilidad(data) {
+    const src = data && typeof data === "object" ? data : emptyContabilidad();
+    return { light: src, mediaJobs: [] };
   }
 
   function stripDepuracion(dep) {
@@ -459,6 +476,7 @@
     if (fieldLen(parts.pettyCash, "pettyCashJson") > 10) return true;
     if (fieldLen(parts.hr, "hrJson") > 10) return true;
     if (fieldLen(parts.depuracion, "depuracionJson") > 10) return true;
+    if (fieldLen(parts.contabilidad, "contabilidadJson") > 10) return true;
     return false;
   }
 
@@ -471,6 +489,7 @@
     const petty = (parts.pettyCash && parts.pettyCash.fields) || {};
     const hr = (parts.hr && parts.hr.fields) || {};
     const dep = (parts.depuracion && parts.depuracion.fields) || {};
+    const contab = (parts.contabilidad && parts.contabilidad.fields) || {};
 
     // Compat: si un part falta, intentar campo legacy en main
     const legacy = parts.main ? decodeLegacyMain(parts.main) : null;
@@ -500,6 +519,9 @@
       depuracion: dep.depuracionJson
         ? parseObjectField(dep, "depuracionJson")
         : (legacy && legacy.depuracion) || emptyDepuracion(),
+      contabilidad: contab.contabilidadJson
+        ? parseObjectField(contab, "contabilidadJson")
+        : (legacy && legacy.contabilidad) || emptyContabilidad(),
       updatedAt: (main.updatedAt && main.updatedAt.stringValue) || null,
       schemaVersion: (main.schemaVersion && main.schemaVersion.stringValue) || SCHEMA_VERSION,
     };
@@ -568,6 +590,7 @@
         pettyCash: emptyPetty(),
         hr: emptyHr(),
         depuracion: emptyDepuracion(),
+        contabilidad: emptyContabilidad(),
         updatedAt: null,
         empty: true,
         schemaVersion: SCHEMA_VERSION,
@@ -616,6 +639,7 @@
     pettyCash,
     hr,
     depuracion,
+    contabilidad,
     loanTrash,
     options
   ) {
@@ -626,11 +650,13 @@
     const pettyPack = stripPettyCash(pettyCash);
     const hrPack = stripHr(hr);
     const depPack = stripDepuracion(depuracion);
+    const contabPack = stripContabilidad(contabilidad);
     await persistMediaJobs([
       ...empPack.mediaJobs,
       ...pettyPack.mediaJobs,
       ...hrPack.mediaJobs,
       ...depPack.mediaJobs,
+      ...contabPack.mediaJobs,
     ]);
 
     const updatedAt = new Date().toISOString();
@@ -688,6 +714,10 @@
         depuracionJson: { stringValue: JSON.stringify(depPack.light || emptyDepuracion()) },
         updatedAt: { stringValue: updatedAt },
       }, ["depuracionJson", "updatedAt"]),
+      patchDoc(partPath("contabilidad"), {
+        contabilidadJson: { stringValue: JSON.stringify(contabPack.light || emptyContabilidad()) },
+        updatedAt: { stringValue: updatedAt },
+      }, ["contabilidadJson", "updatedAt"]),
     ];
 
     await Promise.all(writes);

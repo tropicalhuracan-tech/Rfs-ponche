@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=77" />
+  <link rel="stylesheet" href="styles.css?v=78" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=77" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=78" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=77" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=78" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=77" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=78" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v77 · Depuración sin Certn</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v78 · Contabilidad</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -73,6 +73,7 @@
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
           <button class="welcome-action" type="button" data-go="cajaView">Caja chica</button>
+          <button class="welcome-action" type="button" data-go="contabilidadView">Contabilidad</button>
           <button class="welcome-action" type="button" data-go="hrView">Recursos Humanos</button>
           <button class="welcome-action" type="button" data-go="depuracionView">Depuración</button>
           <button class="welcome-action" type="button" data-go="quotesView">Cotizaciones</button>
@@ -909,6 +910,123 @@
       </div>
     </section>
 
+
+    <section id="contabilidadView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Contabilidad</h1>
+          <p id="contabSummary">Gastos con NCF, ITBIS cobrado, liquidación DGII y nómina de oficina.</p>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <label>Mes de trabajo
+          <input id="contabMonthFilter" type="month" />
+        </label>
+      </div>
+
+      <div class="emp-tabs contab-tabs" role="tablist">
+        <button class="emp-tab active" type="button" data-contab-tab="gastos">Gastos fiscales</button>
+        <button class="emp-tab" type="button" data-contab-tab="itbis">ITBIS cobrado</button>
+        <button class="emp-tab" type="button" data-contab-tab="liquidacion">Liquidación</button>
+        <button class="emp-tab" type="button" data-contab-tab="oficina">Oficina</button>
+        <button class="emp-tab" type="button" data-contab-tab="nomina">Nómina</button>
+      </div>
+
+      <div id="contabTabGastos" class="contab-tab-panel">
+        <div class="form-card">
+          <h2 id="cfeFormTitle">Nuevo gasto fiscal</h2>
+          <p class="muted tight">Igual que la relación de gastos con valor fiscal: fecha, monto, ITBIS, nombre comercial, NCF y RNC.</p>
+          <label>Fecha<input id="cfeDate" type="date" /></label>
+          <div class="coords-row">
+            <label>Monto (con ITBIS)<input id="cfeAmount" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label>ITBIS<input id="cfeItbis" type="number" min="0" step="0.01" placeholder="Se calcula si lo dejas vacío" /></label>
+          </div>
+          <label>Nombre comercial<input id="cfeVendor" type="text" placeholder="Ej. OLE, NACIONAL, ALTICE" /></label>
+          <div class="coords-row">
+            <label>NCF<input id="cfeNcf" type="text" placeholder="E31… / B01…" /></label>
+            <label>RNC<input id="cfeRnc" type="text" inputmode="numeric" maxlength="11" placeholder="101532483" /></label>
+          </div>
+          <div class="coords-row">
+            <label>Libro / responsable<input id="cfeBook" type="text" placeholder="EDWARD" /></label>
+            <label>Nota<input id="cfeNote" type="text" placeholder="Opcional" /></label>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button id="btnCfeSave" class="btn primary" type="button" style="width:auto">Guardar factura</button>
+            <button id="btnCfeClear" class="btn ghost" type="button" style="width:auto">Limpiar</button>
+          </div>
+        </div>
+        <div class="form-card" id="contabExpenseStats"></div>
+        <div id="contabExpenseList" class="card-list"></div>
+      </div>
+
+      <div id="contabTabItbis" class="contab-tab-panel" hidden>
+        <div class="form-card">
+          <h2>ITBIS cobrado a clientes</h2>
+          <p class="muted tight">Cuando cobras una factura, el cliente paga el monto + 18%. Registra aquí ese 18% (o la base y se calcula solo).</p>
+          <label>Fecha<input id="itcDate" type="date" /></label>
+          <label>Cliente<input id="itcClient" type="text" placeholder="Nombre del cliente" /></label>
+          <label>No. factura / referencia<input id="itcInvoice" type="text" placeholder="Opcional" /></label>
+          <div class="coords-row">
+            <label>Base (sin ITBIS)<input id="itcBase" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label>ITBIS 18%<input id="itcItbis" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+          </div>
+          <label>Total factura<input id="itcTotal" type="number" min="0" step="0.01" placeholder="Base + ITBIS" /></label>
+          <label>Nota<input id="itcNote" type="text" placeholder="Opcional" /></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button id="btnItcSave" class="btn primary" type="button" style="width:auto">Guardar cobro ITBIS</button>
+            <button id="btnItcClear" class="btn ghost" type="button" style="width:auto">Limpiar</button>
+          </div>
+        </div>
+        <div class="form-card" id="contabItbisStats"></div>
+        <div id="contabItbisList" class="card-list"></div>
+      </div>
+
+      <div id="contabTabLiquidacion" class="contab-tab-panel" hidden>
+        <div class="form-card" id="contabLiquidacionBox">
+          <p class="muted">Selecciona el mes arriba para ver qué debes pagar a la DGII.</p>
+        </div>
+      </div>
+
+      <div id="contabTabOficina" class="contab-tab-panel" hidden>
+        <div class="form-card">
+          <h2 id="oempFormTitle">Nuevo empleado de oficina</h2>
+          <p class="muted tight">Lista aparte de los vigilantes. Esta es la base de la nómina que se paga el día 30.</p>
+          <label>Nombre completo<input id="oempName" type="text" /></label>
+          <div class="coords-row">
+            <label>Cédula<input id="oempCedula" type="text" inputmode="numeric" maxlength="11" /></label>
+            <label>Cargo<input id="oempPosition" type="text" placeholder="Ej. Contabilidad, Recepción" /></label>
+          </div>
+          <div class="coords-row">
+            <label>Teléfono<input id="oempPhone" type="tel" /></label>
+            <label>Email<input id="oempEmail" type="email" /></label>
+          </div>
+          <label>Sueldo mensual (RD$)<input id="oempSalary" type="number" min="0" step="0.01" /></label>
+          <div class="coords-row">
+            <label>Banco<input id="oempBank" type="text" /></label>
+            <label>Cuenta<input id="oempAccount" type="text" /></label>
+          </div>
+          <label>Notas<input id="oempNotes" type="text" /></label>
+          <label class="check-row"><input id="oempActive" type="checkbox" checked /><span>Activo en nómina</span></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button id="btnOempSave" class="btn primary" type="button" style="width:auto">Guardar empleado</button>
+            <button id="btnOempClear" class="btn ghost" type="button" style="width:auto">Limpiar</button>
+          </div>
+        </div>
+        <div id="contabOfficeList" class="card-list"></div>
+      </div>
+
+      <div id="contabTabNomina" class="contab-tab-panel" hidden>
+        <div class="form-card">
+          <h2>Nómina de oficina</h2>
+          <p class="muted tight">Se genera con los empleados activos de Oficina. Pago programado el día 30 del mes seleccionado. Cuando envíes el formato completo de nómina, añadimos deducciones y columnas extras.</p>
+          <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar nómina del mes</button>
+        </div>
+        <div id="contabPayrollList" class="card-list"></div>
+        <div class="form-card" id="contabPayrollDetail"></div>
+      </div>
+    </section>
+
     <section id="hrView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -1443,6 +1561,7 @@
             <label class="check-row"><input type="checkbox" data-perm="lavega" checked /><span>La Vega Autopista</span></label>
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="cajachica" /><span>Caja chica</span></label>
+            <label class="check-row"><input type="checkbox" data-perm="contabilidad" /><span>Contabilidad</span></label>
             <label class="check-row"><input type="checkbox" data-perm="rrhh" /><span>Recursos Humanos</span></label>
             <label class="check-row"><input type="checkbox" data-perm="depuracion" /><span>Depuración</span></label>
             <label class="check-row"><input type="checkbox" data-perm="cotizaciones" /><span>Cotizaciones</span></label>
@@ -1556,6 +1675,7 @@
       <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
+      <button class="tab" data-view="contabilidadView" type="button"><span>Contab.</span></button>
       <button class="tab" data-view="hrView" type="button"><span>RRHH</span></button>
       <button class="tab" data-view="depuracionView" type="button"><span>Depur.</span></button>
       <button class="tab" data-view="quotesView" type="button"><span>Cotiz.</span></button>
@@ -1564,12 +1684,13 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=77"></script>
-  <script src="monorriel-data.js?v=77"></script>
-  <script src="cloud.js?v=77"></script>
-  <script src="hr.js?v=77"></script>
-  <script src="depuracion.js?v=77"></script>
-  <script src="quotes.js?v=77"></script>
-  <script src="app.js?v=77"></script>
+  <script src="cloud-config.js?v=78"></script>
+  <script src="monorriel-data.js?v=78"></script>
+  <script src="cloud.js?v=78"></script>
+  <script src="hr.js?v=78"></script>
+  <script src="depuracion.js?v=78"></script>
+  <script src="contabilidad.js?v=78"></script>
+  <script src="quotes.js?v=78"></script>
+  <script src="app.js?v=78"></script>
 </body>
 </html>

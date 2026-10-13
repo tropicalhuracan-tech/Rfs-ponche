@@ -1522,6 +1522,18 @@ function cloudDepuracionPayload() {
   return typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: {} };
 }
 
+function cloudContabilidadPayload() {
+  return typeof contabilidadData !== "undefined"
+    ? contabilidadData
+    : { expenses: [], itbisCollected: [], officeEmployees: [], payrolls: [], settings: { defaultBook: "EDWARD" } };
+}
+
+function emptyContabilidadDataSafe() {
+  return typeof emptyContabilidadData === "function"
+    ? emptyContabilidadData()
+    : { expenses: [], itbisCollected: [], officeEmployees: [], payrolls: [], settings: { defaultBook: "EDWARD" } };
+}
+
 async function saveCloudBundle(options) {
   return window.RFSCloudApi.saveCloud(
     posts,
@@ -1537,6 +1549,7 @@ async function saveCloudBundle(options) {
     pettyCash,
     hrData,
     cloudDepuracionPayload(),
+    cloudContabilidadPayload(),
     typeof loanTrashIds !== "undefined" ? loanTrashIds : [],
     options || {}
   );
@@ -1641,6 +1654,9 @@ async function syncFromCloud() {
       if (typeof DEPURACION_KEY !== "undefined" && typeof depuracionData !== "undefined") {
         localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
       }
+      if (typeof CONTABILIDAD_KEY !== "undefined" && typeof contabilidadData !== "undefined") {
+        localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
+      }
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -1699,6 +1715,16 @@ async function syncFromCloud() {
         }
       }
     }
+    if (typeof applyRemoteContabilidadData === "function") {
+      if (remote.contabilidad && typeof remote.contabilidad === "object") {
+        applyRemoteContabilidadData(remote.contabilidad);
+      } else if (typeof emptyContabilidadData === "function" && typeof contabilidadData !== "undefined") {
+        if (!(contabilidadData.expenses && contabilidadData.expenses.length) &&
+            !(contabilidadData.officeEmployees && contabilidadData.officeEmployees.length)) {
+          contabilidadData = emptyContabilidadData();
+        }
+      }
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1718,6 +1744,9 @@ async function syncFromCloud() {
     localStorage.setItem(HR_KEY, JSON.stringify(hrData));
     if (typeof DEPURACION_KEY !== "undefined" && typeof depuracionData !== "undefined") {
       localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
+    }
+    if (typeof CONTABILIDAD_KEY !== "undefined" && typeof contabilidadData !== "undefined") {
+      localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
     }
     cloudReady = true;
     const lvaCount = (lvaState.posts || []).filter((p) => p.active !== false).length;
@@ -2630,6 +2659,7 @@ const MODULE_DEFS = [
   { key: "lavega", label: "La Vega Autopista", view: "lvaView" },
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "cajachica", label: "Caja chica", view: "cajaView" },
+  { key: "contabilidad", label: "Contabilidad", view: "contabilidadView" },
   { key: "rrhh", label: "Recursos Humanos", view: "hrView" },
   { key: "depuracion", label: "Depuración", view: "depuracionView" },
   { key: "cotizaciones", label: "Cotizaciones", view: "quotesView" },
@@ -2668,6 +2698,7 @@ const VIEW_TO_MODULE = {
   adminView: "admin",
   detailView: "clients",
   cajaView: "cajachica",
+  contabilidadView: "contabilidad",
   hrView: "rrhh",
   depuracionView: "depuracion",
   quotesView: "cotizaciones",
@@ -2692,6 +2723,10 @@ function normalizeUser(u = {}) {
     // Caja chica / RRHH: solo si el dueño las marca (no se heredan solas al actualizar).
     if (m.key === "cajachica" && !Object.prototype.hasOwnProperty.call(incoming, "cajachica")) {
       modules.cajachica = false;
+      return;
+    }
+    if (m.key === "contabilidad" && !Object.prototype.hasOwnProperty.call(incoming, "contabilidad")) {
+      modules.contabilidad = false;
       return;
     }
     if (m.key === "rrhh" && !Object.prototype.hasOwnProperty.call(incoming, "rrhh")) {
@@ -2833,6 +2868,9 @@ function canAccessDepuracion() {
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
+  if (viewId === "contabilidadView") {
+    return typeof canAccessContabilidad === "function" ? canAccessContabilidad() : canAccessModule("contabilidad");
+  }
   if (viewId === "hrView") return canAccessRrhh();
   if (viewId === "depuracionView") return canAccessDepuracion();
   if (viewId === "quotesView") return canAccessQuotes();
@@ -2842,7 +2880,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -3320,6 +3358,7 @@ function clearUserForm() {
     lavega: true,
     finance: false,
     cajachica: false,
+    contabilidad: false,
     rrhh: false,
     depuracion: false,
     cotizaciones: false,
@@ -8298,6 +8337,9 @@ function switchView(viewId) {
   if (viewId === "financeView") renderFinance();
   if (viewId === "cajaView") renderCajaModule();
   if (viewId === "hrView") renderHrModule();
+  if (viewId === "contabilidadView") {
+    if (typeof renderContabilidadModule === "function") renderContabilidadModule();
+  }
   if (viewId === "depuracionView") {
     if (typeof renderDepuracionModule === "function") renderDepuracionModule();
   }
@@ -8718,6 +8760,7 @@ function exportBackup() {
     pettyCash,
     hr: hrData,
     depuracion: typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: {} },
+    contabilidad: typeof contabilidadData !== "undefined" ? contabilidadData : emptyContabilidadDataSafe(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -8842,6 +8885,10 @@ function restoreBackupMerge() {
         applyRemoteDepuracionData(data.depuracion);
         saveDepuracionData(true);
       }
+      if (data.contabilidad && typeof data.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
+        applyRemoteContabilidadData(data.contabilidad);
+        saveContabilidadData(true);
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -8861,6 +8908,7 @@ function restoreBackupMerge() {
       renderCajaModule();
       renderHrModule();
       if (typeof renderDepuracionModule === "function") renderDepuracionModule();
+      if (typeof renderContabilidadModule === "function") renderContabilidadModule();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
     .catch((err) => {
@@ -8917,6 +8965,12 @@ function restoreBackupReplace() {
           localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
         }
       }
+      if (data.contabilidad && typeof data.contabilidad === "object" && typeof normalizeContabilidadData === "function") {
+        contabilidadData = normalizeContabilidadData(data.contabilidad);
+        if (typeof CONTABILIDAD_KEY !== "undefined") {
+          localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
+        }
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -8942,6 +8996,7 @@ function restoreBackupReplace() {
       if (typeof renderCajaModule === "function") renderCajaModule();
       if (typeof renderHrModule === "function") renderHrModule();
       if (typeof renderDepuracionModule === "function") renderDepuracionModule();
+      if (typeof renderContabilidadModule === "function") renderContabilidadModule();
       toast("Respaldo restaurado (reemplazo completo).");
     })
     .catch((err) => {
@@ -9113,6 +9168,7 @@ function bindUi() {
   bindCajaUi();
   bindHrUi();
   if (typeof bindDepuracionUi === "function") bindDepuracionUi();
+  if (typeof bindContabilidadUi === "function") bindContabilidadUi();
   bindMonorrielUi();
   bindLvaUi();
   bindPrintUi();
@@ -9195,6 +9251,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof normalizeDepuracionData === "function" && typeof emptyDepuracionData === "function") {
     depuracionData = normalizeDepuracionData(loadJsonObject(DEPURACION_KEY, emptyDepuracionData()));
   }
+  if (typeof normalizeContabilidadData === "function" && typeof emptyContabilidadData === "function") {
+    contabilidadData = normalizeContabilidadData(loadJsonObject(CONTABILIDAD_KEY, emptyContabilidadData()));
+  }
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
@@ -9206,6 +9265,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   localStorage.setItem(HR_KEY, JSON.stringify(hrData));
   if (typeof DEPURACION_KEY !== "undefined" && typeof depuracionData !== "undefined") {
     localStorage.setItem(DEPURACION_KEY, JSON.stringify(depuracionData));
+  }
+  if (typeof CONTABILIDAD_KEY !== "undefined" && typeof contabilidadData !== "undefined") {
+    localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
   }
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
@@ -9246,7 +9308,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=77").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=78").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9261,7 +9323,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v77").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v78").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
