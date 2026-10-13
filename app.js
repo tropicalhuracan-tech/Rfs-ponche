@@ -2280,6 +2280,7 @@ function printIncidentReport(id) {
     return;
   }
   const post = getPost(report.postId);
+  const site = post ? post.site : report.siteName || "cliente";
   const title = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""}`.trim();
   if (typeof openPrintWindow !== "function") {
     toast("No se pudo abrir la impresión.");
@@ -2291,8 +2292,14 @@ function printIncidentReport(id) {
       typeof quotePrintCss === "function"
         ? quotePrintCss()
         : "body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;line-height:1.4}",
+    autoPrint: false,
+    share: {
+      text: buildIncidentShareText(report, post),
+      subject: `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""} — ${site}`,
+      fileName: incidentReportPdfFileName(report),
+    },
   });
-  toast("Informe listo para imprimir o guardar como PDF.");
+  toast("Desde esa pantalla: Imprimir, WhatsApp PDF o Correo PDF.");
 }
 
 function loadExternalScript(src) {
@@ -2361,8 +2368,9 @@ async function buildIncidentReportPdfBlob(report, post) {
   const title = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""}`.trim();
   const host = document.createElement("div");
   host.setAttribute("data-rfs-pdf-host", "1");
+  // Visible en layout (opacity 0): html2canvas falla si el nodo está fuera de pantalla
   host.style.cssText =
-    "position:fixed;left:-10000px;top:0;width:794px;background:#fff;color:#111;padding:24px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;";
+    "position:fixed;left:0;top:0;width:794px;background:#fff;color:#111;padding:24px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;opacity:0;pointer-events:none;z-index:-1;";
   host.innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;background:#0b0b0c;color:#fff;padding:12px 14px;border-left:6px solid #d41414;border-radius:10px">
       <img src="${incidentReportLogoUrl()}" alt="RFS" crossorigin="anonymous" style="width:64px;height:64px;object-fit:contain;border:2px solid #d41414;border-radius:12px;background:#fff" />
@@ -2376,15 +2384,22 @@ async function buildIncidentReportPdfBlob(report, post) {
   document.body.appendChild(host);
   try {
     await waitForImages(host);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const opt = {
       margin: [10, 10, 12, 10],
       filename: incidentReportPdfFileName(report),
       image: { type: "jpeg", quality: 0.92 },
-      html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: 794 },
+      html2canvas: { scale: 1.5, useCORS: true, allowTaint: true, logging: false, backgroundColor: "#ffffff" },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"] },
+      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
     };
-    const blob = await html2pdf().set(opt).from(host).outputPdf("blob");
+    let blob = null;
+    try {
+      blob = await html2pdf().set(opt).from(host).outputPdf("blob");
+    } catch (_) {
+      // API alternativa en algunas builds
+      blob = await html2pdf().set(opt).from(host).toPdf().get("pdf").then((pdf) => pdf.output("blob"));
+    }
     if (!blob || !blob.size) throw new Error("PDF vacío");
     return blob;
   } finally {
@@ -2567,19 +2582,7 @@ function renderReports() {
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button type="button" class="btn primary btn-rep-print" data-id="${escapeHtml(
               r.id
-            )}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
-            <button type="button" class="btn secondary btn-rep-wa" data-id="${escapeHtml(
-              r.id
-            )}" style="width:auto;padding:8px 10px;font-size:12px">WhatsApp PDF</button>
-            <button type="button" class="btn secondary btn-rep-mail" data-id="${escapeHtml(
-              r.id
-            )}" style="width:auto;padding:8px 10px;font-size:12px">Correo PDF</button>
-            <button type="button" class="btn secondary btn-rep-pdf" data-id="${escapeHtml(
-              r.id
-            )}" style="width:auto;padding:8px 10px;font-size:12px">Compartir PDF</button>
-            <button type="button" class="btn secondary btn-rep-dl" data-id="${escapeHtml(
-              r.id
-            )}" style="width:auto;padding:8px 10px;font-size:12px">Descargar PDF</button>
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Abrir informe (imprimir / WhatsApp / correo PDF)</button>
             ${
               r.photo
                 ? `<button type="button" class="btn ghost btn-rep-del-photo" data-id="${escapeHtml(
@@ -2596,18 +2599,6 @@ function renderReports() {
     .join("");
   list.querySelectorAll(".btn-rep-print").forEach((btn) => {
     btn.addEventListener("click", () => printIncidentReport(btn.dataset.id));
-  });
-  list.querySelectorAll(".btn-rep-wa").forEach((btn) => {
-    btn.addEventListener("click", () => shareIncidentWhatsApp(btn.dataset.id));
-  });
-  list.querySelectorAll(".btn-rep-mail").forEach((btn) => {
-    btn.addEventListener("click", () => shareIncidentEmail(btn.dataset.id));
-  });
-  list.querySelectorAll(".btn-rep-pdf").forEach((btn) => {
-    btn.addEventListener("click", () => shareIncidentPdf(btn.dataset.id));
-  });
-  list.querySelectorAll(".btn-rep-dl").forEach((btn) => {
-    btn.addEventListener("click", () => downloadIncidentReport(btn.dataset.id));
   });
   list.querySelectorAll(".btn-rep-del-photo").forEach((btn) => {
     btn.addEventListener("click", () => removeReportPhoto(btn.dataset.id));
@@ -4698,11 +4689,29 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   const afterPrintKey = options && options.afterPrintKey ? String(options.afterPrintKey) : "";
   const extraCss = options && options.extraCss ? String(options.extraCss) : "";
   const bodyClass = options && options.bodyClass ? String(options.bodyClass) : "";
+  const autoPrint = !(options && options.autoPrint === false);
+  const share = options && options.share && typeof options.share === "object" ? options.share : null;
+  const shareEnabled = !!(share && (share.text || share.subject));
+  const logoUrl = (() => {
+    try {
+      return new URL("logo.jpg", window.location.href).href;
+    } catch (_) {
+      return "logo.jpg";
+    }
+  })();
   const win = window.open("", "_blank");
   if (!win) {
     toast("Permite ventanas emergentes para imprimir, o elige una impresora en el diálogo del sistema.");
     return null;
   }
+  const shareBtns = shareEnabled
+    ? `<button type="button" class="btn-wa" id="btnPrintWhatsApp">WhatsApp PDF</button>
+    <button type="button" class="btn-mail" id="btnPrintEmail">Correo PDF</button>
+    <button type="button" class="btn-pdf" id="btnPrintPdf">Descargar PDF</button>`
+    : "";
+  const hint = shareEnabled
+    ? "Mismo informe: imprímelo o envíalo en PDF por WhatsApp / correo."
+    : "Elige impresora USB, Wi‑Fi o PDF. Luego pulsa Volver.";
   win.document.write(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -4722,21 +4731,28 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   .footer{margin-top:18px;font-size:11px;color:#555}
   .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
   .brand img{width:54px;height:54px;object-fit:contain;border:1px solid #ccc;border-radius:10px}
-  .print-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#111;color:#fff;padding:12px;margin:-22px -22px 18px;border-bottom:1px solid #333}
-  .print-bar button{padding:12px 16px;font-size:15px;font-weight:800;border:0;border-radius:10px;cursor:pointer}
+  .print-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#111;color:#fff;padding:12px;margin:-22px -22px 18px;border-bottom:1px solid #333}
+  .print-bar button{padding:11px 14px;font-size:14px;font-weight:800;border:0;border-radius:10px;cursor:pointer}
   .print-bar .btn-back{background:#fff;color:#111}
   .print-bar .btn-print{background:#d41414;color:#fff}
+  .print-bar .btn-wa{background:#25d366;color:#053b1a}
+  .print-bar .btn-mail{background:#3b82f6;color:#fff}
+  .print-bar .btn-pdf{background:#f5f5f5;color:#111}
   .print-bar .hint{font-size:12px;color:#ccc;flex:1;min-width:160px}
+  .print-bar .status{font-size:12px;color:#fde68a;width:100%}
   @media print{body{padding:0} .no-print{display:none !important}}
   ${extraCss}
 </style></head><body${bodyClass ? ` class="${escapeHtml(bodyClass)}"` : ""}>
   <div class="print-bar no-print">
-    <button type="button" class="btn-back" id="btnPrintBack">← Volver a la aplicación</button>
-    <button type="button" class="btn-print" id="btnPrintNow">Imprimir ahora</button>
-    <span class="hint">Elige impresora USB, Wi‑Fi o PDF. Luego pulsa Volver.</span>
+    <button type="button" class="btn-back" id="btnPrintBack">← Volver</button>
+    <button type="button" class="btn-print" id="btnPrintNow">Imprimir</button>
+    ${shareBtns}
+    <span class="hint">${escapeHtml(hint)}</span>
+    <div class="status" id="printShareStatus" hidden></div>
   </div>
+  <div id="rfsPrintRoot">
   <div class="brand">
-    <img src="logo.jpg" alt="RFS" />
+    <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" />
     <div>
       <h1>Reaction Force Security</h1>
       <div>${escapeHtml(title)}</div>
@@ -4744,6 +4760,7 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   </div>
   ${bodyHtml}
   <p class="footer">Impreso: ${escapeHtml(new Date().toLocaleString("es"))} · Uso interno</p>
+  </div>
   <div class="no-print" style="margin-top:20px">
     <button type="button" id="btnPrintBackBottom" style="padding:12px 16px;font-weight:800;font-size:15px;border-radius:10px;border:1px solid #111;background:#fff;cursor:pointer">← Volver a la aplicación</button>
   </div>
@@ -4751,7 +4768,27 @@ function openPrintWindow(title, bodyHtml, options = {}) {
     (function () {
       var appHref = ${JSON.stringify(appHref)};
       var afterPrintKey = ${JSON.stringify(afterPrintKey)};
+      var autoPrint = ${JSON.stringify(autoPrint)};
+      var shareCfg = ${JSON.stringify(
+        shareEnabled
+          ? {
+              text: String(share.text || ""),
+              subject: String(share.subject || title),
+              fileName: String(share.fileName || "reporte.pdf"),
+            }
+          : null
+      )};
       var notified = false;
+      var pdfLibPromise = null;
+
+      function setStatus(msg) {
+        var el = document.getElementById("printShareStatus");
+        if (!el) return;
+        if (!msg) { el.hidden = true; el.textContent = ""; return; }
+        el.hidden = false;
+        el.textContent = msg;
+      }
+
       function notifyAfterPrint() {
         if (!afterPrintKey || notified) return;
         notified = true;
@@ -4761,6 +4798,7 @@ function openPrintWindow(title, bodyHtml, options = {}) {
           }
         } catch (e0) {}
       }
+
       function goBackToApp() {
         try {
           if (window.opener && !window.opener.closed) {
@@ -4783,16 +4821,126 @@ function openPrintWindow(title, bodyHtml, options = {}) {
         } catch (e5) {}
         try { window.location.replace(appHref); } catch (e6) {}
       }
+
+      function loadPdfLib() {
+        if (window.html2pdf) return Promise.resolve(window.html2pdf);
+        if (pdfLibPromise) return pdfLibPromise;
+        pdfLibPromise = new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js";
+          s.onload = function () {
+            if (window.html2pdf) resolve(window.html2pdf);
+            else reject(new Error("html2pdf no cargó"));
+          };
+          s.onerror = function () {
+            var s2 = document.createElement("script");
+            s2.src = "https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js";
+            s2.onload = function () {
+              if (window.html2pdf) resolve(window.html2pdf);
+              else reject(new Error("html2pdf no cargó"));
+            };
+            s2.onerror = function () { reject(new Error("Sin librería PDF")); };
+            document.head.appendChild(s2);
+          };
+          document.head.appendChild(s);
+        });
+        return pdfLibPromise;
+      }
+
+      function downloadBlob(blob, name) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = name || "reporte.pdf";
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2500);
+      }
+
+      function makePdfBlob() {
+        var root = document.getElementById("rfsPrintRoot");
+        if (!root) return Promise.reject(new Error("Sin contenido"));
+        return loadPdfLib().then(function (html2pdf) {
+          var opt = {
+            margin: [10, 10, 12, 10],
+            filename: (shareCfg && shareCfg.fileName) || "reporte.pdf",
+            image: { type: "jpeg", quality: 0.92 },
+            html2canvas: { scale: 1.5, useCORS: true, allowTaint: true, logging: false, backgroundColor: "#ffffff" },
+            jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+            pagebreak: { mode: ["avoid-all", "css", "legacy"] }
+          };
+          return html2pdf().set(opt).from(root).outputPdf("blob").catch(function () {
+            return html2pdf().set(opt).from(root).toPdf().get("pdf").then(function (pdf) {
+              return pdf.output("blob");
+            });
+          });
+        });
+      }
+
+      function sharePdf(mode) {
+        if (!shareCfg) return;
+        setStatus("Generando PDF del informe…");
+        makePdfBlob().then(function (blob) {
+          if (!blob || !blob.size) throw new Error("PDF vacío");
+          var fileName = shareCfg.fileName || "reporte.pdf";
+          var file = new File([blob], fileName, { type: "application/pdf" });
+          var title = shareCfg.subject || document.title;
+          var text = shareCfg.text || title;
+          var tryNative = navigator.share
+            ? (navigator.canShare && navigator.canShare({ files: [file] })
+                ? navigator.share({ title: title, text: text, files: [file] })
+                : Promise.reject(new Error("no-files")))
+            : Promise.reject(new Error("no-share"));
+          return tryNative.then(function () {
+            setStatus("PDF listo. Elige WhatsApp o Correo en el menú.");
+          }).catch(function (err) {
+            if (err && err.name === "AbortError") {
+              setStatus("");
+              return;
+            }
+            downloadBlob(blob, fileName);
+            if (mode === "wa") {
+              var waText = text + "\\n\\n📄 PDF descargado: " + fileName + ". Adjúntalo en el chat de WhatsApp.";
+              window.open("https://wa.me/?text=" + encodeURIComponent(waText), "_blank");
+              setStatus("PDF descargado. Adjúntalo en WhatsApp.");
+            } else if (mode === "mail") {
+              var body = text + "\\n\\n📄 Se descargó el PDF (" + fileName + "). Adjúntalo al correo antes de enviar.";
+              window.location.href = "mailto:?subject=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(body);
+              setStatus("PDF descargado. Adjúntalo al correo.");
+            } else {
+              setStatus("PDF descargado.");
+            }
+          });
+        }).catch(function (err) {
+          console.error(err);
+          setStatus("No se pudo crear el PDF. Usa Imprimir → Guardar como PDF.");
+          if (mode === "wa") {
+            window.open("https://wa.me/?text=" + encodeURIComponent(shareCfg.text || ""), "_blank");
+          } else if (mode === "mail") {
+            window.location.href = "mailto:?subject=" + encodeURIComponent(shareCfg.subject || "") + "&body=" + encodeURIComponent(shareCfg.text || "");
+          }
+        });
+      }
+
       var backTop = document.getElementById("btnPrintBack");
       var backBottom = document.getElementById("btnPrintBackBottom");
       var printBtn = document.getElementById("btnPrintNow");
       if (backTop) backTop.addEventListener("click", goBackToApp);
       if (backBottom) backBottom.addEventListener("click", goBackToApp);
       if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
+      var waBtn = document.getElementById("btnPrintWhatsApp");
+      var mailBtn = document.getElementById("btnPrintEmail");
+      var pdfBtn = document.getElementById("btnPrintPdf");
+      if (waBtn) waBtn.addEventListener("click", function () { sharePdf("wa"); });
+      if (mailBtn) mailBtn.addEventListener("click", function () { sharePdf("mail"); });
+      if (pdfBtn) pdfBtn.addEventListener("click", function () { sharePdf("pdf"); });
       try { window.addEventListener("afterprint", notifyAfterPrint); } catch (e8) {}
-      setTimeout(function () {
-        try { window.focus(); window.print(); } catch (e7) {}
-      }, 350);
+      if (autoPrint) {
+        setTimeout(function () {
+          try { window.focus(); window.print(); } catch (e7) {}
+        }, 350);
+      } else {
+        setTimeout(function () { try { window.focus(); } catch (e9) {} }, 200);
+      }
     })();
   </script>
 </body></html>`);
@@ -9575,7 +9723,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=80").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=81").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9590,7 +9738,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v80").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v81").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
