@@ -2244,41 +2244,16 @@ function buildIncidentReportHtml(report, post) {
     </div>`;
 }
 
+/** Título corto para WhatsApp / correo / nombre PDF: "Incidente - Estancia Elianne" */
+function incidentReportShareCaption(report, post) {
+  const typeLabel = TYPE_LABEL[report && report.type] || "Reporte";
+  const site = (post && post.site) || (report && report.siteName) || "Servicio";
+  return `${typeLabel} - ${String(site).trim()}`;
+}
+
 function buildIncidentShareText(report, post) {
-  const co = reportCompany();
-  const site = post ? post.site : report.siteName || "Puesto";
-  const title =
-    report.type === "incidente"
-      ? "Reporte de incidente"
-      : report.type === "checkin"
-        ? "Reporte de supervisión"
-        : "Reporte de novedad";
-  const narrative = polishExecutiveNarrative(report.text, {
-    site,
-    type: report.type,
-    whenLabel: report.whenLabel,
-    guards: post ? guardsSummary(post) : "personal asignado",
-    number: report.number,
-  });
-  return (
-    `*${title} — ${co.name}*\n` +
-    `N.º ${report.number || "—"}\n` +
-    `Cliente / Puesto: ${site}\n` +
-    `Fecha: ${report.whenLabel || ""}\n\n` +
-    `${String(narrative.opening || "")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")}\n\n` +
-    `${String(narrative.body || "")
-      .replace(/<\/p>/gi, "\n\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim()}\n\n` +
-    `${String(narrative.closing || "")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")}\n\n` +
-    `Contacto: ${co.phones}\n${co.email}`
-  );
+  // Solo el título corto: el detalle va en el PDF adjunto.
+  return incidentReportShareCaption(report, post);
 }
 
 function getReportById(id) {
@@ -2306,8 +2281,8 @@ function printIncidentReport(id) {
         : "body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;line-height:1.4}",
     autoPrint: false,
     share: {
-      text: buildIncidentShareText(report, post),
-      subject: `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""} — ${site}`,
+      text: incidentReportShareCaption(report, post),
+      subject: incidentReportShareCaption(report, post),
       fileName: incidentReportPdfFileName(report),
     },
   });
@@ -2347,7 +2322,15 @@ async function ensureHtml2Pdf() {
 }
 
 function incidentReportPdfFileName(report) {
-  return `${String(report.number || report.id || "reporte").replace(/[^\w.-]+/g, "_")}.pdf`;
+  const post = report && report.postId ? getPost(report.postId) : null;
+  const caption = incidentReportShareCaption(report, post);
+  const safe = String(caption || "reporte")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return `${safe || "reporte"}.pdf`;
 }
 
 function incidentReportLogoUrl() {
@@ -2450,36 +2433,22 @@ async function shareIncidentWhatsApp(id) {
   const report = getReportById(id);
   if (!report) return;
   const post = getPost(report.postId);
-  const text = buildIncidentShareText(report, post);
-  const title = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""}`.trim();
+  const caption = incidentReportShareCaption(report, post);
   toast("Preparando PDF para WhatsApp…");
   try {
     const file = await buildIncidentReportPdfFile(report, post);
-    const shared = await trySharePdfFile(
-      file,
-      title,
-      `${text}
-
-(Adjunto: informe en PDF)`
-    );
+    const shared = await trySharePdfFile(file, caption, caption);
     if (shared) {
       toast("Elige WhatsApp en el menú para enviar el PDF.");
       return;
     }
     downloadBlobFile(file, file.name);
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(
-        `${text}
-
-📄 El PDF del informe se descargó en este teléfono: ${file.name}. Adjúntalo en el chat.`
-      )}`,
-      "_blank"
-    );
+    window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
     toast("PDF descargado. Adjúntalo en WhatsApp.");
   } catch (err) {
     console.error(err);
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
-    toast("No se pudo crear el PDF; se abrió WhatsApp solo con el texto.");
+    window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
+    toast("No se pudo crear el PDF; se abrió WhatsApp solo con el título.");
   }
 }
 
@@ -2487,35 +2456,22 @@ async function shareIncidentEmail(id) {
   const report = getReportById(id);
   if (!report) return;
   const post = getPost(report.postId);
-  const site = post ? post.site : "cliente";
-  const text = buildIncidentShareText(report, post);
-  const subject = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""} — ${site}`;
-  const title = subject;
+  const caption = incidentReportShareCaption(report, post);
   toast("Preparando PDF para correo…");
   try {
     const file = await buildIncidentReportPdfFile(report, post);
-    const shared = await trySharePdfFile(
-      file,
-      title,
-      `${text}
-
-(Adjunto: informe en PDF)`
-    );
+    const shared = await trySharePdfFile(file, caption, caption);
     if (shared) {
       toast("Elige Correo / Gmail en el menú para enviar el PDF.");
       return;
     }
     downloadBlobFile(file, file.name);
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(
-      `${text}
-
-📄 Se descargó el PDF del informe (${file.name}). Adjúntalo al correo antes de enviar.`
-    )}`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(caption)}`;
     toast("PDF descargado. Adjúntalo al correo.");
   } catch (err) {
     console.error(err);
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-    toast("No se pudo crear el PDF; se abrió el correo solo con el texto.");
+    window.location.href = `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(caption)}`;
+    toast("No se pudo crear el PDF; se abrió el correo solo con el título.");
   }
 }
 
@@ -2538,12 +2494,11 @@ async function shareIncidentPdf(id) {
   const report = getReportById(id);
   if (!report) return;
   const post = getPost(report.postId);
-  const text = buildIncidentShareText(report, post);
-  const title = `${TYPE_LABEL[report.type] || "Reporte"} ${report.number || ""}`.trim();
+  const caption = incidentReportShareCaption(report, post);
   toast("Generando PDF…");
   try {
     const file = await buildIncidentReportPdfFile(report, post);
-    const shared = await trySharePdfFile(file, title, text);
+    const shared = await trySharePdfFile(file, caption, caption);
     if (shared) {
       toast("PDF listo para enviar.");
       return;
@@ -4911,12 +4866,11 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             }
             downloadBlob(blob, fileName);
             if (mode === "wa") {
-              var waText = text + "\\n\\n📄 PDF descargado: " + fileName + ". Adjúntalo en el chat de WhatsApp.";
-              window.open("https://wa.me/?text=" + encodeURIComponent(waText), "_blank");
+              // Solo título corto (tipo + servicio); el detalle está en el PDF.
+              window.open("https://wa.me/?text=" + encodeURIComponent(text || title || fileName), "_blank");
               setStatus("PDF descargado. Adjúntalo en WhatsApp.");
             } else if (mode === "mail") {
-              var body = text + "\\n\\n📄 Se descargó el PDF (" + fileName + "). Adjúntalo al correo antes de enviar.";
-              window.location.href = "mailto:?subject=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(body);
+              window.location.href = "mailto:?subject=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(text || title);
               setStatus("PDF descargado. Adjúntalo al correo.");
             } else {
               setStatus("PDF descargado.");
@@ -9936,7 +9890,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=83").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=84").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9951,7 +9905,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v83").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v84").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
