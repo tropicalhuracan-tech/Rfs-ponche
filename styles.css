@@ -2206,3 +2206,103 @@ body.lightbox-open {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+
+/* La Vega Autopista — roster */
+#lvaView .lva-board {
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background:
+    linear-gradient(165deg, rgba(212,20,20,0.10) 0%, rgba(20,20,22,0.96) 42%, rgba(12,12,14,0.98) 100%);
+}
+#lvaView .lva-board-head h2 {
+  margin: 0 0 4px;
+}
+#lvaView .lva-roster {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#lvaView .lva-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(0,0,0,0.22);
+}
+#lvaView .lva-row h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+#lvaView .lva-post-pill {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #f5f5f5;
+  background: rgba(212,20,20,0.22);
+  border: 1px solid rgba(212,20,20,0.45);
+}
+#lvaView .lva-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+#lvaView .lva-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#lvaView .lva-row-actions .btn {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 12px;
+  margin: 0;
+}
+#lvaView .lva-count-box {
+  margin-top: 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(212,20,20,0.35);
+  background: linear-gradient(90deg, rgba(212,20,20,0.16), rgba(0,0,0,0.25));
+}
+#lvaView .lva-count-box strong {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+  line-height: 1;
+}
+#lvaView .lva-add-card h2 {
+  margin-top: 0;
+}
+#lvaView .lva-empty {
+  margin: 8px 0 4px;
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255,255,255,0.12);
+}
+@media (max-width: 520px) {
+  #lvaView .lva-row {
+    grid-template-columns: 1fr;
+  }
+  #lvaView .lva-row-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
