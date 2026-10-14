@@ -916,6 +916,34 @@ function getSelectedPayrollPaper() {
   return el && el.value === "letter" ? "letter" : "legal";
 }
 
+/** Oficina: siempre Carta horizontal (menos columnas). La Vega/otros: selector. */
+function getPayrollPaperForExport(p) {
+  if (payrollIsOffice(p) || getSelectedPayrollGroup() === "oficina") return "letter";
+  return getSelectedPayrollPaper();
+}
+
+function syncPayrollPaperUiForGroup(group) {
+  const office = group === "oficina";
+  const paper = office ? "letter" : getSelectedPayrollPaper();
+  const main = document.getElementById("contabPayrollPaper");
+  const detail = document.getElementById("contabPayrollPaper2");
+  if (main) {
+    if (office) main.value = "letter";
+    main.disabled = office;
+    main.title = office ? "Oficina: siempre Carta horizontal (como impresión La Vega)" : "";
+  }
+  if (detail) {
+    detail.value = main ? main.value : paper;
+    detail.disabled = office;
+  }
+  const hint = document.getElementById("contabPayrollHint");
+  if (hint) {
+    hint.textContent = office
+      ? `Mes: ${monthLabel(getSelectedMonth())} · Hoja Carta horizontal`
+      : `Mes: ${monthLabel(getSelectedMonth())}`;
+  }
+}
+
 function getLvaStaffForPayroll() {
   try {
     if (typeof lvaState === "undefined" || !lvaState) return [];
@@ -1687,7 +1715,7 @@ function buildPayrollPrintHtml(p) {
       ? "lavega"
       : p.group || "general";
   const groupTitle = payrollGroupMeta(g).title;
-  const paper = getSelectedPayrollPaper();
+  const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
   return `
     <h2 style="margin:0 0 4px;font-size:13px;font-weight:800;color:#111;text-align:center">
@@ -1810,11 +1838,11 @@ function payrollPdfFileName(p) {
 async function buildPayrollPdfBlob(p) {
   if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
   const html2pdf = await ensureHtml2Pdf();
-  const paper = getSelectedPayrollPaper();
-  const landscape = true;
+  const paper = getPayrollPaperForExport(p);
   const fmt = paper === "letter" ? "letter" : "legal";
-  const jsFormat =
-    fmt === "legal" ? [355.6, 215.9] : [279.4, 215.9];
+  // Horizontal: Carta 11×8.5 in · Legal 14×8.5 in (igual flujo que La Vega)
+  const jsFormat = fmt === "legal" ? [355.6, 215.9] : [279.4, 215.9];
+  const canvasW = fmt === "legal" ? 1400 : 1100;
   const caption = payrollShareCaption(p);
   const logoUrl = (() => {
     try {
@@ -1825,8 +1853,7 @@ async function buildPayrollPdfBlob(p) {
   })();
   const host = document.createElement("div");
   host.setAttribute("data-rfs-payroll-pdf", "1");
-  host.style.cssText =
-    "position:fixed;left:0;top:0;width:1400px;background:#fff;color:#111;padding:12px 14px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.2;opacity:0;pointer-events:none;z-index:-1;";
+  host.style.cssText = `position:fixed;left:0;top:0;width:${canvasW}px;background:#fff;color:#111;padding:12px 14px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.2;opacity:0;pointer-events:none;z-index:-1;`;
   host.innerHTML = `
     <style>${payrollPrintCss(paper)}</style>
     <div class="brand" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;justify-content:center">
@@ -1847,13 +1874,13 @@ async function buildPayrollPdfBlob(p) {
       filename: payrollPdfFileName(p),
       image: { type: "jpeg", quality: 0.92 },
       html2canvas: {
-        scale: 1.35,
+        scale: 1.4,
         useCORS: true,
         allowTaint: true,
         logging: false,
         backgroundColor: "#ffffff",
-        windowWidth: 1400,
-        width: 1400,
+        windowWidth: canvasW,
+        width: canvasW,
         scrollX: 0,
         scrollY: 0,
       },
@@ -1881,7 +1908,7 @@ function printOpenPayrollSheet() {
   const p = resolveOpenPayrollForExport();
   if (!p) return;
   const caption = payrollShareCaption(p);
-  const paper = getSelectedPayrollPaper();
+  const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
   if (typeof openPrintWindow !== "function") {
     downloadOpenPayrollPdf().catch(() => toast("No se pudo abrir la impresión."));
@@ -1908,7 +1935,9 @@ function printOpenPayrollSheet() {
     downloadOpenPayrollPdf().catch(() => {});
     return;
   }
-  toast(`${paperLabel} horizontal · Imprimir / Descargar PDF / WhatsApp en la barra superior.`);
+  toast(
+    `${paperLabel} horizontal · usa Imprimir, Descargar PDF o Correo/Gmail en la barra superior.`
+  );
 }
 
 async function downloadOpenPayrollPdf() {
@@ -1934,32 +1963,33 @@ async function downloadOpenPayrollPdf() {
   }
 }
 
-async function shareOpenPayrollSheet() {
+async function shareOpenPayrollSheet(mode = "share") {
   const p = resolveOpenPayrollForExport();
   if (!p) return;
   const caption = payrollShareCaption(p);
-  toast("Preparando PDF para compartir…");
+  const wantMail = mode === "mail" || mode === "gmail" || mode === "email";
+  toast(wantMail ? "Preparando PDF para Gmail / correo…" : "Preparando PDF para compartir…");
   try {
     const blob = await buildPayrollPdfBlob(p);
     const file = new File([blob], payrollPdfFileName(p), { type: "application/pdf" });
     if (typeof trySharePdfFile === "function") {
       const shared = await trySharePdfFile(file, caption, caption);
       if (shared) {
-        toast("Elige WhatsApp o Correo en el menú.");
+        toast(wantMail ? "Elige Gmail o Correo en el menú y adjunta el PDF." : "Elige WhatsApp o Gmail en el menú.");
         return;
       }
     } else if (navigator.share) {
       try {
         if (!navigator.canShare || navigator.canShare({ files: [file] })) {
           await navigator.share({ title: caption, text: caption, files: [file] });
-          toast("PDF listo para enviar.");
+          toast(wantMail ? "Elige Gmail en el menú." : "PDF listo para enviar.");
           return;
         }
       } catch (err) {
         if (err && err.name === "AbortError") return;
       }
     }
-    // Fallback: descargar + abrir WhatsApp con título
+    // Fallback: descargar PDF y abrir correo o WhatsApp
     if (typeof downloadBlobFile === "function") downloadBlobFile(file, file.name);
     else {
       const url = URL.createObjectURL(blob);
@@ -1969,14 +1999,24 @@ async function shareOpenPayrollSheet() {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 2500);
     }
+    if (wantMail) {
+      window.location.href = `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(
+        `${caption}\n\nAdjunta el PDF descargado (${file.name}).`
+      )}`;
+      toast("PDF descargado. Adjúntalo en Gmail / correo.");
+      return;
+    }
     window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
     toast("PDF descargado. Adjúntalo en WhatsApp.");
   } catch (err) {
     console.error(err);
-    // Último recurso: pantalla de impresión con botones PDF
     printOpenPayrollSheet();
-    toast("Abre Descargar PDF o WhatsApp en la barra de impresión.");
+    toast("Abre Descargar PDF o Correo PDF en la barra de impresión.");
   }
+}
+
+function emailOpenPayrollPdf() {
+  return shareOpenPayrollSheet("mail");
 }
 
 
@@ -2110,8 +2150,7 @@ function renderNominaTab() {
   const groupSel = document.getElementById("contabPayrollGroup");
   const group = getSelectedPayrollGroup();
   const meta = payrollGroupMeta(group);
-  const hint = document.getElementById("contabPayrollHint");
-  if (hint) hint.textContent = `Mes: ${monthLabel(getSelectedMonth())}`;
+  syncPayrollPaperUiForGroup(group);
   const titleEl = document.getElementById("contabNominaTitle");
   if (titleEl) titleEl.textContent = `Nómina · ${meta.label}`;
   const genBtn = document.getElementById("btnContabGenPayroll");
@@ -2387,12 +2426,13 @@ function renderNominaTab() {
       ? "lavega"
       : p.group || getSelectedPayrollGroup()
   );
-  const paperLabel = getSelectedPayrollPaper() === "letter" ? "Carta" : "Legal";
+  const exportPaper = getPayrollPaperForExport(p);
+  const paperLabel = exportPaper === "letter" ? "Carta" : "Legal";
   const isOfficeOpen = payrollIsOffice(p);
   const helpLine = isOfficeOpen
     ? `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre. Quincena = sueldo/2 · SFS fijo RD$ ${OFFICE_PAYROLL_SFS} · Rifa editable. Sin días, unif, volao, comida, feriado ni horas extras. Impresión centrada (${paperLabel}).`
+      } · ${namedCount}/${lines.length} con nombre. Quincena = sueldo/2 · SFS fijo RD$ ${OFFICE_PAYROLL_SFS} · Rifa editable. Sin días, unif, volao, comida, feriado ni horas extras. Impresión ${paperLabel} horizontal · Descargar / Correo Gmail.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85. Feriado ${
@@ -2425,14 +2465,15 @@ function renderNominaTab() {
       )} · ${namedCount} con nombre (auto)</span></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:end">
       <label class="muted tight" style="margin:0">Hoja
-        <select id="contabPayrollPaper2" style="display:block;margin-top:4px">
-          <option value="legal"${getSelectedPayrollPaper() === "legal" ? " selected" : ""}>Legal</option>
-          <option value="letter"${getSelectedPayrollPaper() === "letter" ? " selected" : ""}>Carta</option>
+        <select id="contabPayrollPaper2" style="display:block;margin-top:4px"${isOfficeOpen ? " disabled" : ""}>
+          <option value="legal"${exportPaper === "legal" ? " selected" : ""}>Legal</option>
+          <option value="letter"${exportPaper === "letter" ? " selected" : ""}>Carta</option>
         </select>
       </label>
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir ↔</button>
       <button type="button" class="btn secondary" id="btnContabDownloadPayroll2" style="width:auto">Descargar PDF</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
+      <button type="button" class="btn secondary" id="btnContabMailPayroll2" style="width:auto">Correo / Gmail</button>
     </div>`;
   document.querySelectorAll(".btn-row-del").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
@@ -2452,6 +2493,9 @@ function renderNominaTab() {
   });
   document.getElementById("btnContabSharePayroll2")?.addEventListener("click", () => {
     shareOpenPayrollSheet().catch(() => {});
+  });
+  document.getElementById("btnContabMailPayroll2")?.addEventListener("click", () => {
+    emailOpenPayrollPdf().catch(() => {});
   });
   const detailRoot = document.getElementById("contabPayrollDetail");
   if (detailRoot) detailRoot.dataset.liveBound = "";
@@ -2528,10 +2572,14 @@ function bindContabilidadUi() {
   document.getElementById("btnContabSharePayroll")?.addEventListener("click", () => {
     shareOpenPayrollSheet().catch(() => {});
   });
+  document.getElementById("btnContabMailPayroll")?.addEventListener("click", () => {
+    emailOpenPayrollPdf().catch(() => {});
+  });
   document.getElementById("contabPayrollGroup")?.addEventListener("change", () => {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
     const group = getSelectedPayrollGroup();
+    syncPayrollPaperUiForGroup(group);
     const found = findPayrollByGroup(period, half, group);
     selectedPayrollId = found ? found.id : "";
     renderNominaTab();
