@@ -79,7 +79,7 @@
           <button class="welcome-action" type="button" data-go="quotesView">Cotizaciones</button>
           <button class="welcome-action ghost" type="button" data-go="adminView">Admin</button>
         </div>
-        <p id="cloudStatus" class="muted cloud-status-home">Nube: conectando…</p>
+        <p id="cloudStatus" class="muted cloud-status-home">Nube: conectando...</p>
         <p id="installHint" class="muted install-hint-home">
           Para instalar: Chrome → menú ⋮ → <strong>Instalar app</strong>
         </p>
@@ -100,13 +100,13 @@
       <div class="section-head section-head-row">
         <div>
           <h1>Clientes</h1>
-          <p id="shiftsSummary">Cargando…</p>
+          <p id="shiftsSummary">Cargando...</p>
         </div>
         <button id="btnPrintClients" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir clientes" title="Imprimir">⎙</button>
       </div>
       <div class="form-card" style="margin-bottom:10px">
         <label class="search-label">Buscar cliente
-          <input id="clientsSearch" type="search" placeholder="Nombre, número, vigilante, supervisor…" autocomplete="off" />
+          <input id="clientsSearch" type="search" placeholder="Nombre, número, vigilante, supervisor..." autocomplete="off" />
         </label>
       </div>
       <div id="shiftsList" class="card-list"></div>
@@ -120,7 +120,7 @@
       <div class="form-card">
         <h2>Nuevo reporte de incidente / novedad</h2>
         <label class="search-label">Buscar servicio
-          <input id="reportPostSearch" type="search" placeholder="Número, nombre del cliente o vigilante…" autocomplete="off" />
+          <input id="reportPostSearch" type="search" placeholder="Número, nombre del cliente o vigilante..." autocomplete="off" />
         </label>
         <label>Puesto / cliente<select id="reportPost"></select></label>
         <label>Tipo
@@ -240,7 +240,7 @@
         <div id="empDeactivateBox" class="attach-block">
           <h3 class="attach-title">Eliminar / pasar a inactivo</h3>
           <p class="muted tight">No se borra: queda en Eliminados / Inactivos con la causa.</p>
-          <label>Causa de eliminación<textarea id="eInactiveReason" rows="2" placeholder="Ej. renuncia, despido, cambio de proyecto…"></textarea></label>
+          <label>Causa de eliminación<textarea id="eInactiveReason" rows="2" placeholder="Ej. renuncia, despido, cambio de proyecto..."></textarea></label>
           <button id="btnDeactivateEmployee" class="btn danger" type="button">Eliminar empleado</button>
         </div>
         <button id="btnReactivateEmployee" class="btn secondary" type="button" hidden>Reactivar empleado</button>
@@ -477,11 +477,11 @@
           <input id="lvaStaffName" type="text" placeholder="Nombre y apellido" autocomplete="name" />
         </label>
         <label>Puesto
-          <input id="lvaPostName" type="text" list="lvaPostSuggestions" placeholder="Ej. Caseta entrada, KM 12…" autocomplete="off" />
+          <input id="lvaPostName" type="text" list="lvaPostSuggestions" placeholder="Ej. Caseta entrada, KM 12..." autocomplete="off" />
           <datalist id="lvaPostSuggestions"></datalist>
         </label>
         <div class="coords-row">
-          <label>Teléfono<input id="lvaStaffPhone" type="tel" placeholder="809…" /></label>
+          <label>Teléfono<input id="lvaStaffPhone" type="tel" placeholder="809..." /></label>
           <label>Cédula<input id="lvaStaffCedula" type="text" placeholder="000-0000000-0" /></label>
         </div>
         <button id="btnLvaAddStaff" class="btn primary" type="button">＋ Agregar al proyecto</button>
@@ -514,7 +514,7 @@
           </div>
           <div id="msgThread" class="msg-thread-body"></div>
           <div class="msg-compose">
-            <textarea id="msgText" rows="2" placeholder="Escribe un mensaje…"></textarea>
+            <textarea id="msgText" rows="2" placeholder="Escribe un mensaje..."></textarea>
             <div class="msg-compose-actions">
               <button id="btnMsgSend" class="btn primary" type="button">Enviar</button>
               <button id="btnMsgVoice" class="btn secondary" type="button">🎙 Voz</button>
@@ -832,7 +832,7 @@
           </label>
           <div class="coords-row">
             <label>Teléfono
-              <input id="depPhone" type="tel" placeholder="809…" />
+              <input id="depPhone" type="tel" placeholder="809..." />
             </label>
             <label>Email
               <input id="depEmail" type="email" placeholder="opcional" />
@@ -850,7 +850,7 @@
           <h2>Puesto asignado</h2>
           <p class="muted tight">Escribe aquí el puesto / servicio donde trabajará. Al enviar a RRHH queda listo para contratar.</p>
           <label>Puesto asignado
-            <input id="depHiredPosition" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina…" list="depHiredPositionList" />
+            <input id="depHiredPosition" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina..." list="depHiredPositionList" />
             <datalist id="depHiredPositionList">
               <option value="Vigilante"></option>
               <option value="La Vega Autopista"></option>
@@ -875,7 +875,7 @@
           <h2>3. Checklist de depuración</h2>
           <div id="depChecklistBox" class="dep-checklist"></div>
           <label style="margin-top:10px">Nota sobre antecedentes (si aportó certificado)
-            <textarea id="depAntecedentesNote" rows="2" placeholder="Ej. Presentó certificado Procuraduría · fecha…"></textarea>
+            <textarea id="depAntecedentesNote" rows="2" placeholder="Ej. Presentó certificado Procuraduría · fecha..."></textarea>
           </label>
         </div>
 
@@ -899,10 +899,10 @@
           <h2>6. Verificación operativa (interna)</h2>
           <p class="muted tight">Lo que realmente importa para RFS: indagación, zona, empleos previos y señales de riesgo. Llénalo a mano según su proceso.</p>
           <label>Indagación / visita / zona
-            <textarea id="depFieldCheckNote" rows="2" placeholder="Ej. Se habló con vecinos · supervisor del sector · resultado…"></textarea>
+            <textarea id="depFieldCheckNote" rows="2" placeholder="Ej. Se habló con vecinos · supervisor del sector · resultado..."></textarea>
           </label>
           <label>Empleos / servicios anteriores
-            <textarea id="depEmployerHistoryNote" rows="2" placeholder="Dónde trabajó, por qué salió, a quién se llamó…"></textarea>
+            <textarea id="depEmployerHistoryNote" rows="2" placeholder="Dónde trabajó, por qué salió, a quién se llamó..."></textarea>
           </label>
           <label>Señales de riesgo / observaciones sensibles
             <textarea id="depRiskFlagsNote" rows="2" placeholder="Solo uso interno. Hechos verificados, no rumores sin base."></textarea>
@@ -966,7 +966,7 @@
           </div>
           <label>Nombre comercial<input id="cfeVendor" type="text" placeholder="Ej. OLE, NACIONAL, ALTICE" /></label>
           <div class="coords-row">
-            <label>NCF<input id="cfeNcf" type="text" placeholder="E31… / B01…" /></label>
+            <label>NCF<input id="cfeNcf" type="text" placeholder="E31... / B01..." /></label>
             <label>RNC<input id="cfeRnc" type="text" inputmode="numeric" maxlength="11" placeholder="101532483" /></label>
           </div>
           <div class="coords-row">
@@ -1178,7 +1178,7 @@
               <h3 style="margin:0 0 6px;font-size:15px">Puesto asignado</h3>
               <p class="muted tight" style="margin:0 0 8px">Obligatorio para contratar. También se puede cargar desde Depuración.</p>
               <label>Puesto asignado
-                <input id="hrHiredPosition" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina…" list="hrHiredPositionList" />
+                <input id="hrHiredPosition" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina..." list="hrHiredPositionList" />
                 <datalist id="hrHiredPositionList">
                   <option value="Vigilante"></option>
                   <option value="La Vega Autopista"></option>
@@ -1340,7 +1340,7 @@
             <h2>Entrega de uniformes y equipos</h2>
             <p class="muted tight">Toca cada ítem para marcar si se entregó.</p>
             <div id="hrUniformGrid" class="hr-uniform-grid"></div>
-            <label>Detalle de «Otros»<input id="hrUniformOtrosDetalle" type="text" placeholder="Ej. silbato, porta placa…" /></label>
+            <label>Detalle de «Otros»<input id="hrUniformOtrosDetalle" type="text" placeholder="Ej. silbato, porta placa..." /></label>
             <label>Entregado por<input id="hrUniformsBy" type="text" placeholder="Nombre de quien entrega" /></label>
             <label>Notas de entrega<textarea id="hrUniformsNotes" rows="2"></textarea></label>
           </div>
@@ -1366,7 +1366,7 @@
               <h3 style="margin:0 0 6px;font-size:15px">Puesto asignado</h3>
               <p class="muted tight" style="margin:0 0 8px">Obligatorio. Si vino de Depuración ya debe aparecer aquí.</p>
               <label>Puesto asignado
-                <input id="hrHiredPositionHire" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina…" list="hrHiredPositionList" />
+                <input id="hrHiredPositionHire" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina..." list="hrHiredPositionList" />
               </label>
             </div>
             <div id="hrHireSummary"></div>
@@ -1561,7 +1561,7 @@
               <option value="alert">Incidente</option>
             </select>
           </label>
-          <label>Notas<textarea id="fNote" rows="2" placeholder="Instrucciones del cliente…"></textarea></label>
+          <label>Notas<textarea id="fNote" rows="2" placeholder="Instrucciones del cliente..."></textarea></label>
 
           <div class="fieldset-title">Vigilantes del puesto</div>
           <p class="muted" style="margin-top:0">Puedes agregar varios (hasta 20). Cada uno con sus datos.</p>
