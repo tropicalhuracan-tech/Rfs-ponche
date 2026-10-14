@@ -1729,12 +1729,12 @@ function buildPayrollPrintHtml(p) {
       <div><strong>Total redondeo:</strong> ${escapeHtml(moneyPlain(totals.redondeo || 0))}</div>
       ${payrollShowsFeriado(p) ? "<div><strong>Feriado:</strong> activo</div>" : ""}
     </div>
-    <table class="nomina-print">
+    <table class="nomina-print${isOffice ? " nomina-print-office" : ""}">
       <thead><tr>${head}</tr></thead>
       <tbody>${body || `<tr><td colspan="${cols.length}">Sin líneas</td></tr>`}</tbody>
       <tfoot><tr>${totalRow}</tr></tfoot>
     </table>
-    <div class="sign-box">
+    <div class="sign-box${isOffice ? " sign-box-office" : ""}">
       <div class="sign-line">Preparado por / Contabilidad</div>
       <div class="sign-line">Autorizado / Operaciones</div>
     </div>
@@ -1743,42 +1743,62 @@ function buildPayrollPrintHtml(p) {
     )}</p>`;
 }
 
-function payrollPrintCss(paperSize) {
+function payrollPrintCss(paperSize, options = {}) {
   const paper = paperSize === "letter" ? "letter" : "legal";
+  const office = !!(options && options.office);
+  // Keyword landscape evita hoja en blanco / orientación mal interpretada en Chrome
   const page =
     paper === "letter"
-      ? "@page{size:11in 8.5in;margin:4mm}"
-      : "@page{size:14in 8.5in;margin:3mm}";
+      ? "@page{size:letter landscape;margin:8mm}"
+      : "@page{size:legal landscape;margin:6mm}";
   return `
     ${page}
-    html,body.print-nomina{width:100%;max-width:none;overflow-x:auto}
-    body.print-nomina{padding:5px 6px;font-size:12px;line-height:1.12}
-    body.print-nomina .brand{margin:0 auto 6px;justify-content:center;text-align:center}
-    body.print-nomina .brand img{width:38px;height:38px}
-    body.print-nomina h1{font-size:15px;font-weight:800}
-    body.print-nomina h2{font-size:13px;margin:0 0 3px;font-weight:800;text-align:center}
-    #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center}
+    html,body.print-nomina{width:100% !important;max-width:none !important;min-height:0;overflow:visible !important;background:#fff !important;color:#111 !important}
+    body.print-nomina{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:8px 10px;font-size:${
+      office ? "13px" : "12px"
+    };line-height:1.2;margin:0}
+    body.print-nomina .brand{margin:0 auto 8px;justify-content:center;text-align:center;display:flex;align-items:center;gap:10px}
+    body.print-nomina .brand img{width:${office ? "46px" : "38px"};height:${office ? "46px" : "38px"}}
+    body.print-nomina h1{font-size:${office ? "18px" : "15px"};font-weight:800}
+    body.print-nomina h2{font-size:${office ? "15px" : "13px"};margin:0 0 4px;font-weight:800;text-align:center}
+    #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch;background:#fff;color:#111}
     #rfsPrintRoot > .footer{text-align:center;align-self:center}
-    /* Centrado; letra grande; columnas compactas (no estirar al ancho de hoja) */
-    table.nomina-print{width:auto;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:11.5px;margin:0 auto}
-    table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:2px 4px;vertical-align:middle}
-    table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:11px;line-height:1.15;white-space:nowrap}
-    table.nomina-print td{white-space:nowrap;padding:2px 4px}
-    table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:2px 5px;max-width:12em;overflow:hidden;text-overflow:ellipsis}
+    table.nomina-print{width:${office ? "100%" : "auto"};max-width:100%;border-collapse:collapse;table-layout:${
+      office ? "fixed" : "auto"
+    };font-size:${office ? "12.5px" : "11.5px"};margin:0 auto}
+    table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:${
+      office ? "5px 6px" : "2px 4px"
+    };vertical-align:middle}
+    table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:${
+      office ? "12px" : "11px"
+    };line-height:1.2;white-space:normal}
+    table.nomina-print td{white-space:${office ? "normal" : "nowrap"};padding:${office ? "5px 6px" : "2px 4px"}}
+    table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:${
+      office ? "5px 7px" : "2px 5px"
+    };max-width:none;overflow:visible;text-overflow:clip;word-break:break-word}
     table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right}
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
     table.nomina-print tfoot td{background:#efefef;font-weight:800}
-    table.nomina-print tfoot td.col-redondeo-total{font-size:11.5px}
-    .meta{font-size:11px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
-    .sign-box{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:min(100%,520px);align-self:center}
-    .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:10px}
+    table.nomina-print tfoot td.col-redondeo-total{font-size:${office ? "13px" : "11.5px"}}
+    table.nomina-print-office{width:100% !important}
+    .meta{font-size:${office ? "12px" : "11px"};display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+    .sign-box{margin-top:${office ? "18px" : "12px"};display:grid;grid-template-columns:1fr 1fr;gap:18px;width:${
+      office ? "min(100%,640px)" : "min(100%,520px)"
+    };align-self:center;margin-left:auto;margin-right:auto}
+    .sign-line{border-top:1px solid #111;margin-top:${office ? "32px" : "26px"};padding-top:3px;text-align:center;font-size:${
+      office ? "11px" : "10px"
+    }}
     .footer{font-size:9px;margin-top:6px;text-align:center}
     @media print{
-      html,body.print-nomina{overflow:visible !important}
-      body.print-nomina{padding:0}
-      table.nomina-print{font-size:11.5px;width:auto;margin:0 auto}
-      table.nomina-print th{font-size:11px;font-weight:800}
-      #rfsPrintRoot{align-items:center}
+      html,body.print-nomina{overflow:visible !important;height:auto !important;background:#fff !important}
+      body.print-nomina{padding:0 !important;margin:0 !important}
+      .no-print{display:none !important}
+      #rfsPrintRoot{width:100% !important;align-items:stretch;visibility:visible !important}
+      table.nomina-print{font-size:${office ? "12.5px" : "11.5px"};width:${
+        office ? "100%" : "auto"
+      };margin:0 auto}
+      table.nomina-print th{font-size:${office ? "12px" : "11px"};font-weight:800}
+      table.nomina-print-office{width:100% !important}
     }
   `;
 }
@@ -1840,9 +1860,9 @@ async function buildPayrollPdfBlob(p) {
   const html2pdf = await ensureHtml2Pdf();
   const paper = getPayrollPaperForExport(p);
   const fmt = paper === "letter" ? "letter" : "legal";
-  // Horizontal: Carta 11×8.5 in · Legal 14×8.5 in (igual flujo que La Vega)
-  const jsFormat = fmt === "legal" ? [355.6, 215.9] : [279.4, 215.9];
-  const canvasW = fmt === "legal" ? 1400 : 1100;
+  const isOffice = payrollIsOffice(p);
+  // Ancho del lienzo ≈ hoja horizontal (Carta ~1056px @96dpi; Legal más ancha)
+  const canvasW = fmt === "legal" ? 1340 : isOffice ? 1020 : 1100;
   const caption = payrollShareCaption(p);
   const logoUrl = (() => {
     try {
@@ -1853,28 +1873,42 @@ async function buildPayrollPdfBlob(p) {
   })();
   const host = document.createElement("div");
   host.setAttribute("data-rfs-payroll-pdf", "1");
-  host.style.cssText = `position:fixed;left:0;top:0;width:${canvasW}px;background:#fff;color:#111;padding:12px 14px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.2;opacity:0;pointer-events:none;z-index:-1;`;
+  // Visible para html2canvas (opacity:0 a veces deja captura vacía / minúscula)
+  host.style.cssText = `position:fixed;left:0;top:0;width:${canvasW}px;background:#fff;color:#111;padding:${
+    isOffice ? "14px 16px" : "12px 14px"
+  };box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:${
+    isOffice ? "13px" : "12px"
+  };line-height:1.25;z-index:2147483000;pointer-events:none;`;
   host.innerHTML = `
-    <style>${payrollPrintCss(paper)}</style>
-    <div class="brand" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;justify-content:center">
-      <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" style="width:40px;height:40px;object-fit:contain" />
-      <div style="text-align:left">
-        <div style="font-size:15px;font-weight:800;margin:0">Reaction Force Security</div>
-        <div style="font-size:12px">${escapeHtml(caption)}</div>
+    <style>${payrollPrintCss(paper, { office: isOffice })}
+      [data-rfs-payroll-pdf] #rfsPdfInner{width:100%;box-sizing:border-box}
+      [data-rfs-payroll-pdf] table.nomina-print{width:100% !important;max-width:100%}
+      [data-rfs-payroll-pdf] .brand{justify-content:center;margin:0 auto 10px}
+    </style>
+    <div id="rfsPdfInner">
+      <div class="brand" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;justify-content:center">
+        <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" style="width:${
+          isOffice ? "48" : "40"
+        }px;height:${isOffice ? "48" : "40"}px;object-fit:contain" />
+        <div style="text-align:left">
+          <div style="font-size:${isOffice ? "18" : "15"}px;font-weight:800;margin:0">Reaction Force Security</div>
+          <div style="font-size:${isOffice ? "13" : "12"}px">${escapeHtml(caption)}</div>
+        </div>
       </div>
+      ${buildPayrollPrintHtml(p)}
     </div>
-    ${buildPayrollPrintHtml(p)}
   `;
   document.body.appendChild(host);
   try {
     if (typeof waitForImages === "function") await waitForImages(host);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const target = host.querySelector("#rfsPdfInner") || host;
     const opt = {
-      margin: [5, 5, 5, 5],
+      margin: isOffice ? [8, 8, 8, 8] : [6, 6, 6, 6],
       filename: payrollPdfFileName(p),
-      image: { type: "jpeg", quality: 0.92 },
+      image: { type: "jpeg", quality: 0.95 },
       html2canvas: {
-        scale: 1.4,
+        scale: isOffice ? 2 : 1.5,
         useCORS: true,
         allowTaint: true,
         logging: false,
@@ -1884,18 +1918,19 @@ async function buildPayrollPdfBlob(p) {
         scrollX: 0,
         scrollY: 0,
       },
+      // Formato con nombre + landscape (NO [w,h]+portrait: jsPDF invierte a vertical)
       jsPDF: {
         unit: "mm",
-        format: jsFormat,
-        orientation: "portrait",
+        format: fmt,
+        orientation: "landscape",
       },
       pagebreak: { mode: ["css", "legacy"] },
     };
     let blob = null;
     try {
-      blob = await html2pdf().set(opt).from(host).outputPdf("blob");
+      blob = await html2pdf().set(opt).from(target).outputPdf("blob");
     } catch (_) {
-      blob = await html2pdf().set(opt).from(host).toPdf().get("pdf").then((pdf) => pdf.output("blob"));
+      blob = await html2pdf().set(opt).from(target).toPdf().get("pdf").then((pdf) => pdf.output("blob"));
     }
     if (!blob || !blob.size) throw new Error("PDF vacío");
     return blob;
@@ -1910,6 +1945,7 @@ function printOpenPayrollSheet() {
   const caption = payrollShareCaption(p);
   const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
+  const isOffice = payrollIsOffice(p);
   if (typeof openPrintWindow !== "function") {
     downloadOpenPayrollPdf().catch(() => toast("No se pudo abrir la impresión."));
     return;
@@ -1922,7 +1958,7 @@ function printOpenPayrollSheet() {
     pdfOrientation: "landscape",
     wide: true,
     autoPrint: false,
-    extraCss: payrollPrintCss(paper),
+    extraCss: payrollPrintCss(paper, { office: isOffice }),
     share: {
       text: caption,
       subject: caption,
@@ -1936,7 +1972,7 @@ function printOpenPayrollSheet() {
     return;
   }
   toast(
-    `${paperLabel} horizontal · usa Imprimir, Descargar PDF o Correo/Gmail en la barra superior.`
+    `${paperLabel} horizontal · en el diálogo elige Horizontal / Landscape. Usa Imprimir o Descargar PDF.`
   );
 }
 

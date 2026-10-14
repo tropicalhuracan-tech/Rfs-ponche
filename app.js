@@ -4922,16 +4922,16 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   const wide = !!(options && options.wide);
   const pdfFormat = String((options && options.pdfFormat) || pageSize || "a4").toLowerCase();
   const pdfOrientation = String((options && options.pdfOrientation) || orientation || "portrait").toLowerCase();
-  // Legal horizontal = 14in × 8.5in; Carta horizontal = 11in × 8.5in
+  // Usar keywords letter/legal + landscape (evita hoja en blanco en Chrome)
   const pageRule =
     pageSize === "legal" && orientation === "landscape"
-      ? "@page{size:14in 8.5in;margin:5mm}"
+      ? "@page{size:legal landscape;margin:6mm}"
       : pageSize === "legal"
-        ? "@page{size:8.5in 14in;margin:8mm}"
+        ? "@page{size:legal portrait;margin:8mm}"
         : pageSize === "letter" && orientation === "landscape"
-          ? "@page{size:11in 8.5in;margin:5mm}"
+          ? "@page{size:letter landscape;margin:8mm}"
           : pageSize === "letter"
-            ? "@page{size:8.5in 11in;margin:8mm}"
+            ? "@page{size:letter portrait;margin:8mm}"
             : pageSize
               ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
               : "";
@@ -4962,7 +4962,8 @@ function openPrintWindow(title, bodyHtml, options = {}) {
 <title>${escapeHtml(title)}</title>
 <style>
   ${pageRule}
-  body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;${bodyMax};margin:0 auto;font-size:12px;line-height:1.35}
+  html,body{background:#fff;color:#111}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;${bodyMax};margin:0 auto;font-size:12px;line-height:1.35;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   h1{font-size:18px;margin:0 0 4px}
   h2{font-size:14px;margin:0 0 14px;font-weight:normal;color:#444}
   .meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px}
@@ -4985,7 +4986,12 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   .print-bar .btn-pdf{background:#f5f5f5;color:#111}
   .print-bar .hint{font-size:12px;color:#ccc;flex:1;min-width:160px}
   .print-bar .status{font-size:12px;color:#fde68a;width:100%}
-  @media print{body{padding:0} .no-print{display:none !important}}
+  #rfsPrintRoot{background:#fff;color:#111;visibility:visible}
+  @media print{
+    html,body{padding:0 !important;margin:0 !important;background:#fff !important;overflow:visible !important}
+    .no-print{display:none !important}
+    #rfsPrintRoot{display:block !important;visibility:visible !important}
+  }
   ${extraCss}
 </style></head><body${bodyClass ? ` class="${escapeHtml(bodyClass)}"` : ""}>
   <div class="print-bar no-print">
@@ -5111,22 +5117,20 @@ function openPrintWindow(title, bodyHtml, options = {}) {
         if (!root) return Promise.reject(new Error("Sin contenido"));
         return loadPdfLib().then(function (html2pdf) {
           var fmt = (pdfCfg && pdfCfg.format) || "a4";
+          if (fmt === "carta") fmt = "letter";
           var ori = (pdfCfg && pdfCfg.orientation) || "portrait";
           var landscape = ori === "landscape";
           var widePdf = !!(pdfCfg && pdfCfg.wide);
-          // Legal landscape 355.6×215.9; Carta landscape 279.4×215.9
-          var jsFormat = fmt;
-          if (fmt === "legal" && landscape) jsFormat = [355.6, 215.9];
-          else if (fmt === "legal") jsFormat = [215.9, 355.6];
-          else if ((fmt === "letter" || fmt === "carta") && landscape) jsFormat = [279.4, 215.9];
-          else if (fmt === "letter" || fmt === "carta") jsFormat = [215.9, 279.4];
-          var w = Math.max(root.scrollWidth || 0, root.offsetWidth || 0, widePdf ? 1400 : 800);
+          // Nombre letter/legal + orientation landscape (arrays+[portrait] invertían a vertical)
+          var jsFormat = fmt === "legal" || fmt === "letter" ? fmt : fmt;
+          var w = Math.max(root.scrollWidth || 0, root.offsetWidth || 0, widePdf ? (landscape ? 1100 : 900) : 800);
+          if (landscape && widePdf) w = Math.max(w, fmt === "legal" ? 1340 : 1020);
           var opt = {
-            margin: landscape ? [5, 5, 5, 5] : [10, 10, 12, 10],
+            margin: landscape ? [8, 8, 8, 8] : [10, 10, 12, 10],
             filename: (shareCfg && shareCfg.fileName) || "reporte.pdf",
-            image: { type: "jpeg", quality: 0.92 },
+            image: { type: "jpeg", quality: 0.95 },
             html2canvas: {
-              scale: landscape ? 1.35 : 1.5,
+              scale: landscape ? 1.8 : 1.5,
               useCORS: true,
               allowTaint: true,
               logging: false,
@@ -5139,11 +5143,10 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             jsPDF: {
               unit: "mm",
               format: jsFormat,
-              orientation: landscape && typeof jsFormat !== "string" ? "portrait" : ori
+              orientation: landscape ? "landscape" : "portrait"
             },
             pagebreak: { mode: landscape ? ["css", "legacy"] : ["avoid-all", "css", "legacy"] }
           };
-          // Si format ya es [w,h] landscape, jsPDF orientation portrait usa ese rectángulo tal cual
           return html2pdf().set(opt).from(root).outputPdf("blob").catch(function () {
             return html2pdf().set(opt).from(root).toPdf().get("pdf").then(function (pdf) {
               return pdf.output("blob");
@@ -10200,7 +10203,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=107").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=108").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10215,7 +10218,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v107").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v108").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
