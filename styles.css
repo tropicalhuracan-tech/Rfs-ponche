@@ -2407,15 +2407,33 @@ body.lightbox-open {
   left: 0;
   background: #141416;
   z-index: 2;
-  min-width: 180px;
-  width: auto;
-  max-width: none;
+  min-width: 118px;
+  width: 132px;
+  max-width: 148px;
   white-space: nowrap;
   text-align: left;
 }
 .nomina-table th.sticky-name {
   z-index: 3;
   background: #2a1212;
+  font-size: 11px;
+  max-width: 148px;
+}
+.nomina-table th.nomina-col-sfs,
+.nomina-table td.nomina-col-sfs {
+  min-width: 3.4em;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+.nomina-table th.nomina-col-redondeo,
+.nomina-table td.nomina-col-redondeo {
+  min-width: 4.8em;
+}
+.nomina-table .nomina-total-row td.nomina-total-redondeo,
+.nomina-table .nomina-total-row td.nomina-col-redondeo {
+  min-width: 6.5em;
+  overflow: visible;
+  white-space: nowrap;
   font-size: 11px;
 }
 .nomina-table td.nomina-col-fit .nomina-inp,
@@ -2434,14 +2452,14 @@ body.lightbox-open {
 }
 .nomina-table input.nomina-inp-wide {
   width: 100%;
-  min-width: 170px;
-  max-width: none;
+  min-width: 110px;
+  max-width: 144px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: left;
   font-size: 11px;
-  padding: 3px 5px;
+  padding: 3px 4px;
 }
 .nomina-table input.nomina-inp-days,
 .nomina-table input.nomina-inp-ced {

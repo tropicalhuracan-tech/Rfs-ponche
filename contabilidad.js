@@ -886,7 +886,7 @@ function getLvaPostLabel(staff) {
   return "";
 }
 
-/** Nombre completo del empleado (sin puesto ni sufijos entre paréntesis). */
+/** Limpia puesto / paréntesis del nombre. */
 function payrollCleanEmployeeName(name) {
   return String(name || "")
     .replace(/\s*\([^)]*\)\s*/g, " ")
@@ -894,8 +894,17 @@ function payrollCleanEmployeeName(name) {
     .trim();
 }
 
+/** Un nombre + un apellido (omite segundo nombre y segundo apellido). */
+function payrollShortEmployeeName(name) {
+  const clean = payrollCleanEmployeeName(name);
+  if (!clean) return "";
+  const parts = clean.split(" ").filter(Boolean);
+  if (parts.length <= 2) return parts.join(" ");
+  return `${parts[0]} ${parts[parts.length - 2]}`;
+}
+
 function buildLvaPayrollLineFromStaff(staff, prev) {
-  const baseName = payrollCleanEmployeeName(staff.name || "");
+  const baseName = payrollShortEmployeeName(staff.name || "");
   const post = getLvaPostLabel(staff);
   const prevLine = prev || {};
   const daysWorked = prevLine.daysWorked || "15";
@@ -1352,11 +1361,12 @@ function payrollShareCaption(p) {
   return `Nómina ${group} - ${halfLabel(p.half || 1)} ${monthLabel(p.period)}`;
 }
 
-/** Ancho de columna ≈ largo del título (ch); el nombre absorbe el resto. */
+/** Ancho de columna ≈ largo del título (ch); nombre acotado; SFS y redondeo un poco más. */
 function payrollPrintColWidth(key, kind, label) {
-  if (key === "fullName") return "auto";
+  if (key === "fullName") return "11em";
+  if (key === "sfs") return "5.5ch";
+  if (key === "redondeo") return "8ch";
   const n = Math.max(3, String(label || "").length);
-  // Un poco de aire para el número sin superar mucho el encabezado
   const ch = key === "daysWorked" ? Math.max(3, n) : Math.max(n, 5);
   return `${ch}ch`;
 }
@@ -1366,7 +1376,7 @@ function buildPayrollPrintHtml(p) {
   const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
     const named = {
       ...l,
-      fullName: payrollCleanEmployeeName(l.fullName) || l.fullName,
+      fullName: payrollShortEmployeeName(l.fullName) || l.fullName,
     };
     if (!payrollShowsFeriado(p) && Number(named.feriado)) {
       return computePayrollLineTotals({ ...named, feriado: 0 });
@@ -1421,6 +1431,10 @@ function buildPayrollPrintHtml(p) {
       if (key === "fullName") return `<td class="col-name"></td>`;
       if (key === "unifRifa") {
         return `<td class="right col-num"><strong>${escapeHtml(moneyPlain(totals.unifRifa))}</strong></td>`;
+      }
+      if (key === "redondeo") {
+        const v = Number(totals.redondeo) || 0;
+        return `<td class="right col-num col-redondeo-total"><strong>${escapeHtml(moneyPlain(v))}</strong></td>`;
       }
       if (kind === "ro" || kind === "num") {
         const v = Number(totals[key]) || 0;
@@ -1477,6 +1491,7 @@ function payrollPrintCss() {
     table.nomina-print th.col-name,table.nomina-print td.col-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;padding:1px 4px;text-align:left}
     table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right;padding:1px 2px}
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
+    table.nomina-print td.col-redondeo-total,table.nomina-print tfoot td.col-redondeo-total{overflow:visible;text-overflow:clip;white-space:nowrap;font-size:10px}
     table.nomina-print tfoot td{background:#f3f3f3;font-weight:700}
     .sign-box{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%}
     .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:9px}
@@ -1755,7 +1770,7 @@ function renderNominaTab() {
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
-  // Nombre completo sin puesto; si hay match con La Vega, restaurar nombre del roster
+  // Nombre corto (nombre + 1 apellido), sin puesto
   if (p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")) {
     const staffById = new Map();
     try {
@@ -1767,12 +1782,12 @@ function renderNominaTab() {
     let cleaned = false;
     p.lines = (p.lines || []).map((l) => {
       const staff = staffById.get(l.employeeId);
-      const full = staff
-        ? payrollCleanEmployeeName(staff.name)
-        : payrollCleanEmployeeName(l.fullName);
-      if (full && full !== String(l.fullName || "").trim()) {
+      const short = staff
+        ? payrollShortEmployeeName(staff.name)
+        : payrollShortEmployeeName(l.fullName);
+      if (short && short !== String(l.fullName || "").trim()) {
         cleaned = true;
-        return { ...l, fullName: full };
+        return { ...l, fullName: short };
       }
       return l;
     });
@@ -1806,14 +1821,11 @@ function renderNominaTab() {
   const head =
     cols
       .map(([key, label, kind]) => {
-        const cls =
-          key === "fullName"
-            ? "sticky-name"
-            : kind === "days"
-              ? "nomina-col-fit nomina-col-days"
-              : key === "cedula"
-                ? "nomina-col-fit"
-                : "nomina-col-fit";
+        let cls = "nomina-col-fit";
+        if (key === "fullName") cls = "sticky-name";
+        else if (key === "sfs") cls = "nomina-col-fit nomina-col-sfs";
+        else if (key === "redondeo") cls = "nomina-col-fit nomina-col-redondeo";
+        else if (kind === "days") cls = "nomina-col-fit nomina-col-days";
         return `<th class="${cls}" title="${escapeHtml(label)}">${escapeHtml(label)}</th>`;
       })
       .join("") +
@@ -1828,7 +1840,9 @@ function renderNominaTab() {
               String(l.fullName || "")
             )}" /></td>`;
           }
-          const fit = "nomina-col-fit";
+          let fit = "nomina-col-fit";
+          if (key === "sfs") fit += " nomina-col-sfs";
+          if (key === "redondeo") fit += " nomina-col-redondeo";
           if (kind === "ro") {
             return `<td class="right ${fit}" data-ro="${key}">${escapeHtml(moneyCell(l[key]))}</td>`;
           }
@@ -1858,6 +1872,14 @@ function renderNominaTab() {
         if (key === "unifRifa") {
           return `<td class="right nomina-col-fit" data-ro="unifRifa">${escapeHtml(moneyCell(totals.unifRifa))}</td>`;
         }
+        if (key === "redondeo") {
+          return `<td class="right nomina-col-fit nomina-col-redondeo nomina-total-redondeo" data-ro="redondeo"><strong>${escapeHtml(
+            moneyPlain(totals.redondeo || 0) || "0"
+          )}</strong></td>`;
+        }
+        if (key === "sfs") {
+          return `<td class="right nomina-col-fit nomina-col-sfs">${escapeHtml(moneyCell(totals.sfs))}</td>`;
+        }
         return `<td class="right nomina-col-fit">${escapeHtml(moneyCell(totals[key]))}</td>`;
       })
       .join("") + `<td class="nomina-col-del"></td>`;
@@ -1867,7 +1889,7 @@ function renderNominaTab() {
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
-    } · ${namedCount}/${lines.length} con nombre. Nombre completo. Solo Unif/Rifa abreviado (115/85). Feriado ${
+    } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85. Feriado ${
       p.showFeriado ? "ON" : "OFF"
     }. Impresión sin cédula ni RD$.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
