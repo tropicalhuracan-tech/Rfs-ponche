@@ -1467,30 +1467,31 @@ function payrollPrintCss() {
   return `
     @page{size:14in 8.5in;margin:3mm}
     html,body.print-nomina{width:100%;max-width:none;overflow-x:auto}
-    body.print-nomina{padding:4px 5px;font-size:11px;line-height:1.05}
-    body.print-nomina .brand{margin-bottom:2px}
-    body.print-nomina .brand img{width:34px;height:34px}
-    body.print-nomina h1{font-size:13px;font-weight:800}
-    body.print-nomina h2{font-size:12px;margin:0 0 2px;font-weight:800}
+    body.print-nomina{padding:5px 6px;font-size:12px;line-height:1.12}
+    body.print-nomina .brand{margin-bottom:3px}
+    body.print-nomina .brand img{width:38px;height:38px}
+    body.print-nomina h1{font-size:15px;font-weight:800}
+    body.print-nomina h2{font-size:13px;margin:0 0 3px;font-weight:800}
     #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box}
-    /* width:auto = no estirar columnas al ancho de la hoja; cada una al título/contenido */
-    table.nomina-print{width:auto;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:9.5px}
-    table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:1px 3px;vertical-align:middle}
-    table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:9px;line-height:1.1;white-space:nowrap;letter-spacing:-0.01em}
-    table.nomina-print td{white-space:nowrap;padding:1px 3px}
-    table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:1px 4px;max-width:11em;overflow:hidden;text-overflow:ellipsis}
+    /* Letra más grande; columnas compactas (width:auto, no estirar al legal) */
+    table.nomina-print{width:auto;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:11.5px}
+    table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:2px 4px;vertical-align:middle}
+    table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:11px;line-height:1.15;white-space:nowrap}
+    table.nomina-print td{white-space:nowrap;padding:2px 4px}
+    table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:2px 5px;max-width:12em;overflow:hidden;text-overflow:ellipsis}
     table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right}
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
     table.nomina-print tfoot td{background:#efefef;font-weight:800}
-    table.nomina-print tfoot td.col-redondeo-total{font-size:9.5px}
-    .sign-box{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:auto;max-width:100%}
-    .sign-line{border-top:1px solid #111;margin-top:24px;padding-top:3px;text-align:center;font-size:9px}
-    .footer{font-size:8px;margin-top:6px}
+    table.nomina-print tfoot td.col-redondeo-total{font-size:11.5px}
+    .meta{font-size:11px}
+    .sign-box{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:auto;max-width:100%}
+    .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:10px}
+    .footer{font-size:9px;margin-top:6px}
     @media print{
       html,body.print-nomina{overflow:visible !important}
       body.print-nomina{padding:0}
-      table.nomina-print{font-size:9.5px;width:auto}
-      table.nomina-print th{font-size:9px;font-weight:800}
+      table.nomina-print{font-size:11.5px;width:auto}
+      table.nomina-print th{font-size:11px;font-weight:800}
     }
   `;
 }
