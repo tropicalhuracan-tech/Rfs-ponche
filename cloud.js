@@ -432,11 +432,10 @@
     }
   }
 
-  /** Lectura ligera solo para fusionar antes de guardar (main + loans, sin fotos). */
+  /** Lectura ligera para fusionar antes de guardar (main + loans + empleados/hr/contab, sin fotos). */
   async function loadCloudForMerge() {
     if (!projectId || !apiKey) return null;
     let main = null;
-    let loans = null;
     try {
       main = await getDoc(partPath("main"));
     } catch (_) {
@@ -449,15 +448,22 @@
         lva: {},
         loans: [],
         loanTrash: [],
+        employees: [],
+        hr: emptyHr(),
+        contabilidad: emptyContabilidad(),
       };
     }
-    try {
-      loans = await getDoc(partPath("loans"));
-    } catch (_) {
-      loans = null;
-    }
+    const [loans, employees, hr, contab] = await Promise.all([
+      getDoc(partPath("loans")).catch(() => null),
+      getDoc(partPath("employees")).catch(() => null),
+      getDoc(partPath("hr")).catch(() => null),
+      getDoc(partPath("contabilidad")).catch(() => null),
+    ]);
     const mainFields = main.fields || {};
     const loanFields = (loans && loans.fields) || {};
+    const empFields = (employees && employees.fields) || {};
+    const hrFields = (hr && hr.fields) || {};
+    const contabFields = (contab && contab.fields) || {};
     return {
       empty: false,
       messages: parseArrayField(mainFields, "messagesJson"),
@@ -468,7 +474,14 @@
       loanTrash: loanFields.loanTrashJson
         ? parseArrayField(loanFields, "loanTrashJson")
         : parseArrayField(mainFields, "loanTrashJson"),
-      partial: !loans,
+      employees: empFields.employeesJson
+        ? parseArrayField(empFields, "employeesJson")
+        : parseArrayField(mainFields, "employeesJson"),
+      hr: hrFields.hrJson ? parseObjectField(hrFields, "hrJson") : emptyHr(),
+      contabilidad: contabFields.contabilidadJson
+        ? parseObjectField(contabFields, "contabilidadJson")
+        : emptyContabilidad(),
+      partial: !loans || !employees,
     };
   }
 
