@@ -1,28 +1,28 @@
-const CACHE = "rfs-ops-v101";
+const CACHE = "rfs-ops-v102";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=92",
+  "styles.css?v=102",
   "app.js",
-  "app.js?v=92",
+  "app.js?v=102",
   "hr.js",
-  "hr.js?v=92",
+  "hr.js?v=102",
   "depuracion.js",
-  "depuracion.js?v=92",
+  "depuracion.js?v=102",
   "contabilidad.js",
-  "contabilidad.js?v=92",
+  "contabilidad.js?v=102",
   "quotes.js",
-  "quotes.js?v=92",
+  "quotes.js?v=102",
   "cloud.js",
-  "cloud.js?v=92",
+  "cloud.js?v=102",
   "cloud-config.js",
-  "cloud-config.js?v=92",
+  "cloud-config.js?v=102",
   "monorriel-data.js",
-  "monorriel-data.js?v=92",
+  "monorriel-data.js?v=102",
   "manifest.json",
   "logo.jpg",
-  "logo.jpg?v=92",
+  "logo.jpg?v=102",
   "quote-assets/clientes-rfs-1.jpg",
   "quote-assets/clientes-rfs-2.jpg",
   "import-posts.json",
@@ -36,14 +36,19 @@ self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
   self.skipWaiting();
 });
+
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -77,3 +82,5 @@ self.addEventListener("fetch", (event) => {
   }
   event.respondWith(
     caches.match(req).then((cached) => cached || fetch(req).catch(() => cached))
+  );
+});

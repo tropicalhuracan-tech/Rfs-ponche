@@ -1493,6 +1493,15 @@ function primaryGuard(post) {
 let cloudReady = false;
 let cloudSaving = false;
 let cloudSaveTimer = null;
+let lastKnownCloudUpdatedAt = null;
+let lastLocalEditAt = 0;
+let lastLivePullAt = 0;
+let livePullInFlight = false;
+let liveSyncTimer = null;
+const CLOUD_SAVE_DEBOUNCE_MS = 250;
+const LIVE_SYNC_INTERVAL_MS = 12000;
+const LIVE_PULL_MIN_GAP_MS = 8000;
+const LOCAL_EDIT_GRACE_MS = 2500;
 
 function setCloudStatus(text) {
   const el = document.getElementById("cloudStatus");
@@ -1518,10 +1527,164 @@ function saveEmployees() {
 
 function queueCloudSave() {
   if (!window.RFSCloudApi) return;
+  lastLocalEditAt = Date.now();
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer = setTimeout(() => {
+    cloudSaveTimer = null;
     pushToCloud().catch(() => {});
-  }, 600);
+  }, CLOUD_SAVE_DEBOUNCE_MS);
+}
+
+/** Sube ya (sin esperar el debounce): al cambiar de pestaña/PC o al perder foco. */
+function flushCloudSave() {
+  if (!window.RFSCloudApi) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = null;
+  if (cloudSaving) {
+    cloudSavePending = true;
+    return;
+  }
+  pushToCloud().catch(() => {});
+}
+
+function refreshUiAfterCloudSync() {
+  try {
+    renderShifts();
+    fillReportPostSelect();
+    renderReports();
+    renderFinance();
+    renderEmployees();
+    renderLoans();
+    renderMonorrielHome();
+    if (typeof renderLvaModule === "function") renderLvaModule();
+    if (typeof renderCajaModule === "function") renderCajaModule();
+    if (typeof renderHrModule === "function") renderHrModule();
+    if (typeof renderDepuracionModule === "function") renderDepuracionModule();
+    if (typeof renderContabilidadModule === "function") renderContabilidadModule();
+    if (typeof renderQuotesModule === "function") renderQuotesModule();
+    if (typeof renderMessagesModule === "function") {
+      const active = document.querySelector(".view.active");
+      if (active && active.id === "messagesView") renderMessagesModule();
+      else updateMessagesTabBadge();
+    }
+    if (typeof renderRadioModule === "function") {
+      const active = document.querySelector(".view.active");
+      if (active && active.id === "radioView") renderRadioModule();
+    }
+    if (typeof renderMarkers === "function") {
+      const active = document.querySelector(".view.active");
+      if (active && active.id === "mapView") renderMarkers();
+    }
+    applyAccessControl();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/**
+ * Pull en vivo: mira updatedAt barato; si cambió (u otra PC guardó), baja todo y refresca UI.
+ * force=true ignora throttle (botón Actualizar / al volver a la pestaña).
+ */
+async function livePullFromCloud(reason, opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const force = !!options.force;
+  if (!window.RFSCloudApi || !navigator.onLine) return { pulled: false };
+  if (cloudSaving || livePullInFlight) return { pulled: false, busy: true };
+  const now = Date.now();
+  if (!force && now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) {
+    return { pulled: false, skipped: "local-edit" };
+  }
+  if (!force && now - lastLivePullAt < LIVE_PULL_MIN_GAP_MS) {
+    return { pulled: false, skipped: "throttle" };
+  }
+
+  livePullInFlight = true;
+  try {
+    // Siempre mirar updatedAt primero (barato). force solo salta throttle/gracia local.
+    if (typeof window.RFSCloudApi.peekCloudUpdatedAt === "function") {
+      const meta = await window.RFSCloudApi.peekCloudUpdatedAt();
+      if (
+        meta &&
+        !meta.empty &&
+        meta.updatedAt &&
+        lastKnownCloudUpdatedAt &&
+        meta.updatedAt === lastKnownCloudUpdatedAt
+      ) {
+        lastLivePullAt = Date.now();
+        if (force || reason === "manual") {
+          setCloudStatus(
+            `Nube: al día ✓ · sync ${new Date().toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+          );
+        }
+        return { pulled: false, skipped: "unchanged" };
+      }
+    }
+
+    const before = lastKnownCloudUpdatedAt;
+    const cloud = await syncFromCloud();
+    lastLivePullAt = Date.now();
+    if (cloud && cloud.usedCloud) {
+      const changed = !before || before !== lastKnownCloudUpdatedAt;
+      refreshUiAfterCloudSync();
+      if (force || reason === "focus" || reason === "online" || reason === "manual" || changed) {
+        setCloudStatus(
+          lastKnownCloudUpdatedAt
+            ? `Nube: al día ✓ · sync ${new Date().toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+            : "Nube: activa ✓"
+        );
+      }
+      return { pulled: true, changed: !!changed };
+    }
+    return { pulled: false };
+  } catch (err) {
+    console.error(err);
+    return { pulled: false, error: true };
+  } finally {
+    livePullInFlight = false;
+  }
+}
+
+function startLiveCloudSync() {
+  if (liveSyncTimer) return;
+  liveSyncTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    if (!currentUser) return;
+    livePullFromCloud("poll").catch(() => {});
+  }, LIVE_SYNC_INTERVAL_MS);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushCloudSave();
+      return;
+    }
+    livePullFromCloud("focus", { force: true }).catch(() => {});
+  });
+  window.addEventListener("focus", () => {
+    if (document.visibilityState !== "visible") return;
+    livePullFromCloud("focus", { force: true }).catch(() => {});
+  });
+  window.addEventListener("online", () => {
+    flushCloudSave();
+    livePullFromCloud("online", { force: true }).catch(() => {});
+  });
+  window.addEventListener("pagehide", () => flushCloudSave());
+  window.addEventListener("beforeunload", () => flushCloudSave());
+
+  const btn = document.getElementById("btnSyncNow");
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      flushCloudSave();
+      livePullFromCloud("manual", { force: true })
+        .then((r) => {
+          if (r && r.pulled) toast("Datos actualizados desde la nube.");
+          else if (r && r.skipped === "unchanged") toast("Ya estás al día.");
+          else if (r && r.busy) toast("Sincronizando… espera un momento.");
+          else toast("No se pudo actualizar ahora.");
+        })
+        .catch(() => toast("Sin conexión con la nube."));
+    });
+  }
 }
 
 let cloudSavePending = false;
@@ -1648,7 +1811,9 @@ async function pushToCloud() {
     if (!merged) {
       // No bloquear la app: guardar copia local sin pisar La Vega remota si aquí está vacía
       const skipLva = !hasLocalLvaData();
-      await saveCloudBundle({ skipLva });
+      const saved = await saveCloudBundle({ skipLva });
+      if (saved && saved.updatedAt) lastKnownCloudUpdatedAt = saved.updatedAt;
+      lastLivePullAt = Date.now();
       cloudReady = true;
       cloudRetryAttempt = 0;
       setCloudStatus(
@@ -1658,7 +1823,9 @@ async function pushToCloud() {
       );
       return;
     }
-    await saveCloudBundle();
+    const saved = await saveCloudBundle();
+    if (saved && saved.updatedAt) lastKnownCloudUpdatedAt = saved.updatedAt;
+    lastLivePullAt = Date.now();
     cloudReady = true;
     cloudRetryAttempt = 0;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
@@ -1724,6 +1891,7 @@ async function syncFromCloud() {
         localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
       }
       cloudReady = true;
+      lastLivePullAt = Date.now();
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
     }
@@ -1815,10 +1983,12 @@ async function syncFromCloud() {
     if (typeof CONTABILIDAD_KEY !== "undefined" && typeof contabilidadData !== "undefined") {
       localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
     }
+    if (remote.updatedAt) lastKnownCloudUpdatedAt = remote.updatedAt;
+    lastLivePullAt = Date.now();
     cloudReady = true;
     const lvaCount = (lvaState.posts || []).filter((p) => p.active !== false).length;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · LVA ${lvaCount} · ${monorrielReports.length} monorriel`);
-    return { added: 0, usedCloud: true };
+    return { added: 0, usedCloud: true, updatedAt: remote.updatedAt || null };
   } catch (err) {
     console.error(err);
     setCloudStatus("Nube: sin conexión (usando datos locales)");
@@ -9997,7 +10167,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=85").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=102").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10012,7 +10182,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v85").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v102").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
@@ -10059,9 +10229,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (cloud.usedCloud && !added && currentUser) {
         toast("Datos sincronizados desde la nube.");
       }
+      startLiveCloudSync();
     } catch (err) {
       console.error(err);
       setCloudStatus("Nube: sin conexión (usando datos locales)");
+      startLiveCloudSync();
     }
   })();
 });

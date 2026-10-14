@@ -561,6 +561,13 @@ textarea { resize: vertical; }
   font-size: 11px;
 }
 
+#homeView .cloud-sync-now {
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  width: 100%;
+}
+
 #homeView .install-hint-home {
   margin: 6px 0 0;
   font-size: 11px;

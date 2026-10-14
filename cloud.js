@@ -416,6 +416,22 @@
     return byName;
   }
 
+  /** Solo lee updatedAt del documento main (barato, para sync en vivo). */
+  async function peekCloudUpdatedAt() {
+    if (!projectId || !apiKey) return null;
+    try {
+      const main = await getDoc(partPath("main"));
+      if (!main) return { empty: true, updatedAt: null };
+      const fields = main.fields || {};
+      return {
+        empty: false,
+        updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   /** Lectura ligera solo para fusionar antes de guardar (main + loans, sin fotos). */
   async function loadCloudForMerge() {
     if (!projectId || !apiKey) return null;
@@ -737,6 +753,7 @@
   window.RFSCloudApi = {
     loadCloud,
     loadCloudForMerge,
+    peekCloudUpdatedAt,
     saveCloud,
     saveMessages,
     deleteMedia,
