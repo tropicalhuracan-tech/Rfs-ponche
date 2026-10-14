@@ -1361,27 +1361,23 @@ function payrollShareCaption(p) {
   return `Nómina ${group} - ${halfLabel(p.half || 1)} ${monthLabel(p.period)}`;
 }
 
-/** Ancho de columna ≈ largo del título (ch); nombre acotado; SFS y redondeo un poco más. */
-function payrollPrintColWidth(key, kind, label) {
-  if (key === "fullName") return "11em";
-  if (key === "sfs") return "5.5ch";
-  if (key === "redondeo") return "8ch";
-  const n = Math.max(3, String(label || "").length);
-  const ch = key === "daysWorked" ? Math.max(3, n) : Math.max(n, 5);
-  return `${ch}ch`;
-}
-
 function buildPayrollPrintHtml(p) {
   const cols = getPayrollPrintCols(p);
   const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
+    // Migrar uniforme viejo 215 → 115 (salvo que ya lo hayan cambiado a otro valor)
+    let uniformes = Number(l.uniformes) || 0;
+    if (uniformes === 215) uniformes = LVA_PAYROLL_UNIFORMES;
     const named = {
       ...l,
       fullName: payrollShortEmployeeName(l.fullName) || l.fullName,
+      uniformes,
+      rifa: Number(l.rifa) || LVA_PAYROLL_RIFA,
     };
-    if (!payrollShowsFeriado(p) && Number(named.feriado)) {
-      return computePayrollLineTotals({ ...named, feriado: 0 });
+    const computed = computePayrollLineTotals(named);
+    if (!payrollShowsFeriado(p) && Number(computed.feriado)) {
+      return computePayrollLineTotals({ ...computed, feriado: 0 });
     }
-    return named;
+    return computed;
   });
   const totals = {};
   cols.forEach(([key, , kind]) => {
@@ -1393,12 +1389,6 @@ function buildPayrollPrintHtml(p) {
     }
     if (kind === "ro" || kind === "num") totals[key] = sumPayrollField(allLines, key);
   });
-  const colgroup = cols
-    .map(([key, label, kind]) => {
-      const w = payrollPrintColWidth(key, kind, label);
-      return w === "auto" ? `<col class="col-name" />` : `<col style="width:${w}" />`;
-    })
-    .join("");
   const head = cols
     .map(([key, label, kind]) => {
       const cls = key === "fullName" ? "col-name" : kind === "days" ? "col-days" : "col-num";
@@ -1448,19 +1438,18 @@ function buildPayrollPrintHtml(p) {
       ? "LA VEGA AUTOPISTA"
       : "REACTION FORCE SECURITY";
   return `
-    <h2 style="margin:0 0 6px;font-size:12px;font-weight:700;color:#111">
+    <h2 style="margin:0 0 4px;font-size:12px;font-weight:800;color:#111">
       NOMINA REACTION · ${escapeHtml(groupTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
         monthLabel(p.period).toUpperCase()
       )}
     </h2>
-    <div class="meta" style="margin-bottom:6px;font-size:10px">
+    <div class="meta" style="margin-bottom:4px;font-size:10px">
       <div><strong>Pago:</strong> ${escapeHtml(p.payDate || "—")}</div>
       <div><strong>Empleados:</strong> ${allLines.length}</div>
       <div><strong>Total redondeo:</strong> ${escapeHtml(moneyPlain(totals.redondeo || 0))}</div>
       ${payrollShowsFeriado(p) ? "<div><strong>Feriado:</strong> activo</div>" : ""}
     </div>
     <table class="nomina-print">
-      <colgroup>${colgroup}</colgroup>
       <thead><tr>${head}</tr></thead>
       <tbody>${body || `<tr><td colspan="${cols.length}">Sin líneas</td></tr>`}</tbody>
       <tfoot><tr>${totalRow}</tr></tfoot>
@@ -1478,29 +1467,30 @@ function payrollPrintCss() {
   return `
     @page{size:14in 8.5in;margin:3mm}
     html,body.print-nomina{width:100%;max-width:none;overflow-x:auto}
-    body.print-nomina{padding:4px 6px;font-size:11px;line-height:1.08}
+    body.print-nomina{padding:4px 5px;font-size:11px;line-height:1.05}
     body.print-nomina .brand{margin-bottom:2px}
-    body.print-nomina .brand img{width:36px;height:36px}
-    body.print-nomina h1{font-size:13px}
-    body.print-nomina h2{font-size:12px;margin:0 0 2px}
+    body.print-nomina .brand img{width:34px;height:34px}
+    body.print-nomina h1{font-size:13px;font-weight:800}
+    body.print-nomina h2{font-size:12px;margin:0 0 2px;font-weight:800}
     #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box}
-    table.nomina-print{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10px}
-    table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:1px 2px;vertical-align:middle}
-    table.nomina-print th{background:#eee;font-weight:700;font-size:8px;line-height:1.05;white-space:nowrap;overflow:hidden}
-    table.nomina-print td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    table.nomina-print th.col-name,table.nomina-print td.col-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;padding:1px 4px;text-align:left}
-    table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right;padding:1px 2px}
+    /* width:auto = no estirar columnas al ancho de la hoja; cada una al título/contenido */
+    table.nomina-print{width:auto;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:9.5px}
+    table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:1px 3px;vertical-align:middle}
+    table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:9px;line-height:1.1;white-space:nowrap;letter-spacing:-0.01em}
+    table.nomina-print td{white-space:nowrap;padding:1px 3px}
+    table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:1px 4px;max-width:11em;overflow:hidden;text-overflow:ellipsis}
+    table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right}
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
-    table.nomina-print td.col-redondeo-total,table.nomina-print tfoot td.col-redondeo-total{overflow:visible;text-overflow:clip;white-space:nowrap;font-size:10px}
-    table.nomina-print tfoot td{background:#f3f3f3;font-weight:700}
-    .sign-box{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%}
-    .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:9px}
+    table.nomina-print tfoot td{background:#efefef;font-weight:800}
+    table.nomina-print tfoot td.col-redondeo-total{font-size:9.5px}
+    .sign-box{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:auto;max-width:100%}
+    .sign-line{border-top:1px solid #111;margin-top:24px;padding-top:3px;text-align:center;font-size:9px}
     .footer{font-size:8px;margin-top:6px}
     @media print{
       html,body.print-nomina{overflow:visible !important}
       body.print-nomina{padding:0}
-      table.nomina-print{font-size:10px}
-      table.nomina-print th{font-size:8px}
+      table.nomina-print{font-size:9.5px;width:auto}
+      table.nomina-print th{font-size:9px;font-weight:800}
     }
   `;
 }
@@ -1775,7 +1765,7 @@ function renderNominaTab() {
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
-  // Nombre corto (nombre + 1 apellido), sin puesto
+  // Nombre corto + migrar uniforme 215→115 si aún está el valor viejo
   if (p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")) {
     const staffById = new Map();
     try {
@@ -1786,15 +1776,24 @@ function renderNominaTab() {
     } catch (_) {}
     let cleaned = false;
     p.lines = (p.lines || []).map((l) => {
+      let next = l;
       const staff = staffById.get(l.employeeId);
       const short = staff
         ? payrollShortEmployeeName(staff.name)
         : payrollShortEmployeeName(l.fullName);
       if (short && short !== String(l.fullName || "").trim()) {
         cleaned = true;
-        return { ...l, fullName: short };
+        next = { ...next, fullName: short };
       }
-      return l;
+      if (Number(next.uniformes) === 215) {
+        cleaned = true;
+        next = computePayrollLineTotals({
+          ...next,
+          uniformes: LVA_PAYROLL_UNIFORMES,
+          rifa: Number(next.rifa) || LVA_PAYROLL_RIFA,
+        });
+      }
+      return next;
     });
     if (cleaned) {
       p.updatedAt = new Date().toISOString();

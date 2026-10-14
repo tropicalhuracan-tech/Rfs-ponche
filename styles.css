@@ -2382,24 +2382,26 @@ body.lightbox-open {
 }
 .nomina-table th {
   background: rgba(212,20,20,0.18);
-  font-weight: 700;
+  font-weight: 800;
   position: sticky;
   top: 0;
   z-index: 1;
-  line-height: 1.15;
+  line-height: 1.1;
   font-size: 10px;
   text-align: center;
+  letter-spacing: -0.01em;
 }
-/* Columnas numéricas: el ancho lo marca el título, no el input */
+/* Columnas numéricas: ancho = título; sin estirar */
 .nomina-table th.nomina-col-fit,
 .nomina-table td.nomina-col-fit {
   width: 1%;
-  max-width: max-content;
-  padding: 3px 3px;
+  padding: 2px 3px;
   box-sizing: border-box;
+  white-space: nowrap;
 }
 .nomina-table th.nomina-col-fit {
   white-space: nowrap;
+  font-weight: 800;
 }
 .nomina-table td.sticky-name,
 .nomina-table th.sticky-name {
