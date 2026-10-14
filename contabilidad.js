@@ -1652,10 +1652,22 @@ function buildPayrollPrintHtml(p) {
       return `<tr>${tds}</tr>`;
     })
     .join("");
+  // TOTAL en la primera columna visible (Oficina empieza en Nombres, no en Días)
+  const totalLabelKey = cols.some(([k]) => k === "daysWorked")
+    ? "daysWorked"
+    : cols.some(([k]) => k === "fullName")
+      ? "fullName"
+      : cols[0]
+        ? cols[0][0]
+        : "";
   const totalRow = cols
     .map(([key, , kind]) => {
-      if (key === "daysWorked") return `<td class="col-days"><strong>TOTAL</strong></td>`;
+      if (key === totalLabelKey) {
+        const cls = key === "fullName" ? "col-name" : key === "daysWorked" ? "col-days" : "col-num";
+        return `<td class="${cls}"><strong>TOTAL</strong></td>`;
+      }
       if (key === "fullName") return `<td class="col-name"></td>`;
+      if (key === "daysWorked") return `<td class="col-days"></td>`;
       if (key === "unifRifa") {
         return `<td class="right col-num"><strong>${escapeHtml(moneyPlain(totals.unifRifa))}</strong></td>`;
       }
@@ -1764,26 +1776,118 @@ function togglePayrollFeriado() {
   toast(p.showFeriado ? "Columna Feriado habilitada." : "Columna Feriado oculta.");
 }
 
-function printOpenPayrollSheet() {
+function resolveOpenPayrollForExport() {
   if (!canAccessContabilidad()) {
     toast("No tienes acceso a Contabilidad.");
-    return;
+    return null;
   }
-  syncOpenPayrollFromDom(false);
+  try {
+    syncOpenPayrollFromDom(false);
+  } catch (_) {}
   const p = ensureOpenPayrollDraft();
-  if (!p || !(p.lines || []).length) {
-    toast("Abre o genera una nómina antes de imprimir.");
-    return;
+  if (!p || !payrollLinesForTotals(p.lines || []).length) {
+    toast("Abre o genera una nómina con empleados antes de imprimir o compartir.");
+    return null;
   }
-  saveContabilidadData(true);
+  try {
+    saveContabilidadData(true);
+  } catch (_) {}
+  return p;
+}
+
+function payrollPdfFileName(p) {
   const caption = payrollShareCaption(p);
-  if (typeof openPrintWindow !== "function") {
-    toast("No se pudo abrir la impresión.");
-    return;
+  const safe = String(caption || "nomina")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return `${safe || "nomina"}.pdf`;
+}
+
+/** PDF en la misma ventana (no depende de pop-ups; sirve en móvil/PWA). */
+async function buildPayrollPdfBlob(p) {
+  if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
+  const html2pdf = await ensureHtml2Pdf();
+  const paper = getSelectedPayrollPaper();
+  const landscape = true;
+  const fmt = paper === "letter" ? "letter" : "legal";
+  const jsFormat =
+    fmt === "legal" ? [355.6, 215.9] : [279.4, 215.9];
+  const caption = payrollShareCaption(p);
+  const logoUrl = (() => {
+    try {
+      return new URL("logo.jpg", window.location.href).href;
+    } catch (_) {
+      return "logo.jpg";
+    }
+  })();
+  const host = document.createElement("div");
+  host.setAttribute("data-rfs-payroll-pdf", "1");
+  host.style.cssText =
+    "position:fixed;left:0;top:0;width:1400px;background:#fff;color:#111;padding:12px 14px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.2;opacity:0;pointer-events:none;z-index:-1;";
+  host.innerHTML = `
+    <style>${payrollPrintCss(paper)}</style>
+    <div class="brand" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;justify-content:center">
+      <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" style="width:40px;height:40px;object-fit:contain" />
+      <div style="text-align:left">
+        <div style="font-size:15px;font-weight:800;margin:0">Reaction Force Security</div>
+        <div style="font-size:12px">${escapeHtml(caption)}</div>
+      </div>
+    </div>
+    ${buildPayrollPrintHtml(p)}
+  `;
+  document.body.appendChild(host);
+  try {
+    if (typeof waitForImages === "function") await waitForImages(host);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const opt = {
+      margin: [5, 5, 5, 5],
+      filename: payrollPdfFileName(p),
+      image: { type: "jpeg", quality: 0.92 },
+      html2canvas: {
+        scale: 1.35,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        windowWidth: 1400,
+        width: 1400,
+        scrollX: 0,
+        scrollY: 0,
+      },
+      jsPDF: {
+        unit: "mm",
+        format: jsFormat,
+        orientation: "portrait",
+      },
+      pagebreak: { mode: ["css", "legacy"] },
+    };
+    let blob = null;
+    try {
+      blob = await html2pdf().set(opt).from(host).outputPdf("blob");
+    } catch (_) {
+      blob = await html2pdf().set(opt).from(host).toPdf().get("pdf").then((pdf) => pdf.output("blob"));
+    }
+    if (!blob || !blob.size) throw new Error("PDF vacío");
+    return blob;
+  } finally {
+    host.remove();
   }
+}
+
+function printOpenPayrollSheet() {
+  const p = resolveOpenPayrollForExport();
+  if (!p) return;
+  const caption = payrollShareCaption(p);
   const paper = getSelectedPayrollPaper();
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
-  openPrintWindow(caption, buildPayrollPrintHtml(p), {
+  if (typeof openPrintWindow !== "function") {
+    downloadOpenPayrollPdf().catch(() => toast("No se pudo abrir la impresión."));
+    return;
+  }
+  const win = openPrintWindow(caption, buildPayrollPrintHtml(p), {
     bodyClass: "print-nomina",
     pageSize: paper,
     orientation: "landscape",
@@ -1795,14 +1899,84 @@ function printOpenPayrollSheet() {
     share: {
       text: caption,
       subject: caption,
-      fileName: `${caption.replace(/[^\w.-]+/g, "-").slice(0, 80)}.pdf`,
+      fileName: payrollPdfFileName(p),
     },
   });
-  toast(`${paperLabel} horizontal centrada · usa Imprimir en la barra superior.`);
+  if (!win) {
+    // Pop-up bloqueado (muy común en móvil/PWA): descarga PDF directo
+    toast("Ventana bloqueada · descargando PDF…");
+    downloadOpenPayrollPdf().catch(() => {});
+    return;
+  }
+  toast(`${paperLabel} horizontal · Imprimir / Descargar PDF / WhatsApp en la barra superior.`);
 }
 
-function shareOpenPayrollSheet() {
-  printOpenPayrollSheet();
+async function downloadOpenPayrollPdf() {
+  const p = resolveOpenPayrollForExport();
+  if (!p) return;
+  toast("Generando PDF…");
+  try {
+    const blob = await buildPayrollPdfBlob(p);
+    const name = payrollPdfFileName(p);
+    if (typeof downloadBlobFile === "function") downloadBlobFile(blob, name);
+    else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2500);
+    }
+    toast("PDF descargado.");
+  } catch (err) {
+    console.error(err);
+    toast("No se pudo crear el PDF. Prueba Imprimir → Guardar como PDF.");
+  }
+}
+
+async function shareOpenPayrollSheet() {
+  const p = resolveOpenPayrollForExport();
+  if (!p) return;
+  const caption = payrollShareCaption(p);
+  toast("Preparando PDF para compartir…");
+  try {
+    const blob = await buildPayrollPdfBlob(p);
+    const file = new File([blob], payrollPdfFileName(p), { type: "application/pdf" });
+    if (typeof trySharePdfFile === "function") {
+      const shared = await trySharePdfFile(file, caption, caption);
+      if (shared) {
+        toast("Elige WhatsApp o Correo en el menú.");
+        return;
+      }
+    } else if (navigator.share) {
+      try {
+        if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: caption, text: caption, files: [file] });
+          toast("PDF listo para enviar.");
+          return;
+        }
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+      }
+    }
+    // Fallback: descargar + abrir WhatsApp con título
+    if (typeof downloadBlobFile === "function") downloadBlobFile(file, file.name);
+    else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2500);
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
+    toast("PDF descargado. Adjúntalo en WhatsApp.");
+  } catch (err) {
+    console.error(err);
+    // Último recurso: pantalla de impresión con botones PDF
+    printOpenPayrollSheet();
+    toast("Abre Descargar PDF o WhatsApp en la barra de impresión.");
+  }
 }
 
 
@@ -2257,6 +2431,7 @@ function renderNominaTab() {
         </select>
       </label>
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir ↔</button>
+      <button type="button" class="btn secondary" id="btnContabDownloadPayroll2" style="width:auto">Descargar PDF</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
     </div>`;
   document.querySelectorAll(".btn-row-del").forEach((btn) => {
@@ -2271,8 +2446,13 @@ function renderNominaTab() {
     const main = document.getElementById("contabPayrollPaper");
     if (main) main.value = ev.target.value;
   });
-  document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", printOpenPayrollSheet);
-  document.getElementById("btnContabSharePayroll2")?.addEventListener("click", shareOpenPayrollSheet);
+  document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", () => printOpenPayrollSheet());
+  document.getElementById("btnContabDownloadPayroll2")?.addEventListener("click", () => {
+    downloadOpenPayrollPdf().catch(() => {});
+  });
+  document.getElementById("btnContabSharePayroll2")?.addEventListener("click", () => {
+    shareOpenPayrollSheet().catch(() => {});
+  });
   const detailRoot = document.getElementById("contabPayrollDetail");
   if (detailRoot) detailRoot.dataset.liveBound = "";
   bindPayrollLiveTotals();
@@ -2341,8 +2521,13 @@ function bindContabilidadUi() {
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
-  document.getElementById("btnContabPrintPayroll")?.addEventListener("click", printOpenPayrollSheet);
-  document.getElementById("btnContabSharePayroll")?.addEventListener("click", shareOpenPayrollSheet);
+  document.getElementById("btnContabPrintPayroll")?.addEventListener("click", () => printOpenPayrollSheet());
+  document.getElementById("btnContabDownloadPayroll")?.addEventListener("click", () => {
+    downloadOpenPayrollPdf().catch(() => {});
+  });
+  document.getElementById("btnContabSharePayroll")?.addEventListener("click", () => {
+    shareOpenPayrollSheet().catch(() => {});
+  });
   document.getElementById("contabPayrollGroup")?.addEventListener("change", () => {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
