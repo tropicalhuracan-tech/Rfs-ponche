@@ -2371,11 +2371,12 @@ body.lightbox-open {
   min-width: 100%;
   border-collapse: collapse;
   font-size: 11px;
+  table-layout: auto;
 }
 .nomina-table th,
 .nomina-table td {
   border: 1px solid rgba(255,255,255,0.08);
-  padding: 6px 7px;
+  padding: 4px 3px;
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -2385,6 +2386,11 @@ body.lightbox-open {
   position: sticky;
   top: 0;
   z-index: 1;
+  max-width: 52px;
+  white-space: normal;
+  line-height: 1.1;
+  font-size: 10px;
+  text-align: center;
 }
 .nomina-table td.sticky-name,
 .nomina-table th.sticky-name {
@@ -2392,30 +2398,43 @@ body.lightbox-open {
   left: 0;
   background: #141416;
   z-index: 2;
-  min-width: 110px;
-  max-width: 150px;
+  min-width: 148px;
+  max-width: 190px;
+  width: 170px;
   white-space: nowrap;
+  text-align: left;
 }
-.nomina-table th.sticky-name { z-index: 3; background: #2a1212; }
-.nomina-table input.nomina-inp {
-  width: 72px;
-  padding: 4px 5px;
+.nomina-table th.sticky-name {
+  z-index: 3;
+  background: #2a1212;
+  max-width: 190px;
+  white-space: nowrap;
   font-size: 11px;
-  border-radius: 6px;
+}
+.nomina-table input.nomina-inp {
+  width: 46px;
+  max-width: 52px;
+  padding: 3px 2px;
+  font-size: 11px;
+  border-radius: 5px;
   border: 1px solid rgba(255,255,255,0.14);
   background: rgba(0,0,0,0.25);
   color: inherit;
+  text-align: right;
 }
 .nomina-table input.nomina-inp-wide {
   width: 100%;
-  min-width: 100px;
-  max-width: 148px;
+  min-width: 140px;
+  max-width: 184px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 .nomina-table input.nomina-inp-days {
-  width: 56px;
+  width: 34px;
+  max-width: 38px;
+  text-align: center;
 }
 .nomina-table .nomina-total-row td {
   font-weight: 800;
@@ -2511,7 +2530,11 @@ body.lightbox-open {
 }
 
 .nomina-table input.nomina-inp-unifrifa {
-  width: 64px;
-  font-size: 11px;
+  width: 50px;
+  max-width: 54px;
+  font-size: 10px;
   text-align: center;
+}
+.nomina-table td.right {
+  max-width: 56px;
 }
