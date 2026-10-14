@@ -1,28 +1,28 @@
-const CACHE = "rfs-ops-v102";
+const CACHE = "rfs-ops-v103";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=102",
+  "styles.css?v=103",
   "app.js",
-  "app.js?v=102",
+  "app.js?v=103",
   "hr.js",
-  "hr.js?v=102",
+  "hr.js?v=103",
   "depuracion.js",
-  "depuracion.js?v=102",
+  "depuracion.js?v=103",
   "contabilidad.js",
-  "contabilidad.js?v=102",
+  "contabilidad.js?v=103",
   "quotes.js",
-  "quotes.js?v=102",
+  "quotes.js?v=103",
   "cloud.js",
-  "cloud.js?v=102",
+  "cloud.js?v=103",
   "cloud-config.js",
-  "cloud-config.js?v=102",
+  "cloud-config.js?v=103",
   "monorriel-data.js",
-  "monorriel-data.js?v=102",
+  "monorriel-data.js?v=103",
   "manifest.json",
   "logo.jpg",
-  "logo.jpg?v=102",
+  "logo.jpg?v=103",
   "quote-assets/clientes-rfs-1.jpg",
   "quote-assets/clientes-rfs-2.jpg",
   "import-posts.json",
@@ -67,7 +67,6 @@ self.addEventListener("fetch", (event) => {
     path.startsWith("cloud") ||
     path.startsWith("monorriel") ||
     path.startsWith("sw.js");
-  // HTML/CSS/JS: red primero para que el inicio se actualice
   if (isShell) {
     event.respondWith(
       fetch(req)

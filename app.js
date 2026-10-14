@@ -1717,6 +1717,28 @@ function scheduleCloudRetry(reason) {
   }, delay);
 }
 
+/** Fusiona listas de empleados por id/clave; gana el updatedAt más reciente. */
+function mergeEmployeeListsForCloud(localList, remoteList) {
+  const map = new Map();
+  const put = (raw) => {
+    const e = normalizeEmployee(raw || {});
+    if (!e.name) return;
+    const key = e.id || employeeKey(e.name);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, e);
+      return;
+    }
+    const prev = map.get(key);
+    const ta = Date.parse(prev.updatedAt || "") || 0;
+    const tb = Date.parse(e.updatedAt || "") || 0;
+    map.set(key, tb >= ta ? mergeEmployeeRecord(prev, e) : mergeEmployeeRecord(e, prev));
+  };
+  (remoteList || []).forEach(put);
+  (localList || []).forEach(put);
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
 async function mergeRemoteBundleBeforeSave() {
   if (!window.RFSCloudApi) return true;
   try {
@@ -1735,6 +1757,17 @@ async function mergeRemoteBundleBeforeSave() {
     }
     if (typeof applyRemoteLoans === "function") {
       applyRemoteLoans(remote.loans || [], remote.loanTrash || []);
+    }
+    // Evita que una PC borre altas/edits de otra al guardar (caso Yimi / oficina)
+    if (Array.isArray(remote.employees)) {
+      employees = mergeEmployeeListsForCloud(employees, remote.employees);
+      localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    }
+    if (remote.hr && typeof remote.hr === "object" && typeof applyRemoteHrData === "function") {
+      applyRemoteHrData(remote.hr);
+    }
+    if (remote.contabilidad && typeof remote.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
+      applyRemoteContabilidadData(remote.contabilidad);
     }
     return true;
   } catch (_) {
@@ -10167,7 +10200,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=102").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=103").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10182,7 +10215,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v102").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v103").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
