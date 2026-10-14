@@ -1311,27 +1311,35 @@ function buildPayrollPrintHtml(p) {
       <div class="sign-line">Preparado por / Contabilidad</div>
       <div class="sign-line">Autorizado / Operaciones</div>
     </div>
-    <p class="footer">Hoja legal · Uso interno Reaction Force Security · ${escapeHtml(
+    <p class="footer">Hoja legal horizontal · Uso interno Reaction Force Security · ${escapeHtml(
       new Date().toLocaleString("es-DO")
     )}</p>`;
 }
 
 function payrollPrintCss() {
   return `
-    body.print-nomina{padding:10px 12px;font-size:8.5px;line-height:1.2}
-    body.print-nomina .brand{margin-bottom:8px}
-    body.print-nomina .brand img{width:48px;height:48px}
-    body.print-nomina h1{font-size:15px}
-    table.nomina-print{width:100%;border-collapse:collapse;table-layout:auto;font-size:7.5px}
+    @page{size:14in 8.5in;margin:5mm}
+    html,body.print-nomina{width:100%;max-width:none;overflow-x:auto}
+    body.print-nomina{padding:8px 10px;font-size:8px;line-height:1.15}
+    body.print-nomina .brand{margin-bottom:6px}
+    body.print-nomina .brand img{width:42px;height:42px}
+    body.print-nomina h1{font-size:14px}
+    body.print-nomina h2{font-size:11px;margin:0 0 6px}
+    #rfsPrintRoot{max-width:none;width:max-content;min-width:100%;box-sizing:border-box}
+    table.nomina-print{width:auto;min-width:100%;border-collapse:collapse;table-layout:auto;font-size:6.8px}
     table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:2px 3px;vertical-align:middle}
     table.nomina-print th{background:#eee;font-weight:700;white-space:nowrap}
     table.nomina-print td{white-space:nowrap}
     table.nomina-print tfoot td{background:#f3f3f3;font-weight:700}
-    .sign-box{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:28px}
-    .sign-line{border-top:1px solid #111;margin-top:40px;padding-top:4px;text-align:center;font-size:10px}
+    .sign-box{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:24px;width:100%;max-width:100vw}
+    .sign-line{border-top:1px solid #111;margin-top:36px;padding-top:4px;text-align:center;font-size:9px}
+    .footer{font-size:9px}
     @media print{
+      html,body.print-nomina{overflow:visible !important}
       body.print-nomina{padding:0}
-      table.nomina-print{font-size:7px}
+      #rfsPrintRoot{width:100%;min-width:0;max-width:none}
+      table.nomina-print{width:100%;font-size:6.2px}
+      table.nomina-print th,table.nomina-print td{padding:1px 2px}
     }
   `;
 }
@@ -1357,6 +1365,8 @@ function printOpenPayrollSheet() {
     bodyClass: "print-nomina",
     pageSize: "legal",
     orientation: "landscape",
+    pdfFormat: "legal",
+    pdfOrientation: "landscape",
     wide: true,
     autoPrint: false,
     extraCss: payrollPrintCss(),
@@ -1366,7 +1376,7 @@ function printOpenPayrollSheet() {
       fileName: `${caption.replace(/[^\w.-]+/g, "-").slice(0, 80)}.pdf`,
     },
   });
-  toast("Vista legal lista: Imprimir o compartir PDF.");
+  toast("Legal horizontal: desliza para ver columnas · PDF en horizontal.");
 }
 
 function shareOpenPayrollSheet() {
@@ -1654,7 +1664,7 @@ function renderNominaTab() {
         moneyRd(totals.totalCobrar)
       )} · ${namedCount} con nombre (auto)</span></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir (legal)</button>
+      <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir legal ↔</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
     </div>`;
   document.querySelectorAll(".btn-row-del").forEach((btn) => {

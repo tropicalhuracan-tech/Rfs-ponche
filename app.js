@@ -4714,10 +4714,18 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   const pageSize = String((options && options.pageSize) || "").toLowerCase(); // letter|legal
   const orientation = String((options && options.orientation) || "portrait").toLowerCase();
   const wide = !!(options && options.wide);
-  const pageRule = pageSize
-    ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
-    : "";
-  const bodyMax = wide ? "max-width:100%" : "max-width:900px";
+  const pdfFormat = String((options && options.pdfFormat) || pageSize || "a4").toLowerCase();
+  const pdfOrientation = String((options && options.pdfOrientation) || orientation || "portrait").toLowerCase();
+  // Legal horizontal = 14in × 8.5in (explícito: algunos navegadores ignoran "legal landscape")
+  const pageRule =
+    pageSize === "legal" && orientation === "landscape"
+      ? "@page{size:14in 8.5in;margin:5mm}"
+      : pageSize === "legal"
+        ? "@page{size:8.5in 14in;margin:8mm}"
+        : pageSize
+          ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
+          : "";
+  const bodyMax = wide ? "max-width:none;width:100%" : "max-width:900px";
   const logoUrl = (() => {
     try {
       return new URL("logo.jpg", window.location.href).href;
@@ -4805,6 +4813,11 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             }
           : null
       )};
+      var pdfCfg = ${JSON.stringify({
+        format: pdfFormat === "legal" ? "legal" : pdfFormat || "a4",
+        orientation: pdfOrientation === "landscape" ? "landscape" : "portrait",
+        wide: !!wide,
+      })};
       var notified = false;
       var pdfLibPromise = null;
 
@@ -4887,14 +4900,38 @@ function openPrintWindow(title, bodyHtml, options = {}) {
         var root = document.getElementById("rfsPrintRoot");
         if (!root) return Promise.reject(new Error("Sin contenido"));
         return loadPdfLib().then(function (html2pdf) {
+          var fmt = (pdfCfg && pdfCfg.format) || "a4";
+          var ori = (pdfCfg && pdfCfg.orientation) || "portrait";
+          var landscape = ori === "landscape";
+          var widePdf = !!(pdfCfg && pdfCfg.wide);
+          // Legal landscape en mm: 355.6 × 215.9 (14" × 8.5")
+          var jsFormat = fmt;
+          if (fmt === "legal" && landscape) jsFormat = [355.6, 215.9];
+          else if (fmt === "legal") jsFormat = [215.9, 355.6];
+          var w = Math.max(root.scrollWidth || 0, root.offsetWidth || 0, widePdf ? 1400 : 800);
           var opt = {
-            margin: [10, 10, 12, 10],
+            margin: landscape ? [5, 5, 5, 5] : [10, 10, 12, 10],
             filename: (shareCfg && shareCfg.fileName) || "reporte.pdf",
             image: { type: "jpeg", quality: 0.92 },
-            html2canvas: { scale: 1.5, useCORS: true, allowTaint: true, logging: false, backgroundColor: "#ffffff" },
-            jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-            pagebreak: { mode: ["avoid-all", "css", "legacy"] }
+            html2canvas: {
+              scale: landscape ? 1.35 : 1.5,
+              useCORS: true,
+              allowTaint: true,
+              logging: false,
+              backgroundColor: "#ffffff",
+              windowWidth: w,
+              width: w,
+              scrollX: 0,
+              scrollY: 0
+            },
+            jsPDF: {
+              unit: "mm",
+              format: jsFormat,
+              orientation: landscape && typeof jsFormat !== "string" ? "portrait" : ori
+            },
+            pagebreak: { mode: landscape ? ["css", "legacy"] : ["avoid-all", "css", "legacy"] }
           };
+          // Si format ya es [w,h] landscape, jsPDF orientation portrait usa ese rectángulo tal cual
           return html2pdf().set(opt).from(root).outputPdf("blob").catch(function () {
             return html2pdf().set(opt).from(root).toPdf().get("pdf").then(function (pdf) {
               return pdf.output("blob");
