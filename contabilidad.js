@@ -1117,18 +1117,56 @@ const PAYROLL_TABLE_COLS = [
   ["redondeo", "Redondeo", "ro"],
 ];
 
+function payrollLineHasEmployeeName(line) {
+  return !!(line && String(line.fullName || "").trim());
+}
+
+/** Solo filas con nombre de empleado entran en totales (las vacías no suman). */
+function payrollLinesForTotals(lines) {
+  return (lines || []).filter(payrollLineHasEmployeeName);
+}
+
+function sumPayrollField(lines, field) {
+  return sumField(payrollLinesForTotals(lines), field);
+}
+
 function emptyPayrollLine(overrides = {}) {
+  // Fila en blanco: sin montos por defecto para que no “parezca” sumar hasta poner nombre
   return normalizePayrollLine({
     employeeId: "",
     fullName: "",
     position: "La Vega Autopista",
     cedula: "",
-    daysWorked: "15",
-    salaryMonthly: LVA_PAYROLL_DEFAULT_MONTHLY,
-    uniformes: LVA_PAYROLL_UNIFORMES,
-    rifa: LVA_PAYROLL_RIFA,
+    daysWorked: "",
+    salaryMonthly: 0,
+    salaryQuincena: 0,
+    sfs: 0,
+    uniformes: 0,
+    volaos: 0,
+    incentivos: 0,
+    horasExtras: 0,
+    feriado: 0,
+    almuerzo: 0,
+    rifa: 0,
+    adelantos: 0,
+    prestamos: 0,
     ...overrides,
   });
+}
+
+function removePayrollLineAt(idx) {
+  syncOpenPayrollFromDom(false);
+  const p = ensureOpenPayrollDraft();
+  if (!p) return;
+  const i = Number(idx);
+  if (!Number.isFinite(i) || i < 0 || i >= (p.lines || []).length) return;
+  const name = (p.lines[i].fullName || "").trim() || `fila ${i + 1}`;
+  if (!confirm(`¿Eliminar la fila de "${name}"?`)) return;
+  p.lines.splice(i, 1);
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  renderNominaTab();
+  toast("Fila eliminada.");
 }
 
 function ensureOpenPayrollDraft() {
@@ -1216,11 +1254,11 @@ function payrollShareCaption(p) {
 
 function buildPayrollPrintHtml(p) {
   const cols = PAYROLL_TABLE_COLS;
-  const lines = (p.lines || []).filter((l) => (l.fullName || "").trim() || (l.cedula || "").trim() || Number(l.redondeo) || Number(l.salaryMonthly));
-  const allLines = lines.length ? lines : p.lines || [];
+  // Impresión: solo empleados con nombre (filas vacías y columna − no se imprimen)
+  const allLines = payrollLinesForTotals(p.lines || []);
   const totals = {};
   cols.forEach(([key, , kind]) => {
-    if (kind === "ro" || kind === "num") totals[key] = sumField(allLines, key);
+    if (kind === "ro" || kind === "num") totals[key] = sumPayrollField(allLines, key);
   });
   const head = cols.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("");
   const body = allLines
@@ -1358,12 +1396,12 @@ function renderNominaTab() {
   } else {
     list.innerHTML = rows
       .map((p) => {
-        const total = sumField(p.lines, "redondeo") || sumField(p.lines, "net");
+        const total = sumPayrollField(p.lines, "redondeo") || sumPayrollField(p.lines, "net");
         const st = p.status === "paid" ? "Pagada" : p.status === "cancelled" ? "Cancelada" : "Borrador";
         return `<article class="report-card">
           <h3>La Vega · ${escapeHtml(monthLabel(p.period))} · ${escapeHtml(halfLabel(p.half || 1))}</h3>
           <p class="muted">Pago ${escapeHtml(p.payDate || "—")} · ${escapeHtml(st)} · ${
-            (p.lines || []).length
+            payrollLinesForTotals(p.lines).length
           } empleado(s)</p>
           <p><strong>${escapeHtml(moneyRd(total))}</strong> <span class="muted">(redondeo)</span></p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
@@ -1429,29 +1467,31 @@ function renderNominaTab() {
   }
   const cols = PAYROLL_TABLE_COLS;
   const lines = p.lines || [];
+  const namedCount = payrollLinesForTotals(lines).length;
   const totals = {
-    salaryMonthly: sumField(lines, "salaryMonthly"),
-    salaryQuincena: sumField(lines, "salaryQuincena"),
-    sfs: sumField(lines, "sfs"),
-    uniformes: sumField(lines, "uniformes"),
-    volaos: sumField(lines, "volaos"),
-    incentivos: sumField(lines, "incentivos"),
-    horasExtras: sumField(lines, "horasExtras"),
-    feriado: sumField(lines, "feriado"),
-    almuerzo: sumField(lines, "almuerzo"),
-    rifa: sumField(lines, "rifa"),
-    adelantos: sumField(lines, "adelantos"),
-    prestamos: sumField(lines, "prestamos"),
-    totalDescuentos: sumField(lines, "totalDescuentos"),
-    totalCobrar: sumField(lines, "totalCobrar"),
-    salarioDepositar: sumField(lines, "salarioDepositar"),
-    redondeo: sumField(lines, "redondeo"),
+    salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
+    salaryQuincena: sumPayrollField(lines, "salaryQuincena"),
+    sfs: sumPayrollField(lines, "sfs"),
+    uniformes: sumPayrollField(lines, "uniformes"),
+    volaos: sumPayrollField(lines, "volaos"),
+    incentivos: sumPayrollField(lines, "incentivos"),
+    horasExtras: sumPayrollField(lines, "horasExtras"),
+    feriado: sumPayrollField(lines, "feriado"),
+    almuerzo: sumPayrollField(lines, "almuerzo"),
+    rifa: sumPayrollField(lines, "rifa"),
+    adelantos: sumPayrollField(lines, "adelantos"),
+    prestamos: sumPayrollField(lines, "prestamos"),
+    totalDescuentos: sumPayrollField(lines, "totalDescuentos"),
+    totalCobrar: sumPayrollField(lines, "totalCobrar"),
+    salarioDepositar: sumPayrollField(lines, "salarioDepositar"),
+    redondeo: sumPayrollField(lines, "redondeo"),
   };
-  const head = cols
-    .map((c) => `<th class="${c[0] === "fullName" ? "sticky-name" : ""}">${escapeHtml(c[1])}</th>`)
-    .join("");
+  const head =
+    cols.map((c) => `<th class="${c[0] === "fullName" ? "sticky-name" : ""}">${escapeHtml(c[1])}</th>`).join("") +
+    `<th class="nomina-col-del" title="Eliminar fila (no se imprime)">−</th>`;
   const body = lines
     .map((l, idx) => {
+      const empty = !payrollLineHasEmployeeName(l);
       const tds = cols
         .map(([key, , kind]) => {
           const sticky = key === "fullName" ? "sticky-name" : "";
@@ -1468,43 +1508,61 @@ function renderNominaTab() {
           )}" /></td>`;
         })
         .join("");
-      return `<tr data-line-idx="${idx}">${tds}</tr>`;
+      return `<tr data-line-idx="${idx}" class="${empty ? "nomina-row-empty" : ""}">${tds}<td class="nomina-col-del"><button type="button" class="btn-row-del" data-idx="${idx}" title="Eliminar fila" aria-label="Eliminar fila">−</button></td></tr>`;
     })
     .join("");
-  const totalRow = cols
-    .map(([key]) => {
-      if (key === "daysWorked") return `<td><strong>TOTAL</strong></td>`;
-      if (key === "cedula" || key === "fullName") return `<td class="${key === "fullName" ? "sticky-name" : ""}"></td>`;
-      return `<td class="right">${escapeHtml(moneyCell(totals[key]))}</td>`;
-    })
-    .join("");
+  const totalRow =
+    cols
+      .map(([key]) => {
+        if (key === "daysWorked") return `<td><strong>TOTAL</strong></td>`;
+        if (key === "cedula" || key === "fullName") return `<td class="${key === "fullName" ? "sticky-name" : ""}"></td>`;
+        return `<td class="right">${escapeHtml(moneyCell(totals[key]))}</td>`;
+      })
+      .join("") + `<td class="nomina-col-del"></td>`;
   detail.innerHTML = `
     <h2>NOMINA REACTION · LA VEGA · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
       monthLabel(p.period).toUpperCase()
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
-    } · ${lines.length} empleado(s). Edita celdas y guarda; Recalcular arma quincenal/SFS desde días + sueldo mensual.</p>
+    } · ${namedCount} con nombre / ${lines.length} filas. Las filas sin nombre <strong>no suman</strong>. El − elimina la fila (solo en pantalla).</p>
+    <div class="nomina-add-rows-box" style="margin-bottom:10px">
+      <label class="nomina-add-rows-label">Filas a agregar
+        <input id="contabAddRowsCountDetail" type="number" min="1" max="40" value="${escapeHtml(
+          String(document.getElementById("contabAddRowsCount")?.value || "1")
+        )}" inputmode="numeric" />
+      </label>
+      <button type="button" class="btn secondary" id="btnContabAddRowsDetail">＋ Agregar filas abajo</button>
+    </div>
     <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>${head}</tr></thead>
-        <tbody>${body || `<tr><td colspan="${cols.length}">Sin líneas</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="${cols.length + 1}">Sin líneas</td></tr>`}</tbody>
         <tfoot><tr class="nomina-total-row">${totalRow}</tr></tfoot>
       </table>
     </div>
     <p style="margin-top:12px"><strong>Total redondeo: ${escapeHtml(moneyRd(totals.redondeo))}</strong>
       <span class="muted"> · A depositar ${escapeHtml(moneyRd(totals.salarioDepositar))} · A cobrar ${escapeHtml(
         moneyRd(totals.totalCobrar)
-      )}</span></p>
+      )} · (solo filas con nombre)</span></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button type="button" class="btn secondary" id="btnContabAddOneRow" style="width:auto">＋ 1 fila</button>
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir (legal)</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
     </div>`;
-  document.getElementById("btnContabAddOneRow")?.addEventListener("click", () => {
-    const el = document.getElementById("contabAddRowsCount");
-    if (el) el.value = "1";
+  document.getElementById("btnContabAddRowsDetail")?.addEventListener("click", () => {
+    const detailCount = document.getElementById("contabAddRowsCountDetail");
+    const topCount = document.getElementById("contabAddRowsCount");
+    const n = detailCount?.value || "1";
+    if (topCount) topCount.value = n;
+    if (detailCount && topCount) detailCount.value = topCount.value;
     addBlankPayrollRows();
+  });
+  document.querySelectorAll(".btn-row-del").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      removePayrollLineAt(btn.dataset.idx);
+    });
   });
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", printOpenPayrollSheet);
   document.getElementById("btnContabSharePayroll2")?.addEventListener("click", shareOpenPayrollSheet);

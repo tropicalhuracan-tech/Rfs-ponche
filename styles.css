@@ -2418,3 +2418,60 @@ body.lightbox-open {
   background: rgba(212,20,20,0.12);
 }
 .nomina-table .right { text-align: right; }
+
+
+.nomina-add-rows-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(212,20,20,0.35);
+  background: rgba(212,20,20,0.08);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: end;
+}
+.nomina-add-rows-box .nomina-add-rows-label {
+  margin: 0;
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+.nomina-add-rows-box input {
+  width: 88px;
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.nomina-add-rows-box .btn {
+  width: auto;
+  margin: 0;
+}
+.nomina-table .btn-row-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(212,20,20,0.45);
+  background: rgba(212,20,20,0.14);
+  color: #ff8e8e;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+.nomina-table .btn-row-del:hover {
+  background: rgba(212,20,20,0.28);
+}
+.nomina-table th.nomina-col-del,
+.nomina-table td.nomina-col-del {
+  width: 36px;
+  text-align: center;
+  background: transparent;
+}
+.nomina-table tr.nomina-row-empty {
+  opacity: 0.72;
+}

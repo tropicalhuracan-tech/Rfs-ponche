@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=87" />
+  <link rel="stylesheet" href="styles.css?v=88" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=87" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=88" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=87" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=88" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=87" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=88" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v87 · Nómina print</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v88 · Nómina filas</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -1036,11 +1036,11 @@
             </label>
             <label>&nbsp;<span class="muted tight" id="contabPayrollHint">Usa el mes de arriba</span></label>
           </div>
-          <div class="coords-row" style="margin-top:8px">
-            <label>Filas nuevas
-              <input id="contabAddRowsCount" type="number" min="1" max="40" value="1" />
+          <div class="nomina-add-rows-box">
+            <label class="nomina-add-rows-label">¿Cuántas filas necesitas?
+              <input id="contabAddRowsCount" type="number" min="1" max="40" value="1" inputmode="numeric" />
             </label>
-            <label>&nbsp;<button id="btnContabAddRows" class="btn secondary" type="button" style="width:auto;margin-top:18px">＋ Agregar filas</button></label>
+            <button id="btnContabAddRows" class="btn secondary" type="button">＋ Agregar filas abajo</button>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar / actualizar con La Vega</button>
@@ -1712,13 +1712,13 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=87"></script>
-  <script src="monorriel-data.js?v=87"></script>
-  <script src="cloud.js?v=87"></script>
-  <script src="hr.js?v=87"></script>
-  <script src="depuracion.js?v=87"></script>
-  <script src="contabilidad.js?v=87"></script>
-  <script src="quotes.js?v=87"></script>
-  <script src="app.js?v=87"></script>
+  <script src="cloud-config.js?v=88"></script>
+  <script src="monorriel-data.js?v=88"></script>
+  <script src="cloud.js?v=88"></script>
+  <script src="hr.js?v=88"></script>
+  <script src="depuracion.js?v=88"></script>
+  <script src="contabilidad.js?v=88"></script>
+  <script src="quotes.js?v=88"></script>
+  <script src="app.js?v=88"></script>
 </body>
 </html>
