@@ -2431,10 +2431,26 @@ body.lightbox-open {
   gap: 10px 14px;
   align-items: end;
 }
+.nomina-add-rows-box.nomina-add-rows-box-sm {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  gap: 6px 8px;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+}
 .nomina-add-rows-box .nomina-add-rows-label {
   margin: 0;
   flex: 0 0 auto;
   min-width: 160px;
+}
+.nomina-add-rows-box-sm .nomina-add-rows-label {
+  min-width: 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .nomina-add-rows-box input {
   width: 88px;
@@ -2442,9 +2458,23 @@ body.lightbox-open {
   font-size: 16px;
   font-weight: 700;
 }
+.nomina-add-rows-box-sm input {
+  width: 52px;
+  margin-top: 0;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
 .nomina-add-rows-box .btn {
   width: auto;
   margin: 0;
+}
+.nomina-add-rows-box-sm .btn,
+.btn.btn-sm {
+  width: auto;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
 }
 .nomina-table .btn-row-del {
   display: inline-flex;

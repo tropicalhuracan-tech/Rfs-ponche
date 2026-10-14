@@ -1373,6 +1373,122 @@ function shareOpenPayrollSheet() {
   printOpenPayrollSheet();
 }
 
+
+let payrollLiveTimer = null;
+let payrollSaveTimer = null;
+
+function schedulePayrollAutosave() {
+  clearTimeout(payrollSaveTimer);
+  payrollSaveTimer = setTimeout(() => {
+    try {
+      saveContabilidadData(true);
+    } catch (_) {}
+  }, 900);
+}
+
+function updatePayrollReadonlyDom(p) {
+  const root = document.getElementById("contabPayrollDetail");
+  if (!root || !p) return;
+  const lines = p.lines || [];
+  root.querySelectorAll("tr[data-line-idx]").forEach((tr) => {
+    const idx = Number(tr.dataset.lineIdx);
+    const l = lines[idx];
+    if (!l) return;
+    tr.classList.toggle("nomina-row-empty", !payrollLineHasEmployeeName(l));
+    ["totalDescuentos", "totalCobrar", "salarioDepositar", "redondeo"].forEach((key) => {
+      const td = [...tr.children].find((cell, i) => {
+        // find by matching readonly columns order - better: data-ro attribute
+        return cell.dataset && cell.dataset.ro === key;
+      });
+      if (td) td.textContent = moneyCell(l[key]);
+    });
+    // also sync computed quincena/sfs inputs when auto-forced
+    const q = tr.querySelector('[data-f="salaryQuincena"]');
+    const s = tr.querySelector('[data-f="sfs"]');
+    if (q && document.activeElement !== q) q.value = l.salaryQuincena || "";
+    if (s && document.activeElement !== s) s.value = l.sfs || "";
+  });
+  const totals = {
+    salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
+    salaryQuincena: sumPayrollField(lines, "salaryQuincena"),
+    sfs: sumPayrollField(lines, "sfs"),
+    uniformes: sumPayrollField(lines, "uniformes"),
+    volaos: sumPayrollField(lines, "volaos"),
+    incentivos: sumPayrollField(lines, "incentivos"),
+    horasExtras: sumPayrollField(lines, "horasExtras"),
+    feriado: sumPayrollField(lines, "feriado"),
+    almuerzo: sumPayrollField(lines, "almuerzo"),
+    rifa: sumPayrollField(lines, "rifa"),
+    adelantos: sumPayrollField(lines, "adelantos"),
+    prestamos: sumPayrollField(lines, "prestamos"),
+    totalDescuentos: sumPayrollField(lines, "totalDescuentos"),
+    totalCobrar: sumPayrollField(lines, "totalCobrar"),
+    salarioDepositar: sumPayrollField(lines, "salarioDepositar"),
+    redondeo: sumPayrollField(lines, "redondeo"),
+  };
+  const foot = root.querySelector("tfoot tr.nomina-total-row");
+  if (foot) {
+    const cells = [...foot.children];
+    // map: days, cedula, name, then numeric cols in PAYROLL_TABLE_COLS order, then del
+    PAYROLL_TABLE_COLS.forEach((col, i) => {
+      const [key] = col;
+      if (!cells[i]) return;
+      if (key === "daysWorked" || key === "cedula" || key === "fullName") return;
+      cells[i].textContent = moneyCell(totals[key]);
+    });
+  }
+  const summary = root.querySelector("[data-nomina-total-summary]");
+  if (summary) {
+    const named = payrollLinesForTotals(lines).length;
+    summary.innerHTML = `<strong>Total redondeo: ${escapeHtml(moneyRd(totals.redondeo))}</strong>
+      <span class="muted"> · A depositar ${escapeHtml(moneyRd(totals.salarioDepositar))} · A cobrar ${escapeHtml(
+        moneyRd(totals.totalCobrar)
+      )} · ${named} con nombre (auto)</span>`;
+  }
+}
+
+function applyPayrollLiveUpdate(ev) {
+  const field = ev && ev.target && ev.target.dataset ? ev.target.dataset.f : "";
+  const tr = ev && ev.target && ev.target.closest ? ev.target.closest("tr[data-line-idx]") : null;
+  const idx = tr ? Number(tr.dataset.lineIdx) : -1;
+  const p = ensureOpenPayrollDraft();
+  if (!p) return;
+  const lines = readPayrollLinesFromDom(p.id);
+  if (!lines) return;
+  const forceBase = field === "daysWorked" || field === "salaryMonthly";
+  p.lines = lines.map((l, i) => {
+    if (forceBase && i === idx) {
+      return computePayrollLineTotals({ ...l, salaryQuincena: 0, sfs: 0 });
+    }
+    return computePayrollLineTotals(l);
+  });
+  p.updatedAt = new Date().toISOString();
+  updatePayrollReadonlyDom(p);
+  schedulePayrollAutosave();
+}
+
+function schedulePayrollLiveUpdate(ev) {
+  clearTimeout(payrollLiveTimer);
+  payrollLiveTimer = setTimeout(() => applyPayrollLiveUpdate(ev), 220);
+}
+
+function bindPayrollLiveTotals() {
+  const root = document.getElementById("contabPayrollDetail");
+  if (!root) return;
+  if (root.dataset.liveBound === "1") return;
+  root.dataset.liveBound = "1";
+  root.addEventListener("input", (ev) => {
+    if (ev.target && ev.target.classList && ev.target.classList.contains("nomina-inp")) {
+      schedulePayrollLiveUpdate(ev);
+    }
+  });
+  root.addEventListener("change", (ev) => {
+    if (ev.target && ev.target.classList && ev.target.classList.contains("nomina-inp")) {
+      schedulePayrollLiveUpdate(ev);
+    }
+  });
+}
+
 function renderNominaTab() {
   const list = document.getElementById("contabPayrollList");
   const detail = document.getElementById("contabPayrollDetail");
@@ -1496,7 +1612,7 @@ function renderNominaTab() {
         .map(([key, , kind]) => {
           const sticky = key === "fullName" ? "sticky-name" : "";
           if (kind === "ro") {
-            return `<td class="right ${sticky}">${escapeHtml(moneyCell(l[key]))}</td>`;
+            return `<td class="right ${sticky}" data-ro="${key}">${escapeHtml(moneyCell(l[key]))}</td>`;
           }
           const cls =
             kind === "name" ? "nomina-inp nomina-inp-wide" : kind === "days" ? "nomina-inp nomina-inp-days" : "nomina-inp";
@@ -1525,15 +1641,7 @@ function renderNominaTab() {
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
-    } · ${namedCount} con nombre / ${lines.length} filas. Las filas sin nombre <strong>no suman</strong>. El − elimina la fila (solo en pantalla).</p>
-    <div class="nomina-add-rows-box" style="margin-bottom:10px">
-      <label class="nomina-add-rows-label">Filas a agregar
-        <input id="contabAddRowsCountDetail" type="number" min="1" max="40" value="${escapeHtml(
-          String(document.getElementById("contabAddRowsCount")?.value || "1")
-        )}" inputmode="numeric" />
-      </label>
-      <button type="button" class="btn secondary" id="btnContabAddRowsDetail">＋ Agregar filas abajo</button>
-    </div>
+    } · ${namedCount} con nombre / ${lines.length} filas. Totales automáticos; sin nombre no suman. El − elimina la fila (no se imprime).</p>
     <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>${head}</tr></thead>
@@ -1541,22 +1649,14 @@ function renderNominaTab() {
         <tfoot><tr class="nomina-total-row">${totalRow}</tr></tfoot>
       </table>
     </div>
-    <p style="margin-top:12px"><strong>Total redondeo: ${escapeHtml(moneyRd(totals.redondeo))}</strong>
+    <p style="margin-top:12px" data-nomina-total-summary><strong>Total redondeo: ${escapeHtml(moneyRd(totals.redondeo))}</strong>
       <span class="muted"> · A depositar ${escapeHtml(moneyRd(totals.salarioDepositar))} · A cobrar ${escapeHtml(
         moneyRd(totals.totalCobrar)
-      )} · (solo filas con nombre)</span></p>
+      )} · ${namedCount} con nombre (auto)</span></p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir (legal)</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
     </div>`;
-  document.getElementById("btnContabAddRowsDetail")?.addEventListener("click", () => {
-    const detailCount = document.getElementById("contabAddRowsCountDetail");
-    const topCount = document.getElementById("contabAddRowsCount");
-    const n = detailCount?.value || "1";
-    if (topCount) topCount.value = n;
-    if (detailCount && topCount) detailCount.value = topCount.value;
-    addBlankPayrollRows();
-  });
   document.querySelectorAll(".btn-row-del").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.preventDefault();
@@ -1566,6 +1666,9 @@ function renderNominaTab() {
   });
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", printOpenPayrollSheet);
   document.getElementById("btnContabSharePayroll2")?.addEventListener("click", shareOpenPayrollSheet);
+  const detailRoot = document.getElementById("contabPayrollDetail");
+  if (detailRoot) detailRoot.dataset.liveBound = "";
+  bindPayrollLiveTotals();
 }
 
 function renderContabilidadModule() {
@@ -1621,7 +1724,6 @@ function bindContabilidadUi() {
   document.getElementById("btnOempSave")?.addEventListener("click", saveOfficeEmpFromForm);
   document.getElementById("btnOempClear")?.addEventListener("click", clearOfficeEmpForm);
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
-  document.getElementById("btnContabRecalcPayroll")?.addEventListener("click", () => recalculateOpenPayroll(false));
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
   document.getElementById("btnContabPrintPayroll")?.addEventListener("click", printOpenPayrollSheet);
