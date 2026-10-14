@@ -1623,6 +1623,11 @@ function updatePayrollReadonlyDom(p) {
       const [key] = col;
       if (!cells[i]) return;
       if (key === "daysWorked" || key === "cedula" || key === "fullName") return;
+      if (key === "redondeo") {
+        const v = Number(totals.redondeo) || 0;
+        cells[i].innerHTML = `<strong>${escapeHtml(moneyPlain(v) || "0")}</strong>`;
+        return;
+      }
       cells[i].textContent = moneyCell(totals[key]);
     });
   }
