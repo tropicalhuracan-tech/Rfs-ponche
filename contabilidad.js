@@ -23,6 +23,16 @@ function moneyRd(n) {
   return `RD$ ${v.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Monto sin RD$ (impresión / celdas densas) */
+function moneyPlain(n) {
+  const v = Number(n) || 0;
+  if (!v) return "";
+  return v.toLocaleString("es-DO", {
+    minimumFractionDigits: Number.isInteger(v) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function monthKeyFromDate(isoDate) {
   const s = String(isoDate || "").slice(0, 7);
   return /^\d{4}-\d{2}$/.test(s) ? s : "";
@@ -184,7 +194,7 @@ function emptyPayroll() {
 }
 
 const LVA_PAYROLL_DEFAULT_MONTHLY = 24000;
-const LVA_PAYROLL_UNIFORMES = 215;
+const LVA_PAYROLL_UNIFORMES = 115;
 const LVA_PAYROLL_RIFA = 85;
 const LVA_PAYROLL_SFS_RATE = 0.0591; // ~SFS/SVDS observado en nómina Excel
 const LVA_PAYROLL_DAY_BASE = 26;
@@ -333,6 +343,7 @@ function normalizePayroll(p = {}) {
     group,
     payDate,
     status,
+    showFeriado: p.showFeriado === true,
     lines: Array.isArray(p.lines) ? p.lines.map(normalizePayrollLine) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
@@ -892,13 +903,14 @@ function buildLvaPayrollLineFromStaff(staff, prev) {
     salaryMonthly,
     salaryQuincena: prevLine.salaryQuincena || 0,
     sfs: prevLine.sfs || 0,
-    uniformes: prevLine.uniformes != null ? prevLine.uniformes : LVA_PAYROLL_UNIFORMES,
+    // Uniforme def. 115 (editable a mano); rifa fija 85
+    uniformes: LVA_PAYROLL_UNIFORMES,
     volaos: prevLine.volaos || 0,
     incentivos: prevLine.incentivos || 0,
     horasExtras: prevLine.horasExtras || 0,
     feriado: prevLine.feriado || 0,
     almuerzo: prevLine.almuerzo || 0,
-    rifa: prevLine.rifa != null ? prevLine.rifa : LVA_PAYROLL_RIFA,
+    rifa: LVA_PAYROLL_RIFA,
     adelantos: prevLine.adelantos || 0,
     prestamos: prevLine.prestamos || 0,
     note: prevLine.note || "",
@@ -974,6 +986,7 @@ function generateOfficePayroll() {
     group: "lavega",
     payDate,
     status: "draft",
+    showFeriado: existing ? !!existing.showFeriado : false,
     lines,
     note: `Nómina La Vega Autopista · ${halfLabel(half)} · ${monthLabel(period)}`,
     createdBy:
@@ -1036,6 +1049,8 @@ function readPayrollLinesFromDom(payrollId) {
       const el = tr.querySelector(`[data-f="${name}"]`);
       return el ? el.value : "";
     };
+    const ur = parseUnifRifa(g("unifRifa"), prev);
+    const showFer = payrollShowsFeriado(p);
     return normalizePayrollLine({
       ...prev,
       fullName: g("fullName") || prev.fullName,
@@ -1044,13 +1059,13 @@ function readPayrollLinesFromDom(payrollId) {
       salaryMonthly: g("salaryMonthly"),
       salaryQuincena: g("salaryQuincena"),
       sfs: g("sfs"),
-      uniformes: g("uniformes"),
+      uniformes: ur.uniformes,
+      rifa: ur.rifa || LVA_PAYROLL_RIFA,
       volaos: g("volaos"),
       incentivos: g("incentivos"),
       horasExtras: g("horasExtras"),
-      feriado: g("feriado"),
+      feriado: showFer ? g("feriado") : 0,
       almuerzo: g("almuerzo"),
-      rifa: g("rifa"),
       adelantos: g("adelantos"),
       prestamos: g("prestamos"),
     });
@@ -1095,27 +1110,97 @@ function saveOpenPayrollEdits() {
   toast("Cambios de nómina guardados.");
 }
 
-const PAYROLL_TABLE_COLS = [
+/** Columnas editor (pantalla). unifRifa = uniforme/rifa combinados. */
+const PAYROLL_TABLE_COLS_BASE = [
   ["daysWorked", "Días", "days"],
   ["cedula", "Cédula", "text"],
   ["fullName", "Nombres", "name"],
-  ["salaryMonthly", "Sueldo mensual", "num"],
-  ["salaryQuincena", "Sueldo quincenal", "num"],
-  ["sfs", "SFS/SVDS (−)", "num"],
-  ["uniformes", "Uniformes (−)", "num"],
+  ["salaryMonthly", "Sueldo mes", "num"],
+  ["salaryQuincena", "Sueldo quinc.", "num"],
+  ["sfs", "SFS (−)", "num"],
+  ["unifRifa", "Unif/Rifa (−)", "unifRifa"],
   ["volaos", "Volaos (+)", "num"],
-  ["incentivos", "Incentivos (+)", "num"],
-  ["horasExtras", "Horas extras (+)", "num"],
+  ["incentivos", "Incent. (+)", "num"],
+  ["horasExtras", "H. extras (+)", "num"],
   ["feriado", "Feriado (+)", "num"],
-  ["almuerzo", "Almuerzo/Cena (−)", "num"],
-  ["rifa", "Rifa (−)", "num"],
+  ["almuerzo", "Alm. (−)", "num"],
   ["adelantos", "Adelantos (−)", "num"],
-  ["prestamos", "Desc. préstamos (−)", "num"],
-  ["totalDescuentos", "Total desc. (−)", "ro"],
-  ["totalCobrar", "Total a cobrar", "ro"],
-  ["salarioDepositar", "Salario a depositar", "ro"],
+  ["prestamos", "Préstamos (−)", "num"],
+  ["totalDescuentos", "Total desc.", "ro"],
+  ["totalCobrar", "Total cobrar", "ro"],
+  ["salarioDepositar", "A depositar", "ro"],
   ["redondeo", "Redondeo", "ro"],
 ];
+
+/** Columnas impresión: sin cédula; labels cortos */
+const PAYROLL_PRINT_COLS_BASE = [
+  ["daysWorked", "Días", "days"],
+  ["fullName", "Nombres", "name"],
+  ["salaryMonthly", "Sueldo mes", "num"],
+  ["salaryQuincena", "Sueldo quinc.", "num"],
+  ["sfs", "SFS", "num"],
+  ["unifRifa", "Unif/Rifa", "unifRifa"],
+  ["volaos", "Volaos", "num"],
+  ["incentivos", "Incent.", "num"],
+  ["horasExtras", "H. extras", "num"],
+  ["feriado", "Feriado", "num"],
+  ["almuerzo", "Alm.", "num"],
+  ["adelantos", "Adelantos", "num"],
+  ["prestamos", "Préstamos", "num"],
+  ["totalDescuentos", "Total desc.", "ro"],
+  ["totalCobrar", "Total cobrar", "ro"],
+  ["salarioDepositar", "A depositar", "ro"],
+  ["redondeo", "Redondeo", "ro"],
+];
+
+function payrollShowsFeriado(p) {
+  return !!(p && p.showFeriado);
+}
+
+function getPayrollEditorCols(p) {
+  return PAYROLL_TABLE_COLS_BASE.filter(([key]) => key !== "feriado" || payrollShowsFeriado(p));
+}
+
+function getPayrollPrintCols(p) {
+  return PAYROLL_PRINT_COLS_BASE.filter(([key]) => key !== "feriado" || payrollShowsFeriado(p));
+}
+
+// compat por si algo aún referencia PAYROLL_TABLE_COLS
+const PAYROLL_TABLE_COLS = PAYROLL_TABLE_COLS_BASE;
+
+function formatUnifRifa(line) {
+  const u = Math.max(0, Number(line && line.uniformes) || 0);
+  const r = Math.max(0, Number(line && line.rifa) || 0);
+  if (!u && !r) return "";
+  return `${u || 0}/${r || LVA_PAYROLL_RIFA}`;
+}
+
+function parseUnifRifa(raw, prev = {}) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) {
+    return {
+      uniformes: Math.max(0, Number(prev.uniformes) || 0),
+      rifa: Math.max(0, Number(prev.rifa) || 0),
+    };
+  }
+  const m = s.match(/^(\d+(?:[.,]\d+)?)\s*[/|]\s*(\d+(?:[.,]\d+)?)$/);
+  if (m) {
+    return {
+      uniformes: Math.max(0, Number(String(m[1]).replace(",", ".")) || 0),
+      rifa: Math.max(0, Number(String(m[2]).replace(",", ".")) || 0),
+    };
+  }
+  // Solo un número → uniforme; rifa fija
+  const only = Math.max(0, Number(String(s).replace(",", ".")) || 0);
+  return {
+    uniformes: only,
+    rifa: Math.max(0, Number(prev.rifa) || LVA_PAYROLL_RIFA),
+  };
+}
+
+function unifRifaAmount(line) {
+  return roundMoney2((Number(line.uniformes) || 0) + (Number(line.rifa) || 0));
+}
 
 function payrollLineHasEmployeeName(line) {
   return !!(line && String(line.fullName || "").trim());
@@ -1253,11 +1338,21 @@ function payrollShareCaption(p) {
 }
 
 function buildPayrollPrintHtml(p) {
-  const cols = PAYROLL_TABLE_COLS;
-  // Impresión: solo empleados con nombre (filas vacías y columna − no se imprimen)
-  const allLines = payrollLinesForTotals(p.lines || []);
+  const cols = getPayrollPrintCols(p);
+  const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
+    if (!payrollShowsFeriado(p) && Number(l.feriado)) {
+      return computePayrollLineTotals({ ...l, feriado: 0 });
+    }
+    return l;
+  });
   const totals = {};
   cols.forEach(([key, , kind]) => {
+    if (key === "unifRifa") {
+      totals.unifRifa = roundMoney2(
+        sumPayrollField(allLines, "uniformes") + sumPayrollField(allLines, "rifa")
+      );
+      return;
+    }
     if (kind === "ro" || kind === "num") totals[key] = sumPayrollField(allLines, key);
   });
   const head = cols.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("");
@@ -1265,9 +1360,12 @@ function buildPayrollPrintHtml(p) {
     .map((l) => {
       const tds = cols
         .map(([key, , kind]) => {
+          if (key === "unifRifa") {
+            return `<td class="right">${escapeHtml(formatUnifRifa(l))}</td>`;
+          }
           if (kind === "ro" || kind === "num") {
             const v = Number(l[key]) || 0;
-            return `<td class="right">${v ? escapeHtml(moneyRd(v)) : ""}</td>`;
+            return `<td class="right">${escapeHtml(moneyPlain(v))}</td>`;
           }
           return `<td>${escapeHtml(String(l[key] || ""))}</td>`;
         })
@@ -1278,10 +1376,13 @@ function buildPayrollPrintHtml(p) {
   const totalRow = cols
     .map(([key, , kind]) => {
       if (key === "daysWorked") return `<td><strong>TOTAL</strong></td>`;
-      if (key === "cedula" || key === "fullName") return `<td></td>`;
+      if (key === "fullName") return `<td></td>`;
+      if (key === "unifRifa") {
+        return `<td class="right"><strong>${escapeHtml(moneyPlain(totals.unifRifa))}</strong></td>`;
+      }
       if (kind === "ro" || kind === "num") {
         const v = Number(totals[key]) || 0;
-        return `<td class="right"><strong>${v ? escapeHtml(moneyRd(v)) : ""}</strong></td>`;
+        return `<td class="right"><strong>${escapeHtml(moneyPlain(v))}</strong></td>`;
       }
       return `<td></td>`;
     })
@@ -1291,16 +1392,16 @@ function buildPayrollPrintHtml(p) {
       ? "LA VEGA AUTOPISTA"
       : "REACTION FORCE SECURITY";
   return `
-    <h2 style="margin:0 0 8px;font-size:13px;font-weight:700;color:#111">
+    <h2 style="margin:0 0 6px;font-size:12px;font-weight:700;color:#111">
       NOMINA REACTION · ${escapeHtml(groupTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
         monthLabel(p.period).toUpperCase()
       )}
     </h2>
-    <div class="meta" style="margin-bottom:8px;font-size:11px">
-      <div><strong>Pago:</strong><br/>${escapeHtml(p.payDate || "—")}</div>
-      <div><strong>Estado:</strong><br/>${escapeHtml(p.status === "paid" ? "Pagada" : "Borrador")}</div>
-      <div><strong>Empleados:</strong><br/>${allLines.length}</div>
-      <div><strong>Total redondeo:</strong><br/>${escapeHtml(moneyRd(totals.redondeo || 0))}</div>
+    <div class="meta" style="margin-bottom:6px;font-size:10px">
+      <div><strong>Pago:</strong> ${escapeHtml(p.payDate || "—")}</div>
+      <div><strong>Empleados:</strong> ${allLines.length}</div>
+      <div><strong>Total redondeo:</strong> ${escapeHtml(moneyPlain(totals.redondeo || 0))}</div>
+      ${payrollShowsFeriado(p) ? "<div><strong>Feriado:</strong> activo</div>" : ""}
     </div>
     <table class="nomina-print">
       <thead><tr>${head}</tr></thead>
@@ -1311,37 +1412,55 @@ function buildPayrollPrintHtml(p) {
       <div class="sign-line">Preparado por / Contabilidad</div>
       <div class="sign-line">Autorizado / Operaciones</div>
     </div>
-    <p class="footer">Hoja legal horizontal · Uso interno Reaction Force Security · ${escapeHtml(
+    <p class="footer">Legal horizontal · Reaction Force Security · ${escapeHtml(
       new Date().toLocaleString("es-DO")
     )}</p>`;
 }
 
 function payrollPrintCss() {
   return `
-    @page{size:14in 8.5in;margin:5mm}
+    @page{size:14in 8.5in;margin:3.5mm}
     html,body.print-nomina{width:100%;max-width:none;overflow-x:auto}
-    body.print-nomina{padding:8px 10px;font-size:8px;line-height:1.15}
-    body.print-nomina .brand{margin-bottom:6px}
-    body.print-nomina .brand img{width:42px;height:42px}
-    body.print-nomina h1{font-size:14px}
-    body.print-nomina h2{font-size:11px;margin:0 0 6px}
-    #rfsPrintRoot{max-width:none;width:max-content;min-width:100%;box-sizing:border-box}
-    table.nomina-print{width:auto;min-width:100%;border-collapse:collapse;table-layout:auto;font-size:6.8px}
-    table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:2px 3px;vertical-align:middle}
-    table.nomina-print th{background:#eee;font-weight:700;white-space:nowrap}
-    table.nomina-print td{white-space:nowrap}
+    body.print-nomina{padding:5px 7px;font-size:11px;line-height:1.1}
+    body.print-nomina .brand{margin-bottom:3px}
+    body.print-nomina .brand img{width:38px;height:38px}
+    body.print-nomina h1{font-size:13px}
+    body.print-nomina h2{font-size:12px;margin:0 0 3px}
+    #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box}
+    table.nomina-print{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10.5px}
+    table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:1px 2px;vertical-align:middle}
+    table.nomina-print th{background:#eee;font-weight:700;white-space:nowrap;font-size:9.5px}
+    table.nomina-print td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    table.nomina-print td:nth-child(2){white-space:normal;overflow:visible}
     table.nomina-print tfoot td{background:#f3f3f3;font-weight:700}
-    .sign-box{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:24px;width:100%;max-width:100vw}
-    .sign-line{border-top:1px solid #111;margin-top:36px;padding-top:4px;text-align:center;font-size:9px}
-    .footer{font-size:9px}
+    .sign-box{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%}
+    .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:9px}
+    .footer{font-size:8px;margin-top:6px}
     @media print{
       html,body.print-nomina{overflow:visible !important}
       body.print-nomina{padding:0}
-      #rfsPrintRoot{width:100%;min-width:0;max-width:none}
-      table.nomina-print{width:100%;font-size:6.2px}
+      table.nomina-print{font-size:10.5px}
+      table.nomina-print th{font-size:9.5px}
       table.nomina-print th,table.nomina-print td{padding:1px 2px}
     }
   `;
+}
+
+function togglePayrollFeriado() {
+  syncOpenPayrollFromDom(false);
+  const p = ensureOpenPayrollDraft();
+  if (!p) {
+    toast("Abre o genera una nómina primero.");
+    return;
+  }
+  p.showFeriado = !p.showFeriado;
+  if (!p.showFeriado) {
+    p.lines = (p.lines || []).map((l) => computePayrollLineTotals({ ...l, feriado: 0 }));
+  }
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  renderNominaTab();
+  toast(p.showFeriado ? "Columna Feriado habilitada." : "Columna Feriado oculta.");
 }
 
 function printOpenPayrollSheet() {
@@ -1435,12 +1554,13 @@ function updatePayrollReadonlyDom(p) {
     totalCobrar: sumPayrollField(lines, "totalCobrar"),
     salarioDepositar: sumPayrollField(lines, "salarioDepositar"),
     redondeo: sumPayrollField(lines, "redondeo"),
+    unifRifa: roundMoney2(sumPayrollField(lines, "uniformes") + sumPayrollField(lines, "rifa")),
   };
   const foot = root.querySelector("tfoot tr.nomina-total-row");
   if (foot) {
     const cells = [...foot.children];
-    // map: days, cedula, name, then numeric cols in PAYROLL_TABLE_COLS order, then del
-    PAYROLL_TABLE_COLS.forEach((col, i) => {
+    const cols = getPayrollEditorCols(p);
+    cols.forEach((col, i) => {
       const [key] = col;
       if (!cells[i]) return;
       if (key === "daysWorked" || key === "cedula" || key === "fullName") return;
@@ -1591,7 +1711,7 @@ function renderNominaTab() {
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
-  const cols = PAYROLL_TABLE_COLS;
+  const cols = getPayrollEditorCols(p);
   const lines = p.lines || [];
   const namedCount = payrollLinesForTotals(lines).length;
   const totals = {
@@ -1611,6 +1731,7 @@ function renderNominaTab() {
     totalCobrar: sumPayrollField(lines, "totalCobrar"),
     salarioDepositar: sumPayrollField(lines, "salarioDepositar"),
     redondeo: sumPayrollField(lines, "redondeo"),
+    unifRifa: roundMoney2(sumPayrollField(lines, "uniformes") + sumPayrollField(lines, "rifa")),
   };
   const head =
     cols.map((c) => `<th class="${c[0] === "fullName" ? "sticky-name" : ""}">${escapeHtml(c[1])}</th>`).join("") +
@@ -1623,6 +1744,11 @@ function renderNominaTab() {
           const sticky = key === "fullName" ? "sticky-name" : "";
           if (kind === "ro") {
             return `<td class="right ${sticky}" data-ro="${key}">${escapeHtml(moneyCell(l[key]))}</td>`;
+          }
+          if (kind === "unifRifa") {
+            return `<td class="${sticky}"><input class="nomina-inp nomina-inp-unifrifa" data-f="unifRifa" type="text" inputmode="decimal" placeholder="115/85" value="${escapeHtml(
+              formatUnifRifa(l)
+            )}" title="Uniforme/Rifa (uniforme editable · rifa fija 85)" /></td>`;
           }
           const cls =
             kind === "name" ? "nomina-inp nomina-inp-wide" : kind === "days" ? "nomina-inp nomina-inp-days" : "nomina-inp";
@@ -1642,6 +1768,7 @@ function renderNominaTab() {
       .map(([key]) => {
         if (key === "daysWorked") return `<td><strong>TOTAL</strong></td>`;
         if (key === "cedula" || key === "fullName") return `<td class="${key === "fullName" ? "sticky-name" : ""}"></td>`;
+        if (key === "unifRifa") return `<td class="right" data-ro="unifRifa">${escapeHtml(moneyCell(totals.unifRifa))}</td>`;
         return `<td class="right">${escapeHtml(moneyCell(totals[key]))}</td>`;
       })
       .join("") + `<td class="nomina-col-del"></td>`;
@@ -1651,7 +1778,14 @@ function renderNominaTab() {
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
-    } · ${namedCount} con nombre / ${lines.length} filas. Totales auto: (+) volaos, incentivos, extras, feriado · (−) SFS, uniformes, almuerzo, rifa, adelantos, préstamos. Sin nombre no entra. El − de fila no se imprime.</p>
+    } · ${namedCount}/${lines.length} con nombre. Unif/Rifa = uniforme/rifa (def. 115/85). Feriado ${
+      p.showFeriado ? "ON" : "OFF"
+    }. Impresión sin cédula ni RD$.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
+      <button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
+        p.showFeriado ? "Ocultar feriado" : "Habilitar feriado"
+      }</button>
+    </div>
     <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>${head}</tr></thead>
@@ -1674,6 +1808,7 @@ function renderNominaTab() {
       removePayrollLineAt(btn.dataset.idx);
     });
   });
+  document.getElementById("btnToggleFeriado")?.addEventListener("click", togglePayrollFeriado);
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", printOpenPayrollSheet);
   document.getElementById("btnContabSharePayroll2")?.addEventListener("click", shareOpenPayrollSheet);
   const detailRoot = document.getElementById("contabPayrollDetail");

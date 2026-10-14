@@ -2505,3 +2505,9 @@ body.lightbox-open {
 .nomina-table tr.nomina-row-empty {
   opacity: 0.72;
 }
+
+.nomina-table input.nomina-inp-unifrifa {
+  width: 64px;
+  font-size: 11px;
+  text-align: center;
+}
