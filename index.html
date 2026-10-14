@@ -12,13 +12,13 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=85" />
+  <link rel="stylesheet" href="styles.css?v=86" />
 </head>
 <body>
   <div id="app" class="logged-out">
     <header class="topbar">
       <button id="btnBrandHome" class="brand brand-btn" type="button" aria-label="Ir a Inicio" title="Inicio">
-        <img src="logo.jpg?v=85" alt="Reaction Force Security" class="brand-logo" />
+        <img src="logo.jpg?v=86" alt="Reaction Force Security" class="brand-logo" />
         <div class="brand-text">
           <strong>Reaction Force</strong>
           <span>Operaciones</span>
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=85" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=86" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,11 +56,11 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=85" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=86" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v85 · WhatsApp empleados</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v86 · Nómina La Vega</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -922,7 +922,7 @@
       <div class="section-head section-head-row">
         <div>
           <h1>Contabilidad</h1>
-          <p id="contabSummary">Gastos con NCF, ITBIS cobrado, liquidación DGII y nómina de oficina.</p>
+          <p id="contabSummary">Gastos con NCF, ITBIS cobrado, liquidación DGII y nómina La Vega.</p>
         </div>
       </div>
 
@@ -1025,9 +1025,22 @@
 
       <div id="contabTabNomina" class="contab-tab-panel" hidden>
         <div class="form-card">
-          <h2>Nómina de oficina</h2>
-          <p class="muted tight">Se genera con los empleados activos de Oficina. Pago programado el día 30 del mes seleccionado. Cuando envíes el formato completo de nómina, añadimos deducciones y columnas extras.</p>
-          <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar nómina del mes</button>
+          <h2>Nómina · La Vega Autopista</h2>
+          <p class="muted tight">Formato Reaction (columnas de la nómina Excel). Por ahora solo personal activo de La Vega; vamos completando montos sobre la marcha.</p>
+          <div class="coords-row">
+            <label>Quincena
+              <select id="contabPayrollHalf">
+                <option value="1">01 al 15</option>
+                <option value="2">16 al fin de mes</option>
+              </select>
+            </label>
+            <label>&nbsp;<span class="muted tight" id="contabPayrollHint">Usa el mes de arriba</span></label>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar / actualizar con La Vega</button>
+            <button id="btnContabRecalcPayroll" class="btn secondary" type="button" style="width:auto">Recalcular totales</button>
+            <button id="btnContabSavePayroll" class="btn secondary" type="button" style="width:auto">Guardar cambios</button>
+          </div>
         </div>
         <div id="contabPayrollList" class="card-list"></div>
         <div class="form-card" id="contabPayrollDetail"></div>
@@ -1691,13 +1704,13 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=85"></script>
-  <script src="monorriel-data.js?v=85"></script>
-  <script src="cloud.js?v=85"></script>
-  <script src="hr.js?v=85"></script>
-  <script src="depuracion.js?v=85"></script>
-  <script src="contabilidad.js?v=85"></script>
-  <script src="quotes.js?v=85"></script>
-  <script src="app.js?v=85"></script>
+  <script src="cloud-config.js?v=86"></script>
+  <script src="monorriel-data.js?v=86"></script>
+  <script src="cloud.js?v=86"></script>
+  <script src="hr.js?v=86"></script>
+  <script src="depuracion.js?v=86"></script>
+  <script src="contabilidad.js?v=86"></script>
+  <script src="quotes.js?v=86"></script>
+  <script src="app.js?v=86"></script>
 </body>
 </html>
