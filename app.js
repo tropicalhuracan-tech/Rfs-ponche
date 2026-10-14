@@ -531,6 +531,38 @@ function employeeCompleteness(emp) {
   return { filled, total: fields.length };
 }
 
+function normalizeWhatsAppPhone(raw) {
+  let digits = String(raw || "").replace(/\D+/g, "");
+  if (!digits) return "";
+  // RD: 809/829/849… (10 dígitos) → 1 + local
+  if (digits.length === 10 && /^[89]/.test(digits)) digits = `1${digits}`;
+  // ya con código país 1
+  if (digits.length === 11 && digits.startsWith("1")) return digits;
+  if (digits.length >= 10 && digits.length <= 15) return digits;
+  return "";
+}
+
+async function copyAndOpenWhatsAppCall(phone, ev) {
+  if (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  const display = String(phone || "").trim();
+  const wa = normalizeWhatsAppPhone(display);
+  if (!wa) {
+    toast("Este empleado no tiene teléfono.");
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(display || wa);
+    }
+  } catch (_) {}
+  toast("Número copiado · Abriendo WhatsApp…");
+  // Chat listo para llamar al contacto de inmediato
+  window.open(`https://wa.me/${wa}`, "_blank", "noopener,noreferrer");
+}
+
 function renderEmployees() {
   const list = document.getElementById("employeesList");
   const summary = document.getElementById("employeesSummary");
@@ -579,7 +611,6 @@ function renderEmployees() {
       const sitesFixed = (e.sites || []).slice(0, 2).join(" · ") || "Sin servicio asignado";
       const meta = isEmployeeActive(e)
         ? [
-            e.phone ? `Tel: ${e.phone}` : "Tel: —",
             e.cedula ? `Cédula: ${e.cedula}` : "Cédula: —",
             e.documentData ? "Doc ✓" : "Sin doc",
             `${filled}/${total} datos`,
@@ -591,23 +622,44 @@ function renderEmployees() {
         : `<span class="avatar placeholder">${initial}</span>`;
       const pill = !isEmployeeActive(e) ? "alert" : filled === total ? "ok" : "warn";
       const pillText = !isEmployeeActive(e) ? "Inactivo" : `${filled}/${total}`;
+      const hasPhone = !!(e.phone && normalizeWhatsAppPhone(e.phone));
+      const waBtn = hasPhone
+        ? `<button class="emp-wa-call" type="button" data-phone="${escapeHtml(e.phone)}" title="Copiar y WhatsApp" aria-label="Llamar por WhatsApp">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.5.6.5 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.7 21 3 13.3 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.5.1.3 0 .7-.2 1L6.6 10.8z"/>
+            </svg>
+          </button>`
+        : `<span class="emp-wa-call emp-wa-call-disabled" title="Sin teléfono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" focusable="false">
+              <path fill="currentColor" d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.5.6.5 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.7 21 3 13.3 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.5.1.3 0 .7-.2 1L6.6 10.8z"/>
+            </svg>
+          </span>`;
       return `
-      <button class="employee-card" type="button" data-id="${escapeHtml(e.id)}">
+      <article class="employee-card" data-id="${escapeHtml(e.id)}">
         <div class="row">
           ${avatar}
-          <div style="flex:1;min-width:0">
+          <div class="emp-card-main">
             <h3>${escapeHtml(e.name)}</h3>
             <p>${escapeHtml(sitesFixed)}</p>
-            <p style="margin-top:6px">${escapeHtml(meta)}</p>
+            <p class="emp-card-meta">${escapeHtml(meta)}</p>
           </div>
-          <span class="status-pill ${pill}">${pillText}</span>
+          <div class="emp-card-aside">
+            <span class="status-pill ${pill}">${pillText}</span>
+            ${waBtn}
+          </div>
         </div>
-      </button>`;
+      </article>`;
     })
     .join("");
 
-  list.querySelectorAll(".employee-card").forEach((btn) => {
-    btn.addEventListener("click", () => openEmployeeDetail(btn.dataset.id));
+  list.querySelectorAll(".employee-card").forEach((card) => {
+    card.addEventListener("click", (ev) => {
+      if (ev.target.closest(".emp-wa-call")) return;
+      openEmployeeDetail(card.dataset.id);
+    });
+  });
+  list.querySelectorAll("button.emp-wa-call").forEach((btn) => {
+    btn.addEventListener("click", (ev) => copyAndOpenWhatsAppCall(btn.dataset.phone, ev));
   });
 }
 
@@ -9890,7 +9942,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=84").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=85").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -9905,7 +9957,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v84").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v85").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
