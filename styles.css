@@ -2072,6 +2072,20 @@ body.lightbox-open {
   padding: 0;
 }
 
+.hired-position-card {
+  border: 1px solid rgba(212, 20, 20, 0.45);
+  background: rgba(212, 20, 20, 0.1);
+  border-radius: 12px;
+}
+.hired-position-card h2,
+.hired-position-card h3 {
+  color: #fecaca;
+}
+.hired-position-card input {
+  font-size: 16px;
+  font-weight: 700;
+}
+
 .hr-uniform-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

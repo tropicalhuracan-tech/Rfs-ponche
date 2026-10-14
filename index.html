@@ -60,7 +60,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v100 · RRHH uniformes + contratar</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v101 · Puesto asignado visible</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -841,8 +841,16 @@
           <label>Dirección
             <input id="depAddress" type="text" />
           </label>
-          <label>Puesto para el que se contrata
-            <input id="depHiredPosition" type="text" placeholder="Ej. Vigilante · La Vega Autopista · Monorriel · Oficina" list="depHiredPositionList" />
+          <label>Notas internas
+            <textarea id="depNotes" rows="2" placeholder="Observaciones del proceso"></textarea>
+          </label>
+        </div>
+
+        <div class="form-card hired-position-card">
+          <h2>Puesto asignado</h2>
+          <p class="muted tight">Escribe aquí el puesto / servicio donde trabajará. Al enviar a RRHH queda listo para contratar.</p>
+          <label>Puesto asignado
+            <input id="depHiredPosition" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina…" list="depHiredPositionList" />
             <datalist id="depHiredPositionList">
               <option value="Vigilante"></option>
               <option value="La Vega Autopista"></option>
@@ -850,10 +858,6 @@
               <option value="Oficina"></option>
               <option value="Supervisor"></option>
             </datalist>
-          </label>
-          <p class="muted tight">Este puesto pasa a RRHH al enviar el expediente, listo para contratar.</p>
-          <label>Notas internas
-            <textarea id="depNotes" rows="2" placeholder="Observaciones del proceso"></textarea>
           </label>
         </div>
 
@@ -1170,6 +1174,20 @@
               <label>Tel. alterno<input id="hrPhoneAlt" type="tel" /></label>
             </div>
             <label>Correo<input id="hrEmail" type="email" /></label>
+            <div class="form-card hired-position-card" style="margin:12px 0;padding:12px">
+              <h3 style="margin:0 0 6px;font-size:15px">Puesto asignado</h3>
+              <p class="muted tight" style="margin:0 0 8px">Obligatorio para contratar. También se puede cargar desde Depuración.</p>
+              <label>Puesto asignado
+                <input id="hrHiredPosition" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina…" list="hrHiredPositionList" />
+                <datalist id="hrHiredPositionList">
+                  <option value="Vigilante"></option>
+                  <option value="La Vega Autopista"></option>
+                  <option value="Monorriel"></option>
+                  <option value="Oficina"></option>
+                  <option value="Supervisor"></option>
+                </datalist>
+              </label>
+            </div>
             <div class="coords-row">
               <label>Tipo de sangre<input id="hrBlood" type="text" placeholder="Ej. O+" /></label>
               <label>Nivel educativo
@@ -1203,16 +1221,6 @@
             <label>Empresas de seguridad anteriores<textarea id="hrSecCompanies" rows="2"></textarea></label>
             <label class="check-row"><input id="hrCriminal" type="checkbox" /><span>Declara antecedentes penales / judiciales</span></label>
             <label>Detalle (si aplica)<textarea id="hrCriminalNote" rows="2"></textarea></label>
-            <label>Puesto para el que fue contratado
-              <input id="hrHiredPosition" type="text" placeholder="Ej. Vigilante · La Vega Autopista · Monorriel · Oficina" list="hrHiredPositionList" />
-              <datalist id="hrHiredPositionList">
-                <option value="Vigilante"></option>
-                <option value="La Vega Autopista"></option>
-                <option value="Monorriel"></option>
-                <option value="Oficina"></option>
-                <option value="Supervisor"></option>
-              </datalist>
-            </label>
             <label>Estado de la solicitud
               <select id="hrStatus">
                 <option value="draft">Borrador</option>
@@ -1354,6 +1362,13 @@
           <div class="form-card">
             <h2>Contratar vigilante</h2>
             <p class="muted tight">Al contratar, pasa a la lista general de empleados con foto y datos principales.</p>
+            <div class="hired-position-card" style="margin:10px 0 14px;padding:12px;border-radius:12px;border:1px solid rgba(212,20,20,0.45);background:rgba(212,20,20,0.1)">
+              <h3 style="margin:0 0 6px;font-size:15px">Puesto asignado</h3>
+              <p class="muted tight" style="margin:0 0 8px">Obligatorio. Si vino de Depuración ya debe aparecer aquí.</p>
+              <label>Puesto asignado
+                <input id="hrHiredPositionHire" type="text" placeholder="Ej. Vigilante, La Vega Autopista, Monorriel, Oficina…" list="hrHiredPositionList" />
+              </label>
+            </div>
             <div id="hrHireSummary"></div>
             <button id="btnHrPrintSheet" class="btn secondary" type="button" style="margin-top:12px">Imprimir hoja resumen (para firma)</button>
             <button id="btnHrHire" class="btn primary" type="button" style="margin-top:8px">Contratar y enviar a Empleados</button>

@@ -756,6 +756,7 @@ function fillHrForm(app) {
   set("hrStatus", app.hiredEmployeeId ? "hired" : app.status === "hired" ? "review" : app.status);
   set("hrNotes", app.hrNotes);
   set("hrHiredPosition", app.hiredPosition || "");
+  set("hrHiredPositionHire", app.hiredPosition || "");
   set("hrConfName", app.confidentialityName || app.fullName);
   set("hrConfAck", app.confidentialityAck);
   set("hrConfSigned", app.confidentialitySigned);
@@ -844,7 +845,8 @@ function readHrFormInto(app) {
     else app.status = HR_STATUS[st] ? st : "draft";
   }
   app.hrNotes = val("hrNotes");
-  app.hiredPosition = val("hrHiredPosition");
+  // Puesto: el de Contratar gana si tiene valor; si no, el de Datos
+  app.hiredPosition = val("hrHiredPositionHire") || val("hrHiredPosition");
   app.confidentialityName = val("hrConfName");
   app.confidentialityAck = chk("hrConfAck");
   app.confidentialitySigned = chk("hrConfSigned");
@@ -1505,6 +1507,24 @@ function bindHrUi() {
     app.updatedAt = new Date().toISOString();
     saveHrData(true);
   });
+  const syncHiredPositionInputs = (fromId, toId) => {
+    const from = document.getElementById(fromId);
+    const to = document.getElementById(toId);
+    if (!from || !to) return;
+    to.value = from.value;
+    const app = getHrApp(selectedHrAppId);
+    if (app) {
+      app.hiredPosition = String(from.value || "").trim();
+      app.updatedAt = new Date().toISOString();
+      saveHrData(true);
+    }
+  };
+  document.getElementById("hrHiredPosition")?.addEventListener("input", () =>
+    syncHiredPositionInputs("hrHiredPosition", "hrHiredPositionHire")
+  );
+  document.getElementById("hrHiredPositionHire")?.addEventListener("input", () =>
+    syncHiredPositionInputs("hrHiredPositionHire", "hrHiredPosition")
+  );
 }
 
 /* ==== FIN RRHH ==== */
