@@ -4954,8 +4954,12 @@ function openPrintWindow(title, bodyHtml, options = {}) {
     <button type="button" class="btn-pdf" id="btnPrintPdf">Descargar PDF</button>`
     : "";
   const hint = shareEnabled
-    ? "Mismo informe: imprímelo o envíalo en PDF por WhatsApp / correo."
-    : "Elige impresora USB, Wi‑Fi o PDF. Luego pulsa Volver.";
+    ? orientation === "landscape"
+      ? "Hoja horizontal: en Imprimir elige Landscape / Horizontal. También puedes Descargar PDF."
+      : "Mismo informe: imprímelo o envíalo en PDF por WhatsApp / correo."
+    : orientation === "landscape"
+      ? "En el diálogo de impresión elige Horizontal / Landscape."
+      : "Elige impresora USB, Wi‑Fi o PDF. Luego pulsa Volver.";
   win.document.write(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
