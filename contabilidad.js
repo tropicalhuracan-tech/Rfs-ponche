@@ -1095,6 +1095,246 @@ function saveOpenPayrollEdits() {
   toast("Cambios de nómina guardados.");
 }
 
+const PAYROLL_TABLE_COLS = [
+  ["daysWorked", "Días", "days"],
+  ["cedula", "Cédula", "text"],
+  ["fullName", "Nombres", "name"],
+  ["salaryMonthly", "Sueldo mensual", "num"],
+  ["salaryQuincena", "Sueldo quincenal", "num"],
+  ["sfs", "SFS/SVDS", "num"],
+  ["uniformes", "Uniformes", "num"],
+  ["volaos", "Volaos", "num"],
+  ["incentivos", "Incentivos", "num"],
+  ["horasExtras", "Horas extras", "num"],
+  ["feriado", "Feriado", "num"],
+  ["almuerzo", "Almuerzo/Cena", "num"],
+  ["rifa", "Rifa", "num"],
+  ["adelantos", "Adelantos", "num"],
+  ["prestamos", "Desc. préstamos", "num"],
+  ["totalDescuentos", "Total desc.", "ro"],
+  ["totalCobrar", "Total a cobrar", "ro"],
+  ["salarioDepositar", "Salario a depositar", "ro"],
+  ["redondeo", "Redondeo", "ro"],
+];
+
+function emptyPayrollLine(overrides = {}) {
+  return normalizePayrollLine({
+    employeeId: "",
+    fullName: "",
+    position: "La Vega Autopista",
+    cedula: "",
+    daysWorked: "15",
+    salaryMonthly: LVA_PAYROLL_DEFAULT_MONTHLY,
+    uniformes: LVA_PAYROLL_UNIFORMES,
+    rifa: LVA_PAYROLL_RIFA,
+    ...overrides,
+  });
+}
+
+function ensureOpenPayrollDraft() {
+  let p = contabilidadData.payrolls.find((x) => x.id === selectedPayrollId);
+  if (p) return p;
+  const period = getSelectedMonth();
+  const half = getSelectedPayrollHalf();
+  p = findLvaPayroll(period, half);
+  if (p) {
+    selectedPayrollId = p.id;
+    return p;
+  }
+  return null;
+}
+
+function syncOpenPayrollFromDom(recalc = false) {
+  const p = ensureOpenPayrollDraft();
+  if (!p) return null;
+  const lines = readPayrollLinesFromDom(p.id);
+  if (!lines) return p;
+  p.lines = lines.map((l) =>
+    computePayrollLineTotals(
+      recalc
+        ? {
+            ...l,
+            salaryQuincena: 0,
+            sfs: 0,
+          }
+        : l
+    )
+  );
+  p.updatedAt = new Date().toISOString();
+  return p;
+}
+
+function addBlankPayrollRows() {
+  if (!canAccessContabilidad()) {
+    toast("No tienes acceso a Contabilidad.");
+    return;
+  }
+  syncOpenPayrollFromDom(false);
+  let p = ensureOpenPayrollDraft();
+  if (!p) {
+    // crear borrador vacío La Vega si aún no hay
+    const period = getSelectedMonth();
+    const half = getSelectedPayrollHalf();
+    const [y, m] = period.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    const payDay = half === 1 ? 15 : Math.min(30, last);
+    p = normalizePayroll({
+      period,
+      half,
+      group: "lavega",
+      payDate: `${period}-${String(payDay).padStart(2, "0")}`,
+      status: "draft",
+      lines: [],
+      note: `Nómina La Vega Autopista · ${halfLabel(half)} · ${monthLabel(period)}`,
+      createdBy:
+        typeof currentUser !== "undefined" && currentUser
+          ? currentUser.displayName || currentUser.username
+          : "",
+    });
+    contabilidadData.payrolls.unshift(p);
+    selectedPayrollId = p.id;
+  }
+  const countEl = document.getElementById("contabAddRowsCount");
+  let n = Math.max(1, Math.min(40, Number(countEl && countEl.value) || 1));
+  for (let i = 0; i < n; i += 1) p.lines.push(emptyPayrollLine());
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  renderNominaTab();
+  toast(`${n} fila(s) agregada(s) al final de la nómina.`);
+}
+
+function payrollShareCaption(p) {
+  if (!p) return "Nómina Reaction";
+  const group =
+    p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")
+      ? "La Vega"
+      : p.group === "oficina"
+        ? "Oficina"
+        : "Reaction";
+  return `Nómina ${group} - ${halfLabel(p.half || 1)} ${monthLabel(p.period)}`;
+}
+
+function buildPayrollPrintHtml(p) {
+  const cols = PAYROLL_TABLE_COLS;
+  const lines = (p.lines || []).filter((l) => (l.fullName || "").trim() || (l.cedula || "").trim() || Number(l.redondeo) || Number(l.salaryMonthly));
+  const allLines = lines.length ? lines : p.lines || [];
+  const totals = {};
+  cols.forEach(([key, , kind]) => {
+    if (kind === "ro" || kind === "num") totals[key] = sumField(allLines, key);
+  });
+  const head = cols.map(([, label]) => `<th>${escapeHtml(label)}</th>`).join("");
+  const body = allLines
+    .map((l) => {
+      const tds = cols
+        .map(([key, , kind]) => {
+          if (kind === "ro" || kind === "num") {
+            const v = Number(l[key]) || 0;
+            return `<td class="right">${v ? escapeHtml(moneyRd(v)) : ""}</td>`;
+          }
+          return `<td>${escapeHtml(String(l[key] || ""))}</td>`;
+        })
+        .join("");
+      return `<tr>${tds}</tr>`;
+    })
+    .join("");
+  const totalRow = cols
+    .map(([key, , kind]) => {
+      if (key === "daysWorked") return `<td><strong>TOTAL</strong></td>`;
+      if (key === "cedula" || key === "fullName") return `<td></td>`;
+      if (kind === "ro" || kind === "num") {
+        const v = Number(totals[key]) || 0;
+        return `<td class="right"><strong>${v ? escapeHtml(moneyRd(v)) : ""}</strong></td>`;
+      }
+      return `<td></td>`;
+    })
+    .join("");
+  const groupTitle =
+    p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")
+      ? "LA VEGA AUTOPISTA"
+      : "REACTION FORCE SECURITY";
+  return `
+    <h2 style="margin:0 0 8px;font-size:13px;font-weight:700;color:#111">
+      NOMINA REACTION · ${escapeHtml(groupTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
+        monthLabel(p.period).toUpperCase()
+      )}
+    </h2>
+    <div class="meta" style="margin-bottom:8px;font-size:11px">
+      <div><strong>Pago:</strong><br/>${escapeHtml(p.payDate || "—")}</div>
+      <div><strong>Estado:</strong><br/>${escapeHtml(p.status === "paid" ? "Pagada" : "Borrador")}</div>
+      <div><strong>Empleados:</strong><br/>${allLines.length}</div>
+      <div><strong>Total redondeo:</strong><br/>${escapeHtml(moneyRd(totals.redondeo || 0))}</div>
+    </div>
+    <table class="nomina-print">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${body || `<tr><td colspan="${cols.length}">Sin líneas</td></tr>`}</tbody>
+      <tfoot><tr>${totalRow}</tr></tfoot>
+    </table>
+    <div class="sign-box">
+      <div class="sign-line">Preparado por / Contabilidad</div>
+      <div class="sign-line">Autorizado / Operaciones</div>
+    </div>
+    <p class="footer">Hoja legal · Uso interno Reaction Force Security · ${escapeHtml(
+      new Date().toLocaleString("es-DO")
+    )}</p>`;
+}
+
+function payrollPrintCss() {
+  return `
+    body.print-nomina{padding:10px 12px;font-size:8.5px;line-height:1.2}
+    body.print-nomina .brand{margin-bottom:8px}
+    body.print-nomina .brand img{width:48px;height:48px}
+    body.print-nomina h1{font-size:15px}
+    table.nomina-print{width:100%;border-collapse:collapse;table-layout:auto;font-size:7.5px}
+    table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:2px 3px;vertical-align:middle}
+    table.nomina-print th{background:#eee;font-weight:700;white-space:nowrap}
+    table.nomina-print td{white-space:nowrap}
+    table.nomina-print tfoot td{background:#f3f3f3;font-weight:700}
+    .sign-box{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:28px}
+    .sign-line{border-top:1px solid #111;margin-top:40px;padding-top:4px;text-align:center;font-size:10px}
+    @media print{
+      body.print-nomina{padding:0}
+      table.nomina-print{font-size:7px}
+    }
+  `;
+}
+
+function printOpenPayrollSheet() {
+  if (!canAccessContabilidad()) {
+    toast("No tienes acceso a Contabilidad.");
+    return;
+  }
+  syncOpenPayrollFromDom(false);
+  const p = ensureOpenPayrollDraft();
+  if (!p || !(p.lines || []).length) {
+    toast("Abre o genera una nómina antes de imprimir.");
+    return;
+  }
+  saveContabilidadData(true);
+  const caption = payrollShareCaption(p);
+  if (typeof openPrintWindow !== "function") {
+    toast("No se pudo abrir la impresión.");
+    return;
+  }
+  openPrintWindow(caption, buildPayrollPrintHtml(p), {
+    bodyClass: "print-nomina",
+    pageSize: "legal",
+    orientation: "landscape",
+    wide: true,
+    autoPrint: false,
+    extraCss: payrollPrintCss(),
+    share: {
+      text: caption,
+      subject: caption,
+      fileName: `${caption.replace(/[^\w.-]+/g, "-").slice(0, 80)}.pdf`,
+    },
+  });
+  toast("Vista legal lista: Imprimir o compartir PDF.");
+}
+
+function shareOpenPayrollSheet() {
+  printOpenPayrollSheet();
+}
+
 function renderNominaTab() {
   const list = document.getElementById("contabPayrollList");
   const detail = document.getElementById("contabPayrollDetail");
@@ -1130,6 +1370,9 @@ function renderNominaTab() {
             <button type="button" class="btn secondary btn-pay-open" data-id="${escapeHtml(
               p.id
             )}" style="width:auto;padding:8px 10px;font-size:12px">Abrir tabla</button>
+            <button type="button" class="btn secondary btn-pay-print" data-id="${escapeHtml(
+              p.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
             ${
               p.status === "draft"
                 ? `<button type="button" class="btn primary btn-pay-paid" data-id="${escapeHtml(
@@ -1150,6 +1393,15 @@ function renderNominaTab() {
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
         renderNominaTab();
+      })
+    );
+    list.querySelectorAll(".btn-pay-print").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        selectedPayrollId = btn.dataset.id;
+        const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
+        if (p && halfSel) halfSel.value = String(p.half || 1);
+        renderNominaTab();
+        setTimeout(() => printOpenPayrollSheet(), 50);
       })
     );
     list.querySelectorAll(".btn-pay-paid").forEach((btn) =>
@@ -1175,27 +1427,7 @@ function renderNominaTab() {
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
-  const cols = [
-    ["daysWorked", "Días", "days"],
-    ["cedula", "Cédula", "text"],
-    ["fullName", "Nombres", "name"],
-    ["salaryMonthly", "Sueldo mensual", "num"],
-    ["salaryQuincena", "Sueldo quincenal", "num"],
-    ["sfs", "SFS/SVDS", "num"],
-    ["uniformes", "Uniformes", "num"],
-    ["volaos", "Volaos", "num"],
-    ["incentivos", "Incentivos", "num"],
-    ["horasExtras", "Horas extras", "num"],
-    ["feriado", "Feriado", "num"],
-    ["almuerzo", "Almuerzo/Cena", "num"],
-    ["rifa", "Rifa", "num"],
-    ["adelantos", "Adelantos", "num"],
-    ["prestamos", "Desc. préstamos", "num"],
-    ["totalDescuentos", "Total desc.", "ro"],
-    ["totalCobrar", "Total a cobrar", "ro"],
-    ["salarioDepositar", "Salario a depositar", "ro"],
-    ["redondeo", "Redondeo", "ro"],
-  ];
+  const cols = PAYROLL_TABLE_COLS;
   const lines = p.lines || [];
   const totals = {
     salaryMonthly: sumField(lines, "salaryMonthly"),
@@ -1263,7 +1495,19 @@ function renderNominaTab() {
     <p style="margin-top:12px"><strong>Total redondeo: ${escapeHtml(moneyRd(totals.redondeo))}</strong>
       <span class="muted"> · A depositar ${escapeHtml(moneyRd(totals.salarioDepositar))} · A cobrar ${escapeHtml(
         moneyRd(totals.totalCobrar)
-      )}</span></p>`;
+      )}</span></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button type="button" class="btn secondary" id="btnContabAddOneRow" style="width:auto">＋ 1 fila</button>
+      <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir (legal)</button>
+      <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
+    </div>`;
+  document.getElementById("btnContabAddOneRow")?.addEventListener("click", () => {
+    const el = document.getElementById("contabAddRowsCount");
+    if (el) el.value = "1";
+    addBlankPayrollRows();
+  });
+  document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", printOpenPayrollSheet);
+  document.getElementById("btnContabSharePayroll2")?.addEventListener("click", shareOpenPayrollSheet);
 }
 
 function renderContabilidadModule() {
@@ -1321,6 +1565,9 @@ function bindContabilidadUi() {
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
   document.getElementById("btnContabRecalcPayroll")?.addEventListener("click", () => recalculateOpenPayroll(false));
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
+  document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
+  document.getElementById("btnContabPrintPayroll")?.addEventListener("click", printOpenPayrollSheet);
+  document.getElementById("btnContabSharePayroll")?.addEventListener("click", shareOpenPayrollSheet);
   document.getElementById("contabPayrollHalf")?.addEventListener("change", () => {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();

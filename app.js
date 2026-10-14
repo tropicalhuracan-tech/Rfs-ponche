@@ -4711,6 +4711,13 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   const autoPrint = !(options && options.autoPrint === false);
   const share = options && options.share && typeof options.share === "object" ? options.share : null;
   const shareEnabled = !!(share && (share.text || share.subject));
+  const pageSize = String((options && options.pageSize) || "").toLowerCase(); // letter|legal
+  const orientation = String((options && options.orientation) || "portrait").toLowerCase();
+  const wide = !!(options && options.wide);
+  const pageRule = pageSize
+    ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
+    : "";
+  const bodyMax = wide ? "max-width:100%" : "max-width:900px";
   const logoUrl = (() => {
     try {
       return new URL("logo.jpg", window.location.href).href;
@@ -4736,7 +4743,8 @@ function openPrintWindow(title, bodyHtml, options = {}) {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(title)}</title>
 <style>
-  body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:900px;margin:0 auto;font-size:12px;line-height:1.35}
+  ${pageRule}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;${bodyMax};margin:0 auto;font-size:12px;line-height:1.35}
   h1{font-size:18px;margin:0 0 4px}
   h2{font-size:14px;margin:0 0 14px;font-weight:normal;color:#444}
   .meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px}
@@ -5219,6 +5227,7 @@ function printCurrentView() {
   if (id === "monoReportDetailView") return printMonoReport();
   if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
   if (id === "lvaView") return printLvaActiveSheet();
+  if (id === "contabilidadView" && typeof printOpenPayrollSheet === "function") return printOpenPayrollSheet();
   if (id === "detailView") {
     const post = getPost(selectedId);
     if (!post) return toast("No hay ficha para imprimir.");
