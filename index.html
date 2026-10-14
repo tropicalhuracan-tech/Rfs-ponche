@@ -60,7 +60,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v99 · Carta/Legal + grupos</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v100 · RRHH uniformes + contratar</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -841,6 +841,17 @@
           <label>Dirección
             <input id="depAddress" type="text" />
           </label>
+          <label>Puesto para el que se contrata
+            <input id="depHiredPosition" type="text" placeholder="Ej. Vigilante · La Vega Autopista · Monorriel · Oficina" list="depHiredPositionList" />
+            <datalist id="depHiredPositionList">
+              <option value="Vigilante"></option>
+              <option value="La Vega Autopista"></option>
+              <option value="Monorriel"></option>
+              <option value="Oficina"></option>
+              <option value="Supervisor"></option>
+            </datalist>
+          </label>
+          <p class="muted tight">Este puesto pasa a RRHH al enviar el expediente, listo para contratar.</p>
           <label>Notas internas
             <textarea id="depNotes" rows="2" placeholder="Observaciones del proceso"></textarea>
           </label>
@@ -1192,12 +1203,21 @@
             <label>Empresas de seguridad anteriores<textarea id="hrSecCompanies" rows="2"></textarea></label>
             <label class="check-row"><input id="hrCriminal" type="checkbox" /><span>Declara antecedentes penales / judiciales</span></label>
             <label>Detalle (si aplica)<textarea id="hrCriminalNote" rows="2"></textarea></label>
+            <label>Puesto para el que fue contratado
+              <input id="hrHiredPosition" type="text" placeholder="Ej. Vigilante · La Vega Autopista · Monorriel · Oficina" list="hrHiredPositionList" />
+              <datalist id="hrHiredPositionList">
+                <option value="Vigilante"></option>
+                <option value="La Vega Autopista"></option>
+                <option value="Monorriel"></option>
+                <option value="Oficina"></option>
+                <option value="Supervisor"></option>
+              </datalist>
+            </label>
             <label>Estado de la solicitud
               <select id="hrStatus">
                 <option value="draft">Borrador</option>
                 <option value="review">En revisión</option>
                 <option value="rejected">No contratado</option>
-                <option value="hired">Contratado</option>
               </select>
             </label>
             <label>Notas de RRHH<textarea id="hrNotes" rows="2"></textarea></label>

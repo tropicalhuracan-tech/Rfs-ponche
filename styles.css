@@ -2089,6 +2089,10 @@ body.lightbox-open {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(52, 211, 153, 0.25);
+  user-select: none;
 }
 
 .hr-uniform-btn.on {

@@ -39,6 +39,7 @@ function emptyDepCandidate() {
     phone: "",
     email: "",
     address: "",
+    hiredPosition: "",
     notes: "",
     consentSigned: false,
     consentAt: "",
@@ -96,6 +97,7 @@ function normalizeDepCandidate(c = {}) {
     phone: String(c.phone || "").trim(),
     email: String(c.email || "").trim(),
     address: String(c.address || "").trim(),
+    hiredPosition: String(c.hiredPosition || "").trim(),
     notes: String(c.notes || "").trim(),
     consentSigned: !!c.consentSigned,
     consentAt: c.consentAt || "",
@@ -212,6 +214,7 @@ function fillDepForm(c) {
   set("depPhone", c.phone || "");
   set("depEmail", c.email || "");
   set("depAddress", c.address || "");
+  set("depHiredPosition", c.hiredPosition || "");
   set("depNotes", c.notes || "");
   set("depAntecedentesNote", c.antecedentesNote || "");
   set("depConsent", c.consentSigned);
@@ -287,6 +290,7 @@ function readDepFormInto(c) {
   c.phone = String(document.getElementById("depPhone")?.value || "").trim();
   c.email = String(document.getElementById("depEmail")?.value || "").trim();
   c.address = String(document.getElementById("depAddress")?.value || "").trim();
+  c.hiredPosition = String(document.getElementById("depHiredPosition")?.value || "").trim();
   c.notes = String(document.getElementById("depNotes")?.value || "").trim();
   c.antecedentesNote = String(document.getElementById("depAntecedentesNote")?.value || "").trim();
   c.fieldCheckNote = String(document.getElementById("depFieldCheckNote")?.value || "").trim();
@@ -405,7 +409,9 @@ function sendDepToHr() {
     app.phone = c.phone;
     app.email = c.email;
     app.address = c.address;
-    app.notes = `Desde Depuración. Veredicto: ${DEP_VERDICT[c.verdict]}. ${c.verdictNote || ""}`.trim();
+    app.hiredPosition = c.hiredPosition || "";
+    app.fromDepuracionId = c.id;
+    app.hrNotes = `Desde Depuración. Veredicto: ${DEP_VERDICT[c.verdict]}. ${c.verdictNote || ""}`.trim();
     app.createdBy =
       typeof currentUser !== "undefined" && currentUser
         ? currentUser.displayName || currentUser.username
@@ -413,13 +419,28 @@ function sendDepToHr() {
     hrData.applications.unshift(app);
     c.hrApplicationId = app.id;
     saveHrData(true);
+  } else {
+    // Actualizar puesto y datos clave al reenviar
+    if (c.hiredPosition) app.hiredPosition = c.hiredPosition;
+    if (c.fullName) app.fullName = c.fullName;
+    if (c.cedula) app.cedula = c.cedula;
+    if (c.phone) app.phone = c.phone;
+    if (c.email) app.email = c.email;
+    if (c.address) app.address = c.address;
+    app.fromDepuracionId = c.id;
+    app.updatedAt = new Date().toISOString();
+    saveHrData(true);
   }
   saveDepuracionData(true);
   if (typeof openHrApplication === "function") {
     openHrApplication(app.id);
     if (typeof switchView === "function") switchView("hrView");
   }
-  toast("Expediente RRHH listo.");
+  toast(
+    c.hiredPosition
+      ? `Expediente RRHH listo · puesto: ${c.hiredPosition}`
+      : "Expediente RRHH listo. Completa el puesto en RRHH antes de contratar."
+  );
 }
 
 function renderDepList() {

@@ -332,6 +332,7 @@ function normalizeEmployeeHrProfile(p = {}) {
     psychComprehension: String(p.psychComprehension || "").trim(),
     psychRecommendation: String(p.psychRecommendation || "").trim(),
     confidentialitySigned: !!p.confidentialitySigned,
+    hiredPosition: String(p.hiredPosition || "").trim(),
   };
 }
 
@@ -1155,6 +1156,7 @@ function buildHrProfileFromApplication(app) {
     psychComprehension: app.psychTest?.comprehension || "",
     psychRecommendation: app.psychTest?.recommendation || "",
     confidentialitySigned: !!app.confidentialitySigned,
+    hiredPosition: app.hiredPosition || "",
   });
 }
 

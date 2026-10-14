@@ -546,7 +546,9 @@ function emptyHrApplication() {
     },
     hiredEmployeeId: "",
     hiredAt: "",
+    hiredPosition: "",
     hrNotes: "",
+    fromDepuracionId: "",
   };
 }
 
@@ -608,10 +610,13 @@ function normalizeHrApplication(a = {}) {
     ...a,
     id: a.id || base.id,
     status,
-    photo: typeof a.photo === "string" && a.photo.startsWith("data:image") ? a.photo : "",
+    // Conservar cualquier foto válida (data URL, http o media id); antes se borraba si no era data:image
+    photo: typeof a.photo === "string" ? a.photo : "",
     fullName: String(a.fullName || "").trim(),
-    cedula: String(a.cedula || "").trim(),
+    cedula: String(a.cedula || "").replace(/\D/g, "").slice(0, 11),
     phone: String(a.phone || "").trim(),
+    hiredPosition: String(a.hiredPosition || "").trim(),
+    fromDepuracionId: String(a.fromDepuracionId || "").trim(),
     familyContacts: family.slice(0, 3),
     personalRefs: refs.slice(0, 3),
     workHistory: work.slice(0, 3),
@@ -747,8 +752,10 @@ function fillHrForm(app) {
   set("hrEmergencyName", app.emergencyName);
   set("hrEmergencyPhone", app.emergencyPhone);
   set("hrEmergencyRelation", app.emergencyRelation);
-  set("hrStatus", app.status);
+  // No permitir elegir «Contratado» a mano (solo al contratar de verdad)
+  set("hrStatus", app.hiredEmployeeId ? "hired" : app.status === "hired" ? "review" : app.status);
   set("hrNotes", app.hrNotes);
+  set("hrHiredPosition", app.hiredPosition || "");
   set("hrConfName", app.confidentialityName || app.fullName);
   set("hrConfAck", app.confidentialityAck);
   set("hrConfSigned", app.confidentialitySigned);
@@ -829,8 +836,15 @@ function readHrFormInto(app) {
   app.emergencyName = val("hrEmergencyName");
   app.emergencyPhone = val("hrEmergencyPhone");
   app.emergencyRelation = val("hrEmergencyRelation");
-  app.status = val("hrStatus") || app.status;
+  {
+    const st = val("hrStatus") || app.status || "draft";
+    // Evitar marcar «hired» solo desde el select (rompe uniformes y contratar)
+    if (st === "hired" && !app.hiredEmployeeId) app.status = "review";
+    else if (app.hiredEmployeeId) app.status = "hired";
+    else app.status = HR_STATUS[st] ? st : "draft";
+  }
   app.hrNotes = val("hrNotes");
+  app.hiredPosition = val("hrHiredPosition");
   app.confidentialityName = val("hrConfName");
   app.confidentialityAck = chk("hrConfAck");
   app.confidentialitySigned = chk("hrConfSigned");
@@ -892,29 +906,55 @@ function saveHrApplicationFromForm() {
   toast("Solicitud guardada.");
 }
 
+function ensureHrAppForEdit() {
+  if (!canAccessRrhh()) {
+    toast("No tienes acceso a Recursos Humanos.");
+    return null;
+  }
+  let app = getHrApp(selectedHrAppId);
+  if (app) return app;
+  // Si no hay solicitud abierta, crear borrador para poder marcar uniformes
+  app = emptyHrApplication();
+  app.createdBy = currentUser ? currentUser.displayName || currentUser.username : "";
+  hrData.applications.unshift(app);
+  selectedHrAppId = app.id;
+  saveHrData(true);
+  return app;
+}
+
+function toggleHrUniformItem(key) {
+  const app = ensureHrAppForEdit();
+  if (!app) return;
+  if (app.hiredEmployeeId) {
+    toast("Esta solicitud ya fue contratada; los uniformes quedan como historial.");
+    return;
+  }
+  if (!key) return;
+  app.uniforms = normalizeHrUniforms(app.uniforms);
+  app.uniforms[key] = !app.uniforms[key];
+  if (Object.values(app.uniforms).some((v) => v === true) && !app.uniformsDeliveredAt) {
+    app.uniformsDeliveredAt = new Date().toISOString();
+  }
+  app.updatedAt = new Date().toISOString();
+  // Si el estado quedó «hired» a mano sin empleado, corregir para no bloquear
+  if (app.status === "hired" && !app.hiredEmployeeId) app.status = "review";
+  saveHrData(true);
+  renderHrUniformToggles(app.uniforms);
+}
+
 function renderHrUniformToggles(uniforms) {
   const box = document.getElementById("hrUniformGrid");
   if (!box) return;
+  const u = normalizeHrUniforms(uniforms || {});
   box.innerHTML = HR_UNIFORM_ITEMS.map((item) => {
-    const on = !!uniforms[item.key];
-    return `<button type="button" class="hr-uniform-btn ${on ? "on" : ""}" data-uniform="${item.key}">
+    const on = !!u[item.key];
+    return `<button type="button" class="hr-uniform-btn ${on ? "on" : ""}" data-uniform="${escapeHtml(item.key)}" aria-pressed="${on ? "true" : "false"}">
       <span class="hr-uniform-check">${on ? "✓" : ""}</span>
       ${escapeHtml(item.label)}
     </button>`;
   }).join("");
-  box.querySelectorAll(".hr-uniform-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const app = getHrApp(selectedHrAppId);
-      if (!app || app.status === "hired") return;
-      app.uniforms = normalizeHrUniforms(app.uniforms);
-      app.uniforms[btn.dataset.uniform] = !app.uniforms[btn.dataset.uniform];
-      app.updatedAt = new Date().toISOString();
-      saveHrData(true);
-      renderHrUniformToggles(app.uniforms);
-    });
-  });
   const other = document.getElementById("hrUniformOtrosDetalle");
-  if (other) other.value = uniforms.otrosDetalle || "";
+  if (other) other.value = u.otrosDetalle || "";
 }
 
 function pickPsychModelId(app) {
@@ -1015,14 +1055,14 @@ function renderHrPsychPanel(app) {
   }
   const btn = document.getElementById("btnHrScorePsych");
   const btnReset = document.getElementById("btnHrResetPsych");
-  if (btn) btn.hidden = done || app.status === "hired";
-  if (btnReset) btnReset.hidden = !done || app.status === "hired";
+  if (btn) btn.hidden = done || !!app.hiredEmployeeId;
+  if (btnReset) btnReset.hidden = !done || !!app.hiredEmployeeId;
 }
 
 function scoreHrPsychFromForm() {
   const app = getHrApp(selectedHrAppId);
   if (!app) return;
-  if (app.status === "hired") {
+  if (app.hiredEmployeeId) {
     toast("La solicitud ya fue contratada.");
     return;
   }
@@ -1052,7 +1092,7 @@ function scoreHrPsychFromForm() {
 
 function resetHrPsych() {
   const app = getHrApp(selectedHrAppId);
-  if (!app || app.status === "hired") return;
+  if (!app || app.hiredEmployeeId) return;
   if (!window.confirm("¿Borrar el resultado del test para repetirlo (puede tocar otro modelo)?")) return;
   // Cambiar modelo rotando
   const next = (pickPsychModelId(app) % HR_PSYCH_MODELS.length) + 1;
@@ -1076,123 +1116,179 @@ function renderHrHireSummary(app) {
   el.innerHTML = `
     <p><strong>Solicitante:</strong> ${escapeHtml(app.fullName || "—")}</p>
     <p><strong>Cédula:</strong> ${escapeHtml(app.cedula || "—")} · <strong>Tel:</strong> ${escapeHtml(app.phone || "—")}</p>
+    <p><strong>Puesto:</strong> ${escapeHtml(app.hiredPosition || "— (indica el puesto en Datos)")}</p>
     <p><strong>Confidencialidad:</strong> ${conf}</p>
     <p><strong>Test psicológico:</strong> ${escapeHtml(psych)}</p>
     <p><strong>Uniformes/equipos marcados:</strong> ${uniCount}</p>
     ${app.hiredEmployeeId ? `<p class="muted">Ya contratado → empleado ${escapeHtml(app.hiredEmployeeId)}</p>` : ""}
   `;
   const btn = document.getElementById("btnHrHire");
-  if (btn) btn.disabled = app.status === "hired" || !!app.hiredEmployeeId;
+  if (btn) {
+    btn.disabled = !!app.hiredEmployeeId;
+    btn.textContent = app.hiredEmployeeId ? "Ya contratado" : "Contratar y enviar a Empleados";
+  }
 }
 
 function hireHrApplication() {
-  if (!canAccessRrhh()) return;
-  if (typeof canWriteEmployees === "function" && !canWriteEmployees() && currentUser?.role !== "owner") {
-    // Owner always; if user has rrhh they can hire into employees list
-  }
-  const app = getHrApp(selectedHrAppId);
-  if (!app) return;
-  readHrFormInto(app);
-  if (app.status === "hired" || app.hiredEmployeeId) {
-    toast("Esta solicitud ya fue contratada.");
-    return;
-  }
-  if (!app.fullName) {
-    toast("Falta el nombre para contratar.");
-    return;
-  }
-  if (!app.cedula) {
-    toast("Falta la cédula para contratar.");
-    return;
-  }
-  if (!app.phone) {
-    toast("Falta el teléfono para contratar.");
-    return;
-  }
-  if (!app.confidentialitySigned) {
-    toast("Debe estar marcada la hoja de confidencialidad firmada.");
-    return;
-  }
-  if (!app.psychTest?.completedAt) {
-    toast("Debe completar y calificar el test psicológico antes de contratar.");
-    return;
-  }
-  if (app.psychTest.violenceRisk === "alto") {
-    const okRisk = window.confirm("El test indica riesgo de violencia ALTO. ¿Contratar de todos modos?");
-    if (!okRisk) return;
-  }
-  const dup = (employees || []).find(
-    (e) => e.status !== "inactive" && (employeeKey(e.name) === employeeKey(app.fullName) || (e.cedula && e.cedula === app.cedula))
-  );
-  if (dup) {
-    toast(`Ya existe un empleado activo similar: ${dup.name}`);
-    return;
-  }
-  if (!app.photo) {
-    toast("Sube la foto del solicitante antes de contratar (también se exige para imprimir).");
-    return;
-  }
-  const noteParts = [
-    "Alta desde RRHH",
-    app.psychTest.recommendation ? `Test: ${app.psychTest.score}/100 (${app.psychTest.recommendation})` : "",
-    app.hrNotes || "",
-  ].filter(Boolean);
-  const hrProfile =
-    typeof buildHrProfileFromApplication === "function"
-      ? buildHrProfileFromApplication(app)
-      : {
-          address: app.address,
-          sector: app.sector,
-          city: app.city,
-          phoneAlt: app.phoneAlt,
-          email: app.email,
-          bloodType: app.bloodType,
-          birthDate: app.birthDate,
-          gender: app.gender,
-          maritalStatus: app.maritalStatus,
-          nationality: app.nationality,
-          educationLevel: app.educationLevel,
-          availableShifts: app.availableShifts,
-          emergencyName: app.emergencyName,
-          emergencyPhone: app.emergencyPhone,
-          emergencyRelation: app.emergencyRelation,
-          familyContacts: app.familyContacts,
-          personalRefs: app.personalRefs,
-          psychScore: app.psychTest.score,
-          psychViolenceRisk: app.psychTest.violenceRisk,
-          psychComprehension: app.psychTest.comprehension,
-          psychRecommendation: app.psychTest.recommendation,
-          confidentialitySigned: !!app.confidentialitySigned,
-        };
-  const emp = normalizeEmployee({
-    name: app.fullName,
-    phone: app.phone,
-    cedula: app.cedula,
-    companyEntryDate: typeof localDateISO === "function" ? localDateISO() : new Date().toISOString().slice(0, 10),
-    photo: app.photo || "",
-    note: noteParts.join(" · "),
-    status: "active",
-    hrApplicationId: app.id,
-    hrProfile,
-  });
-  employees.unshift(emp);
-  employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
-  saveEmployees();
-  app.status = "hired";
-  app.hiredEmployeeId = emp.id;
-  app.hiredAt = new Date().toISOString();
-  app.updatedAt = new Date().toISOString();
-  saveHrData(true);
-  logActivity("hr_hire", `RRHH contrató: ${emp.name} (desde solicitud)`);
-  fillHrForm(app);
-  toast("Contratado. Datos de emergencia y test ya están en Empleados.");
-  if (typeof openEmployeeDetail === "function") {
-    setTimeout(() => {
-      if (window.confirm("¿Abrir la ficha del empleado ahora?")) {
-        switchView("employeesView");
-        openEmployeeDetail(emp.id);
+  try {
+    if (!canAccessRrhh()) {
+      toast("No tienes acceso a Recursos Humanos.");
+      return;
+    }
+    const app = ensureHrAppForEdit();
+    if (!app) {
+      toast("Abre o crea una solicitud primero.");
+      return;
+    }
+    readHrFormInto(app);
+    if (app.hiredEmployeeId) {
+      toast("Esta solicitud ya fue contratada.");
+      return;
+    }
+    if (!app.fullName) {
+      toast("Falta el nombre para contratar.");
+      setHrFormSection("datos");
+      return;
+    }
+    if (!app.cedula || app.cedula.length < 11) {
+      toast("Falta la cédula (11 dígitos) para contratar.");
+      setHrFormSection("datos");
+      return;
+    }
+    if (!app.phone) {
+      toast("Falta el teléfono para contratar.");
+      setHrFormSection("datos");
+      return;
+    }
+    if (!String(app.hiredPosition || "").trim()) {
+      toast("Indica el puesto para el que fue contratado (también se puede cargar desde Depuración).");
+      setHrFormSection("datos");
+      return;
+    }
+    if (!app.confidentialitySigned) {
+      toast("Marca «Confidencialidad firmada» en la pestaña Confidencialidad.");
+      setHrFormSection("conf");
+      return;
+    }
+    if (!app.psychTest?.completedAt) {
+      toast("Completa y califica el test psicológico antes de contratar.");
+      setHrFormSection("test");
+      return;
+    }
+    if (app.psychTest.violenceRisk === "alto") {
+      const okRisk = window.confirm("El test indica riesgo de violencia ALTO. ¿Contratar de todos modos?");
+      if (!okRisk) return;
+    }
+    const ced = String(app.cedula || "").replace(/\D/g, "");
+    const dup = (employees || []).find(
+      (e) =>
+        e.status !== "inactive" &&
+        (employeeKey(e.name) === employeeKey(app.fullName) ||
+          (e.cedula && String(e.cedula).replace(/\D/g, "") === ced))
+    );
+    if (dup) {
+      const link = window.confirm(
+        `Ya existe un empleado activo similar: ${dup.name}.\n¿Vincular esta solicitud a ese empleado y marcarla contratada?`
+      );
+      if (!link) return;
+      app.status = "hired";
+      app.hiredEmployeeId = dup.id;
+      app.hiredAt = new Date().toISOString();
+      app.updatedAt = new Date().toISOString();
+      if (!dup.hrApplicationId) {
+        dup.hrApplicationId = app.id;
+        dup.updatedAt = new Date().toISOString();
+        saveEmployees();
       }
-    }, 200);
+      saveHrData(true);
+      fillHrForm(app);
+      toast(`Solicitud vinculada a ${dup.name}.`);
+      return;
+    }
+    if (!app.photo) {
+      const okNoPhoto = window.confirm(
+        "No hay foto del solicitante. ¿Contratar de todos modos? (La impresión de ficha sí pedirá foto.)"
+      );
+      if (!okNoPhoto) {
+        setHrFormSection("datos");
+        return;
+      }
+    }
+    const noteParts = [
+      "Alta desde RRHH",
+      app.hiredPosition ? `Puesto: ${app.hiredPosition}` : "",
+      app.psychTest.recommendation ? `Test: ${app.psychTest.score}/100 (${app.psychTest.recommendation})` : "",
+      app.hrNotes || "",
+    ].filter(Boolean);
+    const hrProfile =
+      typeof buildHrProfileFromApplication === "function"
+        ? buildHrProfileFromApplication(app)
+        : {
+            address: app.address,
+            sector: app.sector,
+            city: app.city,
+            phoneAlt: app.phoneAlt,
+            email: app.email,
+            bloodType: app.bloodType,
+            birthDate: app.birthDate,
+            gender: app.gender,
+            maritalStatus: app.maritalStatus,
+            nationality: app.nationality,
+            educationLevel: app.educationLevel,
+            availableShifts: app.availableShifts,
+            emergencyName: app.emergencyName,
+            emergencyPhone: app.emergencyPhone,
+            emergencyRelation: app.emergencyRelation,
+            familyContacts: app.familyContacts,
+            personalRefs: app.personalRefs,
+            psychScore: app.psychTest.score,
+            psychViolenceRisk: app.psychTest.violenceRisk,
+            psychComprehension: app.psychTest.comprehension,
+            psychRecommendation: app.psychTest.recommendation,
+            confidentialitySigned: !!app.confidentialitySigned,
+            hiredPosition: app.hiredPosition,
+          };
+    if (hrProfile && typeof hrProfile === "object") hrProfile.hiredPosition = app.hiredPosition || "";
+    const puesto = String(app.hiredPosition || "").trim();
+    const emp = normalizeEmployee({
+      name: app.fullName,
+      phone: app.phone,
+      cedula: app.cedula,
+      companyEntryDate: typeof localDateISO === "function" ? localDateISO() : new Date().toISOString().slice(0, 10),
+      photo: app.photo || "",
+      note: noteParts.join(" · "),
+      status: "active",
+      roles: puesto ? [puesto] : [],
+      sites: puesto ? [puesto] : [],
+      hrApplicationId: app.id,
+      hrProfile,
+    });
+    if (typeof employees === "undefined" || !Array.isArray(employees)) {
+      toast("No se pudo acceder a la lista de Empleados.");
+      return;
+    }
+    employees.unshift(emp);
+    employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
+    saveEmployees();
+    app.status = "hired";
+    app.hiredEmployeeId = emp.id;
+    app.hiredAt = new Date().toISOString();
+    app.updatedAt = new Date().toISOString();
+    saveHrData(true);
+    logActivity("hr_hire", `RRHH contrató: ${emp.name} · puesto ${puesto || "—"}`);
+    fillHrForm(app);
+    toast(`Contratado${puesto ? ` como ${puesto}` : ""}. Ya aparece en Empleados.`);
+    if (typeof openEmployeeDetail === "function") {
+      setTimeout(() => {
+        if (window.confirm("¿Abrir la ficha del empleado ahora?")) {
+          switchView("employeesView");
+          openEmployeeDetail(emp.id);
+        }
+      }, 200);
+    }
+  } catch (err) {
+    console.error(err);
+    toast("Error al contratar. Revisa los datos y vuelve a intentar.");
   }
 }
 
@@ -1380,15 +1476,29 @@ function bindHrUi() {
   document.getElementById("btnHrBackList")?.addEventListener("click", () => setHrTab("list"));
   document.getElementById("btnHrScorePsych")?.addEventListener("click", scoreHrPsychFromForm);
   document.getElementById("btnHrResetPsych")?.addEventListener("click", resetHrPsych);
-  document.getElementById("btnHrHire")?.addEventListener("click", hireHrApplication);
+  document.getElementById("btnHrHire")?.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    hireHrApplication();
+  });
   document.getElementById("btnHrPrintSheet")?.addEventListener("click", printHrApplicationSheet);
   document.getElementById("hrSearch")?.addEventListener("input", () => {
     if (hrTab === "list") renderHrList();
   });
   document.getElementById("hrPhoto")?.addEventListener("change", onHrPhotoSelected);
   document.getElementById("btnHrClearPhoto")?.addEventListener("click", clearHrPhoto);
+  // Delegación: los botones de uniforme se recrean; el listener vive en el grid
+  const uniGrid = document.getElementById("hrUniformGrid");
+  if (uniGrid && uniGrid.dataset.bound !== "1") {
+    uniGrid.dataset.bound = "1";
+    uniGrid.addEventListener("click", (ev) => {
+      const btn = ev.target && ev.target.closest ? ev.target.closest(".hr-uniform-btn") : null;
+      if (!btn || !uniGrid.contains(btn)) return;
+      ev.preventDefault();
+      toggleHrUniformItem(btn.dataset.uniform);
+    });
+  }
   document.getElementById("hrUniformOtrosDetalle")?.addEventListener("change", () => {
-    const app = getHrApp(selectedHrAppId);
+    const app = ensureHrAppForEdit();
     if (!app) return;
     app.uniforms = normalizeHrUniforms(app.uniforms);
     app.uniforms.otrosDetalle = document.getElementById("hrUniformOtrosDetalle").value.trim();
