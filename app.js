@@ -4716,15 +4716,19 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   const wide = !!(options && options.wide);
   const pdfFormat = String((options && options.pdfFormat) || pageSize || "a4").toLowerCase();
   const pdfOrientation = String((options && options.pdfOrientation) || orientation || "portrait").toLowerCase();
-  // Legal horizontal = 14in × 8.5in (explícito: algunos navegadores ignoran "legal landscape")
+  // Legal horizontal = 14in × 8.5in; Carta horizontal = 11in × 8.5in
   const pageRule =
     pageSize === "legal" && orientation === "landscape"
       ? "@page{size:14in 8.5in;margin:5mm}"
       : pageSize === "legal"
         ? "@page{size:8.5in 14in;margin:8mm}"
-        : pageSize
-          ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
-          : "";
+        : pageSize === "letter" && orientation === "landscape"
+          ? "@page{size:11in 8.5in;margin:5mm}"
+          : pageSize === "letter"
+            ? "@page{size:8.5in 11in;margin:8mm}"
+            : pageSize
+              ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
+              : "";
   const bodyMax = wide ? "max-width:none;width:100%" : "max-width:900px";
   const logoUrl = (() => {
     try {
@@ -4904,10 +4908,12 @@ function openPrintWindow(title, bodyHtml, options = {}) {
           var ori = (pdfCfg && pdfCfg.orientation) || "portrait";
           var landscape = ori === "landscape";
           var widePdf = !!(pdfCfg && pdfCfg.wide);
-          // Legal landscape en mm: 355.6 × 215.9 (14" × 8.5")
+          // Legal landscape 355.6×215.9; Carta landscape 279.4×215.9
           var jsFormat = fmt;
           if (fmt === "legal" && landscape) jsFormat = [355.6, 215.9];
           else if (fmt === "legal") jsFormat = [215.9, 355.6];
+          else if ((fmt === "letter" || fmt === "carta") && landscape) jsFormat = [279.4, 215.9];
+          else if (fmt === "letter" || fmt === "carta") jsFormat = [215.9, 279.4];
           var w = Math.max(root.scrollWidth || 0, root.offsetWidth || 0, widePdf ? 1400 : 800);
           var opt = {
             margin: landscape ? [5, 5, 5, 5] : [10, 10, 12, 10],

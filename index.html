@@ -60,7 +60,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v98 · Letra más grande impresión</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v99 · Carta/Legal + grupos</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -1025,13 +1025,27 @@
 
       <div id="contabTabNomina" class="contab-tab-panel" hidden>
         <div class="form-card">
-          <h2>Nómina · La Vega Autopista</h2>
-          <p class="muted tight">Guía del formato Reaction para las distintas nóminas de la empresa. Empezamos con La Vega; luego replicamos con los otros grupos. Impresión en hoja legal con logo.</p>
+          <h2 id="contabNominaTitle">Nómina Reaction</h2>
+          <p class="muted tight">Mismo formato para todos los grupos. Impresión centrada en hoja Legal o Carta (horizontal), con logo.</p>
           <div class="coords-row">
+            <label>Grupo
+              <select id="contabPayrollGroup">
+                <option value="lavega">La Vega Autopista</option>
+                <option value="oficina">Oficina</option>
+                <option value="monorriel">Monorriel</option>
+                <option value="general">General / Otros</option>
+              </select>
+            </label>
             <label>Quincena
               <select id="contabPayrollHalf">
                 <option value="1">01 al 15</option>
                 <option value="2">16 al fin de mes</option>
+              </select>
+            </label>
+            <label>Hoja
+              <select id="contabPayrollPaper">
+                <option value="legal">Legal</option>
+                <option value="letter">Carta</option>
               </select>
             </label>
             <label>&nbsp;<span class="muted tight" id="contabPayrollHint">Usa el mes de arriba</span></label>
@@ -1043,9 +1057,9 @@
             <button id="btnContabAddRows" class="btn secondary btn-sm" type="button">＋ Agregar</button>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-            <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar / actualizar con La Vega</button>
+            <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar / actualizar</button>
             <button id="btnContabSavePayroll" class="btn secondary" type="button" style="width:auto">Guardar cambios</button>
-            <button id="btnContabPrintPayroll" class="btn secondary" type="button" style="width:auto">Imprimir legal ↔</button>
+            <button id="btnContabPrintPayroll" class="btn secondary" type="button" style="width:auto">Imprimir ↔</button>
             <button id="btnContabSharePayroll" class="btn secondary" type="button" style="width:auto">Compartir PDF</button>
           </div>
         </div>

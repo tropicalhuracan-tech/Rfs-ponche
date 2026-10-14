@@ -335,7 +335,9 @@ function normalizePayroll(p = {}) {
     payDate = `${period}-${String(day).padStart(2, "0")}`;
   }
   const status = ["draft", "paid", "cancelled"].includes(p.status) ? p.status : "draft";
-  const group = p.group === "oficina" ? "oficina" : p.group === "lavega" ? "lavega" : p.group || "lavega";
+  const group = ["oficina", "lavega", "monorriel", "general"].includes(p.group)
+    ? p.group
+    : p.group || "lavega";
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -865,6 +867,28 @@ function renderOficinaTab() {
   );
 }
 
+const PAYROLL_GROUP_META = {
+  lavega: { label: "La Vega Autopista", short: "La Vega", title: "LA VEGA AUTOPISTA" },
+  oficina: { label: "Oficina", short: "Oficina", title: "OFICINA" },
+  monorriel: { label: "Monorriel", short: "Monorriel", title: "MONORRIEL" },
+  general: { label: "General / Otros", short: "General", title: "GENERAL / OTROS" },
+};
+
+function payrollGroupMeta(group) {
+  return PAYROLL_GROUP_META[group] || PAYROLL_GROUP_META.lavega;
+}
+
+function getSelectedPayrollGroup() {
+  const el = document.getElementById("contabPayrollGroup");
+  const v = el && el.value ? String(el.value) : "lavega";
+  return PAYROLL_GROUP_META[v] ? v : "lavega";
+}
+
+function getSelectedPayrollPaper() {
+  const el = document.getElementById("contabPayrollPaper");
+  return el && el.value === "letter" ? "letter" : "legal";
+}
+
 function getLvaStaffForPayroll() {
   try {
     if (typeof lvaState === "undefined" || !lvaState) return [];
@@ -875,6 +899,48 @@ function getLvaStaffForPayroll() {
   } catch (_) {
     return [];
   }
+}
+
+function getOfficeStaffForPayroll() {
+  return (contabilidadData.officeEmployees || [])
+    .filter((e) => e && e.active !== false && String(e.fullName || "").trim())
+    .slice()
+    .sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), "es"))
+    .map((e) => ({
+      id: e.id,
+      employeeId: e.id,
+      name: e.fullName,
+      cedula: e.cedula || "",
+      salaryMonthly: e.salary || 0,
+      position: e.position || "Oficina",
+    }));
+}
+
+function getMonorrielStaffForPayroll() {
+  try {
+    if (typeof getMonorrielEmployees !== "function") return [];
+    return getMonorrielEmployees(false)
+      .filter((e) => e && String(e.name || "").trim())
+      .slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"))
+      .map((e) => ({
+        id: e.id,
+        employeeId: e.id,
+        name: e.name,
+        cedula: e.cedula || "",
+        salaryMonthly: e.salary || 0,
+        position: e.role || e.position || "Monorriel",
+      }));
+  } catch (_) {
+    return [];
+  }
+}
+
+function getStaffForPayrollGroup(group) {
+  if (group === "oficina") return getOfficeStaffForPayroll();
+  if (group === "monorriel") return getMonorrielStaffForPayroll();
+  if (group === "general") return [];
+  return getLvaStaffForPayroll();
 }
 
 function getLvaPostLabel(staff) {
@@ -903,24 +969,30 @@ function payrollShortEmployeeName(name) {
   return `${parts[0]} ${parts[parts.length - 2]}`;
 }
 
-function buildLvaPayrollLineFromStaff(staff, prev) {
-  const baseName = payrollShortEmployeeName(staff.name || "");
-  const post = getLvaPostLabel(staff);
+function buildPayrollLineFromPerson(person, prev, defaultPosition) {
+  const baseName = payrollShortEmployeeName(person.name || person.fullName || "");
+  const post =
+    person.position ||
+    (person.postName ? String(person.postName).trim() : "") ||
+    getLvaPostLabel(person) ||
+    defaultPosition ||
+    "";
   const prevLine = prev || {};
   const daysWorked = prevLine.daysWorked || "15";
   const salaryMonthly =
-    Math.max(0, Number(prevLine.salaryMonthly) || 0) || LVA_PAYROLL_DEFAULT_MONTHLY;
+    Math.max(0, Number(prevLine.salaryMonthly) || 0) ||
+    Math.max(0, Number(person.salaryMonthly) || 0) ||
+    LVA_PAYROLL_DEFAULT_MONTHLY;
   const prevUniformes = Number(prevLine.uniformes);
   return normalizePayrollLine({
-    employeeId: staff.employeeId || staff.id || "",
+    employeeId: person.employeeId || person.id || "",
     fullName: baseName,
-    position: post || "La Vega Autopista",
-    cedula: staff.cedula || prevLine.cedula || "",
+    position: post || defaultPosition || "",
+    cedula: person.cedula || prevLine.cedula || "",
     daysWorked,
     salaryMonthly,
     salaryQuincena: prevLine.salaryQuincena || 0,
     sfs: prevLine.sfs || 0,
-    // Uniforme def. 115; si ya lo cambiaron a mano, se respeta al regenerar
     uniformes:
       prevLine.uniformes != null && Number.isFinite(prevUniformes)
         ? Math.max(0, prevUniformes)
@@ -937,19 +1009,29 @@ function buildLvaPayrollLineFromStaff(staff, prev) {
   });
 }
 
+function buildLvaPayrollLineFromStaff(staff, prev) {
+  return buildPayrollLineFromPerson(staff, prev, "La Vega Autopista");
+}
+
 function payrollPeriodKey(period, half) {
   return `${period}-q${half === 2 ? 2 : 1}`;
 }
 
-function findLvaPayroll(period, half) {
+function findPayrollByGroup(period, half, group) {
   const h = half === 2 || half === "2" ? 2 : 1;
-  return (contabilidadData.payrolls || []).find(
-    (p) =>
-      p.period === period &&
-      (p.half === h || (!p.half && h === 1)) &&
-      (p.group === "lavega" || !p.group) &&
-      p.status !== "cancelled"
-  );
+  const g = group || "lavega";
+  return (contabilidadData.payrolls || []).find((p) => {
+    if (p.period !== period || p.status === "cancelled") return false;
+    if (!(p.half === h || (!p.half && h === 1))) return false;
+    if (g === "lavega") {
+      return p.group === "lavega" || !p.group || String(p.note || "").toLowerCase().includes("vega");
+    }
+    return p.group === g;
+  });
+}
+
+function findLvaPayroll(period, half) {
+  return findPayrollByGroup(period, half, "lavega");
 }
 
 function getSelectedPayrollHalf() {
@@ -961,7 +1043,7 @@ function halfLabel(half) {
   return half === 2 ? "16 al fin de mes" : "01 al 15";
 }
 
-/** Genera / actualiza nómina La Vega con columnas del Excel Reaction */
+/** Genera / actualiza nómina del grupo seleccionado (mismo formato). */
 function generateOfficePayroll() {
   if (!canAccessContabilidad()) {
     toast("No tienes acceso a Contabilidad.");
@@ -969,13 +1051,24 @@ function generateOfficePayroll() {
   }
   const period = getSelectedMonth();
   const half = getSelectedPayrollHalf();
-  const staff = getLvaStaffForPayroll();
-  if (!staff.length) {
-    toast("No hay empleados activos en La Vega Autopista.");
+  const group = getSelectedPayrollGroup();
+  const meta = payrollGroupMeta(group);
+  const staff = getStaffForPayrollGroup(group);
+  if (group !== "general" && !staff.length) {
+    toast(
+      group === "oficina"
+        ? "No hay empleados activos en Oficina. Agrégalos en la pestaña Oficina."
+        : group === "monorriel"
+          ? "No hay personal activo de Monorriel."
+          : "No hay empleados activos en La Vega Autopista."
+    );
     return;
   }
-  const existing = findLvaPayroll(period, half);
-  if (existing && !confirm(`Ya hay nómina La Vega de ${monthLabel(period)} (${halfLabel(half)}). ¿Actualizar con el personal actual?`)) {
+  const existing = findPayrollByGroup(period, half, group);
+  if (
+    existing &&
+    !confirm(`Ya hay nómina ${meta.short} de ${monthLabel(period)} (${halfLabel(half)}). ¿Actualizar?`)
+  ) {
     return;
   }
   const [y, m] = period.split("-").map(Number);
@@ -992,43 +1085,48 @@ function generateOfficePayroll() {
       .toLowerCase();
     if (key) prevByName.set(key, l);
   });
-  const lines = staff.map((s) => {
-    const prev =
-      prevById.get(s.employeeId) ||
-      prevById.get(s.id) ||
-      prevByName.get(String(s.name || "").trim().toLowerCase());
-    return buildLvaPayrollLineFromStaff(s, prev);
-  });
+  let lines;
+  if (group === "general") {
+    const kept = (existing && existing.lines ? existing.lines : []).map((l) =>
+      computePayrollLineTotals(l)
+    );
+    lines = kept.length ? kept : Array.from({ length: 8 }, () => emptyPayrollLine());
+  } else {
+    lines = staff.map((s) => {
+      const prev =
+        prevById.get(s.employeeId) ||
+        prevById.get(s.id) ||
+        prevByName.get(String(s.name || "").trim().toLowerCase());
+      return buildPayrollLineFromPerson(s, prev, meta.label);
+    });
+  }
   const payroll = normalizePayroll({
     id: existing && existing.status === "draft" ? existing.id : undefined,
     period,
     half,
-    group: "lavega",
+    group,
     payDate,
     status: "draft",
     showFeriado: existing ? !!existing.showFeriado : false,
     lines,
-    note: `Nómina La Vega Autopista · ${halfLabel(half)} · ${monthLabel(period)}`,
+    note: `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
     createdBy:
       typeof currentUser !== "undefined" && currentUser
         ? currentUser.displayName || currentUser.username
         : "",
   });
-  if (existing && existing.status === "draft") {
+  if (existing) {
     const idx = contabilidadData.payrolls.findIndex((p) => p.id === existing.id);
     payroll.createdAt = existing.createdAt;
-    contabilidadData.payrolls[idx] = payroll;
-  } else if (existing) {
-    const idx = contabilidadData.payrolls.findIndex((p) => p.id === existing.id);
-    payroll.createdAt = existing.createdAt;
-    contabilidadData.payrolls[idx] = payroll;
+    if (idx >= 0) contabilidadData.payrolls[idx] = payroll;
+    else contabilidadData.payrolls.unshift(payroll);
   } else {
     contabilidadData.payrolls.unshift(payroll);
   }
   selectedPayrollId = payroll.id;
   saveContabilidadData(true);
   setContabTab("nomina");
-  toast(`Nómina La Vega ${halfLabel(half)} · ${monthLabel(period)} · ${lines.length} empleado(s).`);
+  toast(`Nómina ${meta.short} ${halfLabel(half)} · ${monthLabel(period)} · ${lines.length} fila(s).`);
 }
 
 function markPayrollPaid(id) {
@@ -1283,7 +1381,8 @@ function ensureOpenPayrollDraft() {
   if (p) return p;
   const period = getSelectedMonth();
   const half = getSelectedPayrollHalf();
-  p = findLvaPayroll(period, half);
+  const group = getSelectedPayrollGroup();
+  p = findPayrollByGroup(period, half, group);
   if (p) {
     selectedPayrollId = p.id;
     return p;
@@ -1319,20 +1418,22 @@ function addBlankPayrollRows() {
   syncOpenPayrollFromDom(false);
   let p = ensureOpenPayrollDraft();
   if (!p) {
-    // crear borrador vacío La Vega si aún no hay
+    // crear borrador vacío del grupo seleccionado si aún no hay
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
+    const group = getSelectedPayrollGroup();
+    const meta = payrollGroupMeta(group);
     const [y, m] = period.split("-").map(Number);
     const last = new Date(y, m, 0).getDate();
     const payDay = half === 1 ? 15 : Math.min(30, last);
     p = normalizePayroll({
       period,
       half,
-      group: "lavega",
+      group,
       payDate: `${period}-${String(payDay).padStart(2, "0")}`,
       status: "draft",
       lines: [],
-      note: `Nómina La Vega Autopista · ${halfLabel(half)} · ${monthLabel(period)}`,
+      note: `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
       createdBy:
         typeof currentUser !== "undefined" && currentUser
           ? currentUser.displayName || currentUser.username
@@ -1352,13 +1453,12 @@ function addBlankPayrollRows() {
 
 function payrollShareCaption(p) {
   if (!p) return "Nómina Reaction";
-  const group =
-    p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")
-      ? "La Vega"
-      : p.group === "oficina"
-        ? "Oficina"
-        : "Reaction";
-  return `Nómina ${group} - ${halfLabel(p.half || 1)} ${monthLabel(p.period)}`;
+  const g =
+    p.group === "lavega" || (!p.group && String(p.note || "").toLowerCase().includes("vega"))
+      ? "lavega"
+      : p.group || "general";
+  const meta = payrollGroupMeta(g);
+  return `Nómina ${meta.short} - ${halfLabel(p.half || 1)} ${monthLabel(p.period)}`;
 }
 
 function buildPayrollPrintHtml(p) {
@@ -1433,17 +1533,20 @@ function buildPayrollPrintHtml(p) {
       return `<td></td>`;
     })
     .join("");
-  const groupTitle =
-    p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")
-      ? "LA VEGA AUTOPISTA"
-      : "REACTION FORCE SECURITY";
+  const g =
+    p.group === "lavega" || (!p.group && String(p.note || "").toLowerCase().includes("vega"))
+      ? "lavega"
+      : p.group || "general";
+  const groupTitle = payrollGroupMeta(g).title;
+  const paper = getSelectedPayrollPaper();
+  const paperLabel = paper === "letter" ? "Carta" : "Legal";
   return `
-    <h2 style="margin:0 0 4px;font-size:12px;font-weight:800;color:#111">
+    <h2 style="margin:0 0 4px;font-size:13px;font-weight:800;color:#111;text-align:center">
       NOMINA REACTION · ${escapeHtml(groupTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
         monthLabel(p.period).toUpperCase()
       )}
     </h2>
-    <div class="meta" style="margin-bottom:4px;font-size:10px">
+    <div class="meta" style="margin-bottom:4px;font-size:11px;justify-content:center">
       <div><strong>Pago:</strong> ${escapeHtml(p.payDate || "—")}</div>
       <div><strong>Empleados:</strong> ${allLines.length}</div>
       <div><strong>Total redondeo:</strong> ${escapeHtml(moneyPlain(totals.redondeo || 0))}</div>
@@ -1458,23 +1561,29 @@ function buildPayrollPrintHtml(p) {
       <div class="sign-line">Preparado por / Contabilidad</div>
       <div class="sign-line">Autorizado / Operaciones</div>
     </div>
-    <p class="footer">Legal horizontal · Reaction Force Security · ${escapeHtml(
+    <p class="footer">${escapeHtml(paperLabel)} horizontal · Reaction Force Security · ${escapeHtml(
       new Date().toLocaleString("es-DO")
     )}</p>`;
 }
 
-function payrollPrintCss() {
+function payrollPrintCss(paperSize) {
+  const paper = paperSize === "letter" ? "letter" : "legal";
+  const page =
+    paper === "letter"
+      ? "@page{size:11in 8.5in;margin:4mm}"
+      : "@page{size:14in 8.5in;margin:3mm}";
   return `
-    @page{size:14in 8.5in;margin:3mm}
+    ${page}
     html,body.print-nomina{width:100%;max-width:none;overflow-x:auto}
     body.print-nomina{padding:5px 6px;font-size:12px;line-height:1.12}
-    body.print-nomina .brand{margin-bottom:3px}
+    body.print-nomina .brand{margin:0 auto 6px;justify-content:center;text-align:center}
     body.print-nomina .brand img{width:38px;height:38px}
     body.print-nomina h1{font-size:15px;font-weight:800}
-    body.print-nomina h2{font-size:13px;margin:0 0 3px;font-weight:800}
-    #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box}
-    /* Letra más grande; columnas compactas (width:auto, no estirar al legal) */
-    table.nomina-print{width:auto;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:11.5px}
+    body.print-nomina h2{font-size:13px;margin:0 0 3px;font-weight:800;text-align:center}
+    #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center}
+    #rfsPrintRoot > .footer{text-align:center;align-self:center}
+    /* Centrado; letra grande; columnas compactas (no estirar al ancho de hoja) */
+    table.nomina-print{width:auto;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:11.5px;margin:0 auto}
     table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:2px 4px;vertical-align:middle}
     table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:11px;line-height:1.15;white-space:nowrap}
     table.nomina-print td{white-space:nowrap;padding:2px 4px}
@@ -1483,15 +1592,16 @@ function payrollPrintCss() {
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
     table.nomina-print tfoot td{background:#efefef;font-weight:800}
     table.nomina-print tfoot td.col-redondeo-total{font-size:11.5px}
-    .meta{font-size:11px}
-    .sign-box{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:auto;max-width:100%}
+    .meta{font-size:11px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+    .sign-box{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:min(100%,520px);align-self:center}
     .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:10px}
-    .footer{font-size:9px;margin-top:6px}
+    .footer{font-size:9px;margin-top:6px;text-align:center}
     @media print{
       html,body.print-nomina{overflow:visible !important}
       body.print-nomina{padding:0}
-      table.nomina-print{font-size:11.5px;width:auto}
+      table.nomina-print{font-size:11.5px;width:auto;margin:0 auto}
       table.nomina-print th{font-size:11px;font-weight:800}
+      #rfsPrintRoot{align-items:center}
     }
   `;
 }
@@ -1530,22 +1640,24 @@ function printOpenPayrollSheet() {
     toast("No se pudo abrir la impresión.");
     return;
   }
+  const paper = getSelectedPayrollPaper();
+  const paperLabel = paper === "letter" ? "Carta" : "Legal";
   openPrintWindow(caption, buildPayrollPrintHtml(p), {
     bodyClass: "print-nomina",
-    pageSize: "legal",
+    pageSize: paper,
     orientation: "landscape",
-    pdfFormat: "legal",
+    pdfFormat: paper,
     pdfOrientation: "landscape",
     wide: true,
     autoPrint: false,
-    extraCss: payrollPrintCss(),
+    extraCss: payrollPrintCss(paper),
     share: {
       text: caption,
       subject: caption,
       fileName: `${caption.replace(/[^\w.-]+/g, "-").slice(0, 80)}.pdf`,
     },
   });
-  toast("Legal horizontal: desliza para ver columnas · PDF en horizontal.");
+  toast(`${paperLabel} horizontal centrada · usa Imprimir en la barra superior.`);
 }
 
 function shareOpenPayrollSheet() {
@@ -1679,11 +1791,26 @@ function renderNominaTab() {
   const detail = document.getElementById("contabPayrollDetail");
   if (!list) return;
   const halfSel = document.getElementById("contabPayrollHalf");
+  const groupSel = document.getElementById("contabPayrollGroup");
+  const group = getSelectedPayrollGroup();
+  const meta = payrollGroupMeta(group);
   const hint = document.getElementById("contabPayrollHint");
   if (hint) hint.textContent = `Mes: ${monthLabel(getSelectedMonth())}`;
+  const titleEl = document.getElementById("contabNominaTitle");
+  if (titleEl) titleEl.textContent = `Nómina · ${meta.label}`;
+  const genBtn = document.getElementById("btnContabGenPayroll");
+  if (genBtn) {
+    genBtn.textContent =
+      group === "general" ? "Crear / abrir plantilla General" : `Generar / actualizar · ${meta.short}`;
+  }
 
   const rows = (contabilidadData.payrolls || [])
-    .filter((p) => p.group === "lavega" || (!p.group && String(p.note || "").toLowerCase().includes("vega")))
+    .filter((p) => {
+      if (group === "lavega") {
+        return p.group === "lavega" || !p.group || String(p.note || "").toLowerCase().includes("vega");
+      }
+      return p.group === group;
+    })
     .slice()
     .sort((a, b) => {
       const pk = String(b.period).localeCompare(String(a.period));
@@ -1691,16 +1818,22 @@ function renderNominaTab() {
       return (b.half || 1) - (a.half || 1);
     });
   if (!rows.length) {
-    list.innerHTML = `<p class="empty">Aún no hay nómina La Vega. Pulsa «Generar / actualizar con La Vega» para cargar los ${
-      getLvaStaffForPayroll().length
-    } empleados activos del proyecto.</p>`;
+    const nStaff = getStaffForPayrollGroup(group).length;
+    list.innerHTML = `<p class="empty">Aún no hay nómina ${escapeHtml(meta.short)}. Pulsa «Generar / actualizar»${
+      group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
+    }.</p>`;
   } else {
     list.innerHTML = rows
       .map((p) => {
         const total = sumPayrollField(p.lines, "redondeo") || sumPayrollField(p.lines, "net");
         const st = p.status === "paid" ? "Pagada" : p.status === "cancelled" ? "Cancelada" : "Borrador";
+        const gMeta = payrollGroupMeta(
+          p.group === "lavega" || (!p.group && String(p.note || "").toLowerCase().includes("vega"))
+            ? "lavega"
+            : p.group || "general"
+        );
         return `<article class="report-card">
-          <h3>La Vega · ${escapeHtml(monthLabel(p.period))} · ${escapeHtml(halfLabel(p.half || 1))}</h3>
+          <h3>${escapeHtml(gMeta.short)} · ${escapeHtml(monthLabel(p.period))} · ${escapeHtml(halfLabel(p.half || 1))}</h3>
           <p class="muted">Pago ${escapeHtml(p.payDate || "—")} · ${escapeHtml(st)} · ${
             payrollLinesForTotals(p.lines).length
           } empleado(s)</p>
@@ -1731,6 +1864,7 @@ function renderNominaTab() {
         selectedPayrollId = btn.dataset.id;
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
+        if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
         renderNominaTab();
       })
     );
@@ -1739,6 +1873,7 @@ function renderNominaTab() {
         selectedPayrollId = btn.dataset.id;
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
+        if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
         renderNominaTab();
         setTimeout(() => printOpenPayrollSheet(), 50);
       })
@@ -1888,15 +2023,21 @@ function renderNominaTab() {
         return `<td class="right nomina-col-fit">${escapeHtml(moneyCell(totals[key]))}</td>`;
       })
       .join("") + `<td class="nomina-col-del"></td>`;
+  const openMeta = payrollGroupMeta(
+    p.group === "lavega" || (!p.group && String(p.note || "").toLowerCase().includes("vega"))
+      ? "lavega"
+      : p.group || getSelectedPayrollGroup()
+  );
+  const paperLabel = getSelectedPayrollPaper() === "letter" ? "Carta" : "Legal";
   detail.innerHTML = `
-    <h2>NOMINA REACTION · LA VEGA · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
+    <h2>NOMINA REACTION · ${escapeHtml(openMeta.title)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
       monthLabel(p.period).toUpperCase()
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
     } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85. Feriado ${
       p.showFeriado ? "ON" : "OFF"
-    }. Impresión sin cédula ni RD$.</p>
+    }. Impresión centrada (${paperLabel}) sin cédula ni RD$.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
       <button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
         p.showFeriado ? "Ocultar feriado" : "Habilitar feriado"
@@ -1913,8 +2054,14 @@ function renderNominaTab() {
       <span class="muted"> · A depositar ${escapeHtml(moneyRd(totals.salarioDepositar))} · A cobrar ${escapeHtml(
         moneyRd(totals.totalCobrar)
       )} · ${namedCount} con nombre (auto)</span></p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir legal ↔</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:end">
+      <label class="muted tight" style="margin:0">Hoja
+        <select id="contabPayrollPaper2" style="display:block;margin-top:4px">
+          <option value="legal"${getSelectedPayrollPaper() === "legal" ? " selected" : ""}>Legal</option>
+          <option value="letter"${getSelectedPayrollPaper() === "letter" ? " selected" : ""}>Carta</option>
+        </select>
+      </label>
+      <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir ↔</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
     </div>`;
   document.querySelectorAll(".btn-row-del").forEach((btn) => {
@@ -1925,6 +2072,10 @@ function renderNominaTab() {
     });
   });
   document.getElementById("btnToggleFeriado")?.addEventListener("click", togglePayrollFeriado);
+  document.getElementById("contabPayrollPaper2")?.addEventListener("change", (ev) => {
+    const main = document.getElementById("contabPayrollPaper");
+    if (main) main.value = ev.target.value;
+  });
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", printOpenPayrollSheet);
   document.getElementById("btnContabSharePayroll2")?.addEventListener("click", shareOpenPayrollSheet);
   const detailRoot = document.getElementById("contabPayrollDetail");
@@ -1989,12 +2140,26 @@ function bindContabilidadUi() {
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
   document.getElementById("btnContabPrintPayroll")?.addEventListener("click", printOpenPayrollSheet);
   document.getElementById("btnContabSharePayroll")?.addEventListener("click", shareOpenPayrollSheet);
+  document.getElementById("contabPayrollGroup")?.addEventListener("change", () => {
+    const period = getSelectedMonth();
+    const half = getSelectedPayrollHalf();
+    const group = getSelectedPayrollGroup();
+    const found = findPayrollByGroup(period, half, group);
+    selectedPayrollId = found ? found.id : "";
+    renderNominaTab();
+  });
   document.getElementById("contabPayrollHalf")?.addEventListener("change", () => {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
-    const found = findLvaPayroll(period, half);
+    const group = getSelectedPayrollGroup();
+    const found = findPayrollByGroup(period, half, group);
     selectedPayrollId = found ? found.id : selectedPayrollId;
     renderNominaTab();
+  });
+  document.getElementById("contabPayrollPaper")?.addEventListener("change", () => {
+    const detailPaper = document.getElementById("contabPayrollPaper2");
+    const main = document.getElementById("contabPayrollPaper");
+    if (detailPaper && main) detailPaper.value = main.value;
   });
   document.getElementById("cfeRnc")?.addEventListener("input", (e) => {
     e.target.value = String(e.target.value || "").replace(/\D/g, "").slice(0, 11);
