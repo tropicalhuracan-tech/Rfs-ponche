@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=103" />
+  <link rel="stylesheet" href="styles.css?v=104" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -60,7 +60,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v103 · Sync sin perder altas</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v104 · Nómina oficina</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -1014,7 +1014,10 @@
       <div id="contabTabOficina" class="contab-tab-panel" hidden>
         <div class="form-card">
           <h2 id="oempFormTitle">Nuevo empleado de oficina</h2>
-          <p class="muted tight">Lista aparte de los vigilantes. Esta es la base de la nómina que se paga el día 30.</p>
+          <p class="muted tight">Lista aparte de los vigilantes. Al generar la nómina de Oficina se cargan estos nombres, cédulas, cargos y sueldos (sin unif/rifa, volao, comida ni feriado).</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
+            <button id="btnOempGenPayroll" class="btn secondary" type="button" style="width:auto">Generar nómina de oficina</button>
+          </div>
           <label>Nombre completo<input id="oempName" type="text" /></label>
           <div class="coords-row">
             <label>Cédula<input id="oempCedula" type="text" inputmode="numeric" maxlength="11" /></label>
@@ -1042,7 +1045,7 @@
       <div id="contabTabNomina" class="contab-tab-panel" hidden>
         <div class="form-card">
           <h2 id="contabNominaTitle">Nómina Reaction</h2>
-          <p class="muted tight">Mismo formato para todos los grupos. Impresión centrada en hoja Legal o Carta (horizontal), con logo.</p>
+          <p class="muted tight">La Vega/Monorriel/General usan el formato completo. Oficina carga la lista de personal y omite unif/rifa, volao, comida y feriado.</p>
           <div class="coords-row">
             <label>Grupo
               <select id="contabPayrollGroup">
@@ -1761,13 +1764,13 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=103"></script>
-  <script src="monorriel-data.js?v=103"></script>
-  <script src="cloud.js?v=103"></script>
-  <script src="hr.js?v=103"></script>
-  <script src="depuracion.js?v=103"></script>
-  <script src="contabilidad.js?v=103"></script>
-  <script src="quotes.js?v=103"></script>
-  <script src="app.js?v=103"></script>
+  <script src="cloud-config.js?v=104"></script>
+  <script src="monorriel-data.js?v=104"></script>
+  <script src="cloud.js?v=104"></script>
+  <script src="hr.js?v=104"></script>
+  <script src="depuracion.js?v=104"></script>
+  <script src="contabilidad.js?v=104"></script>
+  <script src="quotes.js?v=104"></script>
+  <script src="app.js?v=104"></script>
 </body>
 </html>
