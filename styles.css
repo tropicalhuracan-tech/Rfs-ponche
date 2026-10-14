@@ -2392,9 +2392,9 @@ body.lightbox-open {
   left: 0;
   background: #141416;
   z-index: 2;
-  min-width: 160px;
-  max-width: 200px;
-  white-space: normal;
+  min-width: 110px;
+  max-width: 150px;
+  white-space: nowrap;
 }
 .nomina-table th.sticky-name { z-index: 3; background: #2a1212; }
 .nomina-table input.nomina-inp {
@@ -2408,7 +2408,11 @@ body.lightbox-open {
 }
 .nomina-table input.nomina-inp-wide {
   width: 100%;
-  min-width: 140px;
+  min-width: 100px;
+  max-width: 148px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nomina-table input.nomina-inp-days {
   width: 56px;

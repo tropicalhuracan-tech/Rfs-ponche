@@ -886,25 +886,36 @@ function getLvaPostLabel(staff) {
   return "";
 }
 
+/** Solo nombre del empleado (sin puesto ni sufijos entre paréntesis). */
+function payrollCleanEmployeeName(name) {
+  return String(name || "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildLvaPayrollLineFromStaff(staff, prev) {
-  const baseName = String(staff.name || "").trim();
+  const baseName = payrollCleanEmployeeName(staff.name || "");
   const post = getLvaPostLabel(staff);
-  const display = post ? `${baseName} (${post})` : baseName;
   const prevLine = prev || {};
   const daysWorked = prevLine.daysWorked || "15";
   const salaryMonthly =
     Math.max(0, Number(prevLine.salaryMonthly) || 0) || LVA_PAYROLL_DEFAULT_MONTHLY;
+  const prevUniformes = Number(prevLine.uniformes);
   return normalizePayrollLine({
     employeeId: staff.employeeId || staff.id || "",
-    fullName: display,
+    fullName: baseName,
     position: post || "La Vega Autopista",
     cedula: staff.cedula || prevLine.cedula || "",
     daysWorked,
     salaryMonthly,
     salaryQuincena: prevLine.salaryQuincena || 0,
     sfs: prevLine.sfs || 0,
-    // Uniforme def. 115 (editable a mano); rifa fija 85
-    uniformes: LVA_PAYROLL_UNIFORMES,
+    // Uniforme def. 115; si ya lo cambiaron a mano, se respeta al regenerar
+    uniformes:
+      prevLine.uniformes != null && Number.isFinite(prevUniformes)
+        ? Math.max(0, prevUniformes)
+        : LVA_PAYROLL_UNIFORMES,
     volaos: prevLine.volaos || 0,
     incentivos: prevLine.incentivos || 0,
     horasExtras: prevLine.horasExtras || 0,
@@ -1340,10 +1351,11 @@ function payrollShareCaption(p) {
 function buildPayrollPrintHtml(p) {
   const cols = getPayrollPrintCols(p);
   const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
-    if (!payrollShowsFeriado(p) && Number(l.feriado)) {
-      return computePayrollLineTotals({ ...l, feriado: 0 });
+    const named = { ...l, fullName: payrollCleanEmployeeName(l.fullName) || l.fullName };
+    if (!payrollShowsFeriado(p) && Number(named.feriado)) {
+      return computePayrollLineTotals({ ...named, feriado: 0 });
     }
-    return l;
+    return named;
   });
   const totals = {};
   cols.forEach(([key, , kind]) => {
@@ -1431,7 +1443,7 @@ function payrollPrintCss() {
     table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:1px 2px;vertical-align:middle}
     table.nomina-print th{background:#eee;font-weight:700;white-space:nowrap;font-size:9.5px}
     table.nomina-print td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    table.nomina-print td:nth-child(2){white-space:normal;overflow:visible}
+    table.nomina-print td:nth-child(2){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:11em}
     table.nomina-print tfoot td{background:#f3f3f3;font-weight:700}
     .sign-box{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%}
     .sign-line{border-top:1px solid #111;margin-top:26px;padding-top:3px;text-align:center;font-size:9px}
@@ -1711,6 +1723,22 @@ function renderNominaTab() {
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
+  // Quitar puesto del nombre (dejar solo empleado, una línea)
+  if (p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")) {
+    let cleaned = false;
+    p.lines = (p.lines || []).map((l) => {
+      const clean = payrollCleanEmployeeName(l.fullName);
+      if (clean && clean !== String(l.fullName || "").trim()) {
+        cleaned = true;
+        return { ...l, fullName: clean };
+      }
+      return l;
+    });
+    if (cleaned) {
+      p.updatedAt = new Date().toISOString();
+      saveContabilidadData(true);
+    }
+  }
   const cols = getPayrollEditorCols(p);
   const lines = p.lines || [];
   const namedCount = payrollLinesForTotals(lines).length;
@@ -1778,7 +1806,7 @@ function renderNominaTab() {
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
-    } · ${namedCount}/${lines.length} con nombre. Unif/Rifa = uniforme/rifa (def. 115/85). Feriado ${
+    } · ${namedCount}/${lines.length} con nombre. Solo nombre (sin puesto). Unif/Rifa def. 115/85 (uniforme editable). Feriado ${
       p.showFeriado ? "ON" : "OFF"
     }. Impresión sin cédula ni RD$.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
