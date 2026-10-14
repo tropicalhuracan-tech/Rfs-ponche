@@ -377,6 +377,7 @@ function mergeEmployeeHrProfile(base = {}, incoming = {}) {
     psychComprehension: preferFill(a.psychComprehension, b.psychComprehension),
     psychRecommendation: preferFill(a.psychRecommendation, b.psychRecommendation),
     confidentialitySigned: a.confidentialitySigned || b.confidentialitySigned,
+    hiredPosition: preferFill(a.hiredPosition, b.hiredPosition),
   };
 }
 
