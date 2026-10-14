@@ -1891,10 +1891,12 @@ function renderNominaTab() {
   const half = getSelectedPayrollHalf();
   let p =
     contabilidadData.payrolls.find((x) => x.id === selectedPayrollId) ||
-    findLvaPayroll(period, half) ||
+    findPayrollByGroup(period, half, group) ||
     rows[0];
   if (!p) {
-    detail.innerHTML = `<p class="muted">Genera la nómina La Vega para ver la tabla (mismo formato del Excel: días, sueldo, SFS, uniformes, volaos, extras, descuentos, depósito y redondeo).</p>`;
+    detail.innerHTML = `<p class="muted">Genera la nómina ${escapeHtml(
+      meta.short
+    )} para ver la tabla (mismo formato: días, sueldo, SFS, Unif/Rifa, volaos, extras, descuentos, depósito y redondeo).</p>`;
     return;
   }
   selectedPayrollId = p.id;
