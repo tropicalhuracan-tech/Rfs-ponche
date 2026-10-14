@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=104" />
+  <link rel="stylesheet" href="styles.css?v=105" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -60,7 +60,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v104 · Nómina oficina</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v105 · Nómina oficina 01-15</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -1014,7 +1014,7 @@
       <div id="contabTabOficina" class="contab-tab-panel" hidden>
         <div class="form-card">
           <h2 id="oempFormTitle">Nuevo empleado de oficina</h2>
-          <p class="muted tight">Lista aparte de los vigilantes. Al generar la nómina de Oficina se cargan estos nombres, cédulas, cargos y sueldos (sin unif/rifa, volao, comida ni feriado).</p>
+          <p class="muted tight">Lista base de la nómina de Oficina (cada 15 días). Carga nombres, cédulas, cargos y sueldos. Quincena = sueldo/2, SFS fijo RD$ 800, con rifa. Sin días, unif, volao, comida, feriado ni horas extras.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
             <button id="btnOempGenPayroll" class="btn secondary" type="button" style="width:auto">Generar nómina de oficina</button>
           </div>
@@ -1045,7 +1045,7 @@
       <div id="contabTabNomina" class="contab-tab-panel" hidden>
         <div class="form-card">
           <h2 id="contabNominaTitle">Nómina Reaction</h2>
-          <p class="muted tight">La Vega/Monorriel/General usan el formato completo. Oficina carga la lista de personal y omite unif/rifa, volao, comida y feriado.</p>
+          <p class="muted tight">La Vega/Monorriel/General: formato completo. Oficina: cada 15 días, sueldo/2, SFS 800, columna Rifa; sin días, unif, volao, comida, feriado ni horas extras.</p>
           <div class="coords-row">
             <label>Grupo
               <select id="contabPayrollGroup">
@@ -1764,13 +1764,13 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=104"></script>
-  <script src="monorriel-data.js?v=104"></script>
-  <script src="cloud.js?v=104"></script>
-  <script src="hr.js?v=104"></script>
-  <script src="depuracion.js?v=104"></script>
-  <script src="contabilidad.js?v=104"></script>
-  <script src="quotes.js?v=104"></script>
-  <script src="app.js?v=104"></script>
+  <script src="cloud-config.js?v=105"></script>
+  <script src="monorriel-data.js?v=105"></script>
+  <script src="cloud.js?v=105"></script>
+  <script src="hr.js?v=105"></script>
+  <script src="depuracion.js?v=105"></script>
+  <script src="contabilidad.js?v=105"></script>
+  <script src="quotes.js?v=105"></script>
+  <script src="app.js?v=105"></script>
 </body>
 </html>
