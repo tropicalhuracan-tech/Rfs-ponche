@@ -226,15 +226,15 @@ function computePayrollLineTotals(line) {
   const rifa = Math.max(0, Number(line.rifa) || 0);
   const adelantos = Math.max(0, Number(line.adelantos) || 0);
   const prestamos = Math.max(0, Number(line.prestamos) || 0);
-  const totalDescuentos = roundMoney2(sfs + uniformes + rifa + adelantos + prestamos);
-  const totalCobrar = roundMoney2(
-    salaryQuincena + volaos + incentivos + horasExtras + feriado + almuerzo
-  );
+  // Restan: SFS/SVDS, uniformes, almuerzo/cena, rifa, adelantos, descuento préstamos
+  const totalDescuentos = roundMoney2(sfs + uniformes + almuerzo + rifa + adelantos + prestamos);
+  // Suman al quincenal: volaos, incentivos, horas extras, feriado
+  const totalCobrar = roundMoney2(salaryQuincena + volaos + incentivos + horasExtras + feriado);
   const salarioDepositar = roundMoney2(Math.max(0, totalCobrar - totalDescuentos));
   const redondeo = roundTo50(salarioDepositar);
   // Compat con nómina oficina anterior
   const salary = salaryMonthly;
-  const other = roundMoney2(volaos + incentivos + horasExtras + feriado + almuerzo);
+  const other = roundMoney2(volaos + incentivos + horasExtras + feriado);
   const deductions = totalDescuentos;
   const net = redondeo;
   return {
@@ -1101,17 +1101,17 @@ const PAYROLL_TABLE_COLS = [
   ["fullName", "Nombres", "name"],
   ["salaryMonthly", "Sueldo mensual", "num"],
   ["salaryQuincena", "Sueldo quincenal", "num"],
-  ["sfs", "SFS/SVDS", "num"],
-  ["uniformes", "Uniformes", "num"],
-  ["volaos", "Volaos", "num"],
-  ["incentivos", "Incentivos", "num"],
-  ["horasExtras", "Horas extras", "num"],
-  ["feriado", "Feriado", "num"],
-  ["almuerzo", "Almuerzo/Cena", "num"],
-  ["rifa", "Rifa", "num"],
-  ["adelantos", "Adelantos", "num"],
-  ["prestamos", "Desc. préstamos", "num"],
-  ["totalDescuentos", "Total desc.", "ro"],
+  ["sfs", "SFS/SVDS (−)", "num"],
+  ["uniformes", "Uniformes (−)", "num"],
+  ["volaos", "Volaos (+)", "num"],
+  ["incentivos", "Incentivos (+)", "num"],
+  ["horasExtras", "Horas extras (+)", "num"],
+  ["feriado", "Feriado (+)", "num"],
+  ["almuerzo", "Almuerzo/Cena (−)", "num"],
+  ["rifa", "Rifa (−)", "num"],
+  ["adelantos", "Adelantos (−)", "num"],
+  ["prestamos", "Desc. préstamos (−)", "num"],
+  ["totalDescuentos", "Total desc. (−)", "ro"],
   ["totalCobrar", "Total a cobrar", "ro"],
   ["salarioDepositar", "Salario a depositar", "ro"],
   ["redondeo", "Redondeo", "ro"],
@@ -1641,7 +1641,7 @@ function renderNominaTab() {
     )}</h2>
     <p class="muted tight">Pago ${escapeHtml(p.payDate || "—")} · ${
       p.status === "paid" ? "Pagada" : "Borrador"
-    } · ${namedCount} con nombre / ${lines.length} filas. Totales automáticos; sin nombre no suman. El − elimina la fila (no se imprime).</p>
+    } · ${namedCount} con nombre / ${lines.length} filas. Totales auto: (+) volaos, incentivos, extras, feriado · (−) SFS, uniformes, almuerzo, rifa, adelantos, préstamos. Sin nombre no entra. El − de fila no se imprime.</p>
     <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>${head}</tr></thead>
