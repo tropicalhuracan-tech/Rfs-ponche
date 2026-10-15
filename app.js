@@ -395,7 +395,13 @@ function normalizeEmployee(e = {}) {
     serial: e.serial || "",
     note: e.note || "",
     photo: e.photo || "",
+    photoUrl: e.photoUrl || "",
+    photoMediaId: e.photoMediaId || "",
+    photoStoragePath: e.photoStoragePath || "",
     documentData: e.documentData || "",
+    documentUrl: e.documentUrl || "",
+    documentMediaId: e.documentMediaId || "",
+    documentStoragePath: e.documentStoragePath || "",
     documentName: e.documentName || "",
     documentMime: e.documentMime || "",
     roles: Array.isArray(e.roles) ? e.roles.filter(Boolean) : [],
@@ -457,7 +463,13 @@ function mergeEmployeeRecord(base, incoming) {
     serial: preferFill(base.serial, incoming.serial),
     note: preferFill(base.note, incoming.note),
     photo: preferFill(base.photo, incoming.photo),
+    photoUrl: preferFill(base.photoUrl, incoming.photoUrl),
+    photoMediaId: preferFill(base.photoMediaId, incoming.photoMediaId),
+    photoStoragePath: preferFill(base.photoStoragePath, incoming.photoStoragePath),
     documentData: preferFill(base.documentData, incoming.documentData),
+    documentUrl: preferFill(base.documentUrl, incoming.documentUrl),
+    documentMediaId: preferFill(base.documentMediaId, incoming.documentMediaId),
+    documentStoragePath: preferFill(base.documentStoragePath, incoming.documentStoragePath),
     documentName: preferFill(base.documentName, incoming.documentName),
     documentMime: preferFill(base.documentMime, incoming.documentMime),
     roles: [...new Set([...(base.roles || []), ...(incoming.roles || [])].filter(Boolean))],
@@ -614,7 +626,7 @@ function renderEmployees() {
       const meta = isEmployeeActive(e)
         ? [
             e.cedula ? `Cédula: ${e.cedula}` : "Cédula: —",
-            e.documentData ? "Doc ✓" : "Sin doc",
+            e.documentData || e.documentUrl ? "Doc ✓" : "Sin doc",
             `${filled}/${total} datos`,
           ].join(" · ")
         : `Causa: ${e.inactiveReason || "—"} · ${e.inactiveAt ? e.inactiveAt.slice(0, 10) : ""}`;
@@ -848,7 +860,7 @@ function currentEmpPhoto() {
   if (pendingEmpPhoto === "") return "";
   if (pendingEmpPhoto) return pendingEmpPhoto;
   const emp = getEmployee(selectedEmployeeId);
-  return (emp && emp.photo) || "";
+  return (emp && (emp.photo || emp.photoUrl)) || "";
 }
 
 function currentEmpDoc() {
@@ -857,9 +869,11 @@ function currentEmpDoc() {
   }
   if (pendingEmpDoc && pendingEmpDoc.dataUrl) return pendingEmpDoc;
   const emp = getEmployee(selectedEmployeeId);
-  if (!emp || !emp.documentData) return { dataUrl: "", name: "", mime: "" };
+  if (!emp) return { dataUrl: "", name: "", mime: "" };
+  const dataUrl = emp.documentData || emp.documentUrl || "";
+  if (!dataUrl) return { dataUrl: "", name: "", mime: "" };
   return {
-    dataUrl: emp.documentData,
+    dataUrl,
     name: emp.documentName || "documento",
     mime: emp.documentMime || "",
   };
@@ -947,9 +961,10 @@ async function onEmpPhotoSelected(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
   try {
-    pendingEmpPhoto = await compressImage(file, 720, 0.7);
+    // Más liviana para Firebase Storage (~640px / 0.62)
+    pendingEmpPhoto = await compressImage(file, 640, 0.62);
     renderEmpPhotoPreview();
-    toast("Foto lista. Pulsa Guardar empleado.");
+    toast("Foto lista. Pulsa Guardar empleado (se sube a Storage).");
   } catch (_) {
     toast("No se pudo procesar la foto.");
     event.target.value = "";
@@ -1235,8 +1250,9 @@ function buildEmployeeHirePrintHtml(emp) {
     p.psychScore === "" || p.psychScore == null
       ? "—"
       : `${p.psychScore}/100 (violencia: ${p.psychViolenceRisk || "—"}, comprensión: ${p.psychComprehension || "—"})`;
-  const photo = emp.photo
-    ? `<img src="${emp.photo}" alt="Foto" style="width:110px;height:130px;object-fit:cover;border:1px solid #333;border-radius:6px" />`
+  const photoSrc = emp.photo || emp.photoUrl || "";
+  const photo = photoSrc
+    ? `<img src="${photoSrc}" alt="Foto" style="width:110px;height:130px;object-fit:cover;border:1px solid #333;border-radius:6px" />`
     : "";
   return `
     <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:12px">
@@ -1282,7 +1298,11 @@ function printEmployeeHireSheet(emp) {
     toast("No hay empleado para imprimir.");
     return;
   }
-  if (!emp.photo || !String(emp.photo).startsWith("data:image")) {
+  const hirePhoto = emp.photo || emp.photoUrl || "";
+  if (
+    !hirePhoto ||
+    !(String(hirePhoto).startsWith("data:image") || /^https?:\/\//i.test(hirePhoto))
+  ) {
     toast("No se puede imprimir: sube la foto del empleado primero.");
     return;
   }
@@ -1341,6 +1361,10 @@ function saveEmployeeDetail() {
   const photo = currentEmpPhoto();
   const doc = currentEmpDoc();
   const isMono = document.getElementById("eMonorriel").checked;
+  const photoIsHttp = /^https?:\/\//i.test(photo || "");
+  const photoIsData = String(photo || "").startsWith("data:");
+  const docIsHttp = /^https?:\/\//i.test(doc.dataUrl || "");
+  const docIsData = String(doc.dataUrl || "").startsWith("data:");
   let updated = normalizeEmployee({
     ...current,
     name,
@@ -1351,7 +1375,20 @@ function saveEmployeeDetail() {
     serial: document.getElementById("eSerial").value.trim(),
     note: document.getElementById("eNote").value.trim(),
     photo,
+    // Nueva data URL → Storage al guardar nube; URL http se conserva; vacío limpia Storage
+    photoUrl: photoIsHttp ? photo : photoIsData ? "" : photo ? current.photoUrl || "" : "",
+    photoMediaId: photo ? current.photoMediaId || "" : "",
+    photoStoragePath: photo ? current.photoStoragePath || "" : "",
     documentData: doc.dataUrl || "",
+    documentUrl: docIsHttp
+      ? doc.dataUrl
+      : docIsData
+        ? ""
+        : doc.dataUrl
+          ? current.documentUrl || ""
+          : "",
+    documentMediaId: doc.dataUrl ? current.documentMediaId || "" : "",
+    documentStoragePath: doc.dataUrl ? current.documentStoragePath || "" : "",
     documentName: doc.dataUrl ? doc.name || "" : "",
     documentMime: doc.dataUrl ? doc.mime || "" : "",
     status: current.status || "active",

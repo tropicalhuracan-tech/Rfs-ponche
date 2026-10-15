@@ -5,9 +5,83 @@
   const rootDoc = cfg.docPath || "rfs/main";
   const rootCollection = rootDoc.split("/")[0] || "rfs";
   const MEDIA_COLLECTION = cfg.mediaCollection || "rfs_media";
+  const storageBucket =
+    cfg.storageBucket || (projectId ? `${projectId}.firebasestorage.app` : "");
   const SCHEMA_VERSION = "2";
-  /** Base64 / data-URL más largos que esto salen a documentos de media */
+  /** Base64 / data-URL más largos que esto salen a Storage (o rfs_media de respaldo) */
   const MEDIA_MIN_CHARS = 800;
+
+  let firebaseStorage = null;
+  let storageInitTried = false;
+  let storageAvailable = null; // null=unknown, true/false after probe
+
+  function isDataUrl(value) {
+    return typeof value === "string" && value.startsWith("data:");
+  }
+
+  function isHttpUrl(value) {
+    return typeof value === "string" && /^https?:\/\//i.test(value);
+  }
+
+  function mimeFromDataUrl(dataUrl) {
+    const m = String(dataUrl || "").match(/^data:([^;,]+)/i);
+    return (m && m[1]) || "application/octet-stream";
+  }
+
+  function initFirebaseStorage() {
+    if (firebaseStorage) return firebaseStorage;
+    if (storageInitTried) return null;
+    storageInitTried = true;
+    if (!projectId || !apiKey || !storageBucket) return null;
+    if (!window.firebase || !window.firebase.storage) {
+      console.warn("RFS Storage: falta Firebase SDK (app + storage).");
+      return null;
+    }
+    try {
+      if (!window.firebase.apps || !window.firebase.apps.length) {
+        window.firebase.initializeApp({
+          apiKey,
+          projectId,
+          storageBucket,
+          authDomain: `${projectId}.firebaseapp.com`,
+        });
+      }
+      firebaseStorage = window.firebase.storage();
+      return firebaseStorage;
+    } catch (err) {
+      console.warn("RFS Storage: no se pudo inicializar", err);
+      return null;
+    }
+  }
+
+  async function uploadDataUrlToStorage(path, dataUrl, contentType) {
+    const storage = initFirebaseStorage();
+    if (!storage) throw new Error("storage not ready");
+    const ref = storage.ref(path);
+    const mime = contentType || mimeFromDataUrl(dataUrl) || "image/jpeg";
+    await ref.putString(dataUrl, "data_url", { contentType: mime });
+    const url = await ref.getDownloadURL();
+    storageAvailable = true;
+    return url;
+  }
+
+  async function deleteStoragePath(path) {
+    if (!path) return false;
+    const storage = initFirebaseStorage();
+    if (!storage) return false;
+    try {
+      await storage.ref(path).delete();
+      return true;
+    } catch (err) {
+      const code = err && (err.code || err.message || "");
+      if (String(code).includes("object-not-found") || String(code).includes("404")) return false;
+      throw err;
+    }
+  }
+
+  function storageEnabled() {
+    return !!initFirebaseStorage();
+  }
 
   const PART_DOCS = {
     main: true,
@@ -222,82 +296,234 @@
     };
   }
 
-  function stripEmployees(employees) {
-    const mediaJobs = [];
-    const light = (employees || []).map((emp) => {
-      const copy = { ...(emp || {}) };
-      if (isHeavyMedia(copy.photo)) {
-        const id = mediaDocId("emp", copy.id || copy.key || copy.name, "photo");
-        mediaJobs.push({ id, kind: "employee", ownerId: copy.id || "", field: "photo", data: copy.photo });
-        copy.photo = "";
-        copy.photoMediaId = id;
-      } else if (copy.photoMediaId && !copy.photo) {
-        /* keep ref */
+  async function putHeavyToStorageOrMedia(opts) {
+    const {
+      dataUrl,
+      storagePath,
+      mediaId,
+      kind,
+      ownerId,
+      field,
+      name,
+      mime,
+      mediaJobs,
+    } = opts;
+    if (!isHeavyMedia(dataUrl) && !isDataUrl(dataUrl)) {
+      return { url: "", usedStorage: false };
+    }
+    if (storageEnabled()) {
+      try {
+        const url = await uploadDataUrlToStorage(
+          storagePath,
+          dataUrl,
+          mime || mimeFromDataUrl(dataUrl)
+        );
+        if (mediaId) {
+          try {
+            await deleteMedia(mediaId);
+          } catch (_) {}
+        }
+        return { url, usedStorage: true };
+      } catch (err) {
+        console.warn("RFS Storage upload falló, usando rfs_media:", storagePath, err);
+        storageAvailable = false;
       }
-      if (isHeavyMedia(copy.documentData)) {
-        const id = mediaDocId("emp", copy.id || copy.key || copy.name, "document");
-        mediaJobs.push({
-          id,
+    }
+    mediaJobs.push({
+      id: mediaId,
+      kind,
+      ownerId: ownerId || "",
+      field,
+      data: dataUrl,
+      name: name || "",
+      mime: mime || mimeFromDataUrl(dataUrl) || "",
+    });
+    return { url: "", usedStorage: false, mediaId };
+  }
+
+  async function stripEmployees(employees) {
+    const mediaJobs = [];
+    const light = [];
+    for (const emp of employees || []) {
+      const copy = { ...(emp || {}) };
+      const owner = copy.id || copy.key || copy.name || "x";
+
+      // Foto → Firebase Storage (photoUrl); respaldo rfs_media
+      if (isHeavyMedia(copy.photo) || isDataUrl(copy.photo)) {
+        const mediaId = mediaDocId("emp", owner, "photo");
+        const path = `employees/${safeId(owner)}/photo.jpg`;
+        const put = await putHeavyToStorageOrMedia({
+          dataUrl: copy.photo,
+          storagePath: path,
+          mediaId: copy.photoMediaId || mediaId,
+          kind: "employee",
+          ownerId: copy.id || "",
+          field: "photo",
+          mime: "image/jpeg",
+          mediaJobs,
+        });
+        if (put.usedStorage) {
+          copy.photoUrl = put.url;
+          copy.photoStoragePath = path;
+          copy.photo = "";
+          copy.photoMediaId = "";
+        } else {
+          copy.photo = "";
+          copy.photoMediaId = put.mediaId || mediaId;
+        }
+      } else if (isHttpUrl(copy.photo)) {
+        copy.photoUrl = copy.photo;
+        copy.photo = "";
+      } else if (!copy.photo) {
+        if (!copy.photoUrl) {
+          const path = copy.photoStoragePath || `employees/${safeId(owner)}/photo.jpg`;
+          if (copy.photoStoragePath || copy.photoMediaId) {
+            try {
+              await deleteStoragePath(path);
+            } catch (_) {}
+            if (copy.photoMediaId) {
+              try {
+                await deleteMedia(copy.photoMediaId);
+              } catch (_) {}
+            }
+          }
+          copy.photoUrl = "";
+          copy.photoStoragePath = "";
+          copy.photoMediaId = "";
+        }
+      }
+
+      // Documento → Storage o rfs_media
+      if (isHeavyMedia(copy.documentData) || isDataUrl(copy.documentData)) {
+        const mediaId = mediaDocId("emp", owner, "document");
+        const path = `employees/${safeId(owner)}/document`;
+        const put = await putHeavyToStorageOrMedia({
+          dataUrl: copy.documentData,
+          storagePath: path,
+          mediaId: copy.documentMediaId || mediaId,
           kind: "employee",
           ownerId: copy.id || "",
           field: "documentData",
-          data: copy.documentData,
           name: copy.documentName || "",
-          mime: copy.documentMime || "",
+          mime: copy.documentMime || mimeFromDataUrl(copy.documentData),
+          mediaJobs,
         });
+        if (put.usedStorage) {
+          copy.documentUrl = put.url;
+          copy.documentStoragePath = path;
+          copy.documentData = "";
+          copy.documentMediaId = "";
+        } else {
+          copy.documentData = "";
+          copy.documentMediaId = put.mediaId || mediaId;
+        }
+      } else if (isHttpUrl(copy.documentData)) {
+        copy.documentUrl = copy.documentData;
         copy.documentData = "";
-        copy.documentMediaId = id;
+      } else if (!copy.documentData && !copy.documentUrl) {
+        const path = copy.documentStoragePath || `employees/${safeId(owner)}/document`;
+        if (copy.documentStoragePath || copy.documentMediaId) {
+          try {
+            await deleteStoragePath(path);
+          } catch (_) {}
+          if (copy.documentMediaId) {
+            try {
+              await deleteMedia(copy.documentMediaId);
+            } catch (_) {}
+          }
+        }
+        copy.documentUrl = "";
+        copy.documentStoragePath = "";
+        copy.documentMediaId = "";
+        copy.documentName = "";
+        copy.documentMime = "";
       }
-      return copy;
-    });
+
+      light.push(copy);
+    }
     return { light, mediaJobs };
   }
 
-  function stripPettyCash(pettyCash) {
+  async function stripPettyCash(pettyCash) {
     const src = pettyCash && typeof pettyCash === "object" ? pettyCash : emptyPetty();
     const mediaJobs = [];
-    const mapList = (list, prefix) =>
-      (Array.isArray(list) ? list : []).map((row) => {
+    const mapList = async (list, prefix) => {
+      const out = [];
+      for (const row of Array.isArray(list) ? list : []) {
         const copy = { ...(row || {}) };
-        if (isHeavyMedia(copy.checkPhoto)) {
-          const id = mediaDocId(prefix, copy.id || "x", "check");
-          mediaJobs.push({
-            id,
+        if (isHeavyMedia(copy.checkPhoto) || isDataUrl(copy.checkPhoto)) {
+          const mediaId = mediaDocId(prefix, copy.id || "x", "check");
+          const path = `caja/${safeId(copy.id || "x")}/check.jpg`;
+          const put = await putHeavyToStorageOrMedia({
+            dataUrl: copy.checkPhoto,
+            storagePath: path,
+            mediaId: copy.checkPhotoMediaId || mediaId,
             kind: "pettyCash",
             ownerId: copy.id || "",
             field: "checkPhoto",
-            data: copy.checkPhoto,
+            mime: "image/jpeg",
+            mediaJobs,
           });
+          if (put.usedStorage) {
+            copy.checkPhotoUrl = put.url;
+            copy.checkPhotoStoragePath = path;
+            copy.checkPhoto = "";
+            copy.checkPhotoMediaId = "";
+          } else {
+            copy.checkPhoto = "";
+            copy.checkPhotoMediaId = put.mediaId || mediaId;
+          }
+        } else if (isHttpUrl(copy.checkPhoto)) {
+          copy.checkPhotoUrl = copy.checkPhoto;
           copy.checkPhoto = "";
-          copy.checkPhotoMediaId = id;
         }
-        return copy;
-      });
+        out.push(copy);
+      }
+      return out;
+    };
     const light = {
       ...src,
-      expenses: mapList(src.expenses, "caja"),
-      deletedExpenses: mapList(src.deletedExpenses, "cajaDel"),
+      expenses: await mapList(src.expenses, "caja"),
+      deletedExpenses: await mapList(src.deletedExpenses, "cajaDel"),
     };
     return { light, mediaJobs };
   }
 
-  function stripHr(hr) {
+  async function stripHr(hr) {
     const src = hr && typeof hr === "object" ? hr : emptyHr();
     const mediaJobs = [];
-    const light = {
-      ...src,
-      applications: (Array.isArray(src.applications) ? src.applications : []).map((app) => {
-        const copy = { ...(app || {}) };
-        if (isHeavyMedia(copy.photo)) {
-          const id = mediaDocId("hr", copy.id || "x", "photo");
-          mediaJobs.push({ id, kind: "hr", ownerId: copy.id || "", field: "photo", data: copy.photo });
+    const applications = [];
+    for (const app of Array.isArray(src.applications) ? src.applications : []) {
+      const copy = { ...(app || {}) };
+      if (isHeavyMedia(copy.photo) || isDataUrl(copy.photo)) {
+        const mediaId = mediaDocId("hr", copy.id || "x", "photo");
+        const path = `hr/${safeId(copy.id || "x")}/photo.jpg`;
+        const put = await putHeavyToStorageOrMedia({
+          dataUrl: copy.photo,
+          storagePath: path,
+          mediaId: copy.photoMediaId || mediaId,
+          kind: "hr",
+          ownerId: copy.id || "",
+          field: "photo",
+          mime: "image/jpeg",
+          mediaJobs,
+        });
+        if (put.usedStorage) {
+          copy.photoUrl = put.url;
+          copy.photoStoragePath = path;
           copy.photo = "";
-          copy.photoMediaId = id;
+          copy.photoMediaId = "";
+        } else {
+          copy.photo = "";
+          copy.photoMediaId = put.mediaId || mediaId;
         }
-        return copy;
-      }),
-    };
-    return { light, mediaJobs };
+      } else if (isHttpUrl(copy.photo)) {
+        copy.photoUrl = copy.photo;
+        copy.photo = "";
+      }
+      applications.push(copy);
+    }
+    return { light: { ...src, applications }, mediaJobs };
   }
 
   function stripContabilidad(data) {
@@ -305,30 +531,48 @@
     return { light: src, mediaJobs: [] };
   }
 
-  function stripDepuracion(dep) {
+  async function stripDepuracion(dep) {
     const src = dep && typeof dep === "object" ? dep : emptyDepuracion();
     const mediaJobs = [];
-    const light = {
-      ...src,
-      settings: src.settings && typeof src.settings === "object" ? src.settings : {},
-      candidates: (Array.isArray(src.candidates) ? src.candidates : []).map((row) => {
-        const copy = { ...(row || {}) };
-        if (isHeavyMedia(copy.cedulaPhoto)) {
-          const id = mediaDocId("dep", copy.id || "x", "cedula");
-          mediaJobs.push({
-            id,
-            kind: "depuracion",
-            ownerId: copy.id || "",
-            field: "cedulaPhoto",
-            data: copy.cedulaPhoto,
-          });
+    const candidates = [];
+    for (const row of Array.isArray(src.candidates) ? src.candidates : []) {
+      const copy = { ...(row || {}) };
+      if (isHeavyMedia(copy.cedulaPhoto) || isDataUrl(copy.cedulaPhoto)) {
+        const mediaId = mediaDocId("dep", copy.id || "x", "cedula");
+        const path = `dep/${safeId(copy.id || "x")}/cedula.jpg`;
+        const put = await putHeavyToStorageOrMedia({
+          dataUrl: copy.cedulaPhoto,
+          storagePath: path,
+          mediaId: copy.cedulaPhotoMediaId || mediaId,
+          kind: "depuracion",
+          ownerId: copy.id || "",
+          field: "cedulaPhoto",
+          mime: "image/jpeg",
+          mediaJobs,
+        });
+        if (put.usedStorage) {
+          copy.cedulaPhotoUrl = put.url;
+          copy.cedulaPhotoStoragePath = path;
           copy.cedulaPhoto = "";
-          copy.cedulaPhotoMediaId = id;
+          copy.cedulaPhotoMediaId = "";
+        } else {
+          copy.cedulaPhoto = "";
+          copy.cedulaPhotoMediaId = put.mediaId || mediaId;
         }
-        return copy;
-      }),
+      } else if (isHttpUrl(copy.cedulaPhoto)) {
+        copy.cedulaPhotoUrl = copy.cedulaPhoto;
+        copy.cedulaPhoto = "";
+      }
+      candidates.push(copy);
+    }
+    return {
+      light: {
+        ...src,
+        settings: src.settings && typeof src.settings === "object" ? src.settings : {},
+        candidates,
+      },
+      mediaJobs,
     };
-    return { light, mediaJobs };
   }
 
   function collectMediaIds(employees, pettyCash, hr, depuracion) {
@@ -353,8 +597,15 @@
   function hydrateEmployees(employees, mediaMap) {
     return (employees || []).map((emp) => {
       const copy = { ...(emp || {}) };
-      if (copy.photoMediaId && mediaMap[copy.photoMediaId]) copy.photo = mediaMap[copy.photoMediaId];
-      if (copy.documentMediaId && mediaMap[copy.documentMediaId]) {
+      // Preferir URL de Storage; legacy rfs_media → data URL en photo
+      if (copy.photoUrl && isHttpUrl(copy.photoUrl)) {
+        copy.photo = copy.photoUrl;
+      } else if (copy.photoMediaId && mediaMap[copy.photoMediaId]) {
+        copy.photo = mediaMap[copy.photoMediaId];
+      }
+      if (copy.documentUrl && isHttpUrl(copy.documentUrl)) {
+        copy.documentData = copy.documentUrl;
+      } else if (copy.documentMediaId && mediaMap[copy.documentMediaId]) {
         copy.documentData = mediaMap[copy.documentMediaId];
       }
       return copy;
@@ -366,7 +617,9 @@
     const hydrateList = (list) =>
       (Array.isArray(list) ? list : []).map((row) => {
         const copy = { ...(row || {}) };
-        if (copy.checkPhotoMediaId && mediaMap[copy.checkPhotoMediaId]) {
+        if (copy.checkPhotoUrl && isHttpUrl(copy.checkPhotoUrl)) {
+          copy.checkPhoto = copy.checkPhotoUrl;
+        } else if (copy.checkPhotoMediaId && mediaMap[copy.checkPhotoMediaId]) {
           copy.checkPhoto = mediaMap[copy.checkPhotoMediaId];
         }
         return copy;
@@ -380,7 +633,11 @@
     const src = hr && typeof hr === "object" ? { ...hr } : emptyHr();
     src.applications = (Array.isArray(src.applications) ? src.applications : []).map((app) => {
       const copy = { ...(app || {}) };
-      if (copy.photoMediaId && mediaMap[copy.photoMediaId]) copy.photo = mediaMap[copy.photoMediaId];
+      if (copy.photoUrl && isHttpUrl(copy.photoUrl)) {
+        copy.photo = copy.photoUrl;
+      } else if (copy.photoMediaId && mediaMap[copy.photoMediaId]) {
+        copy.photo = mediaMap[copy.photoMediaId];
+      }
       return copy;
     });
     return src;
@@ -390,7 +647,9 @@
     const src = dep && typeof dep === "object" ? { ...dep } : emptyDepuracion();
     src.candidates = (Array.isArray(src.candidates) ? src.candidates : []).map((row) => {
       const copy = { ...(row || {}) };
-      if (copy.cedulaPhotoMediaId && mediaMap[copy.cedulaPhotoMediaId]) {
+      if (copy.cedulaPhotoUrl && isHttpUrl(copy.cedulaPhotoUrl)) {
+        copy.cedulaPhoto = copy.cedulaPhotoUrl;
+      } else if (copy.cedulaPhotoMediaId && mediaMap[copy.cedulaPhotoMediaId]) {
         copy.cedulaPhoto = mediaMap[copy.cedulaPhotoMediaId];
       }
       return copy;
@@ -558,9 +817,8 @@
 
   async function hydrateBundle(bundle) {
     const mediaIds = collectMediaIds(bundle.employees, bundle.pettyCash, bundle.hr, bundle.depuracion);
-    // También hidratar si aún vienen embebidos (legacy) — no hace falta mapa
-    if (!mediaIds.length) return bundle;
-    const mediaMap = await loadMediaMap(mediaIds);
+    // Siempre hidratar: photoUrl de Storage → photo; legacy rfs_media si hay ids
+    const mediaMap = mediaIds.length ? await loadMediaMap(mediaIds) : {};
     return {
       ...bundle,
       employees: hydrateEmployees(bundle.employees, mediaMap),
@@ -675,10 +933,10 @@
     if (!projectId || !apiKey) throw new Error("cloud not configured");
     const opts = options && typeof options === "object" ? options : {};
 
-    const empPack = stripEmployees(employees);
-    const pettyPack = stripPettyCash(pettyCash);
-    const hrPack = stripHr(hr);
-    const depPack = stripDepuracion(depuracion);
+    const empPack = await stripEmployees(employees);
+    const pettyPack = await stripPettyCash(pettyCash);
+    const hrPack = await stripHr(hr);
+    const depPack = await stripDepuracion(depuracion);
     const contabPack = stripContabilidad(contabilidad);
     await persistMediaJobs([
       ...empPack.mediaJobs,
@@ -770,6 +1028,9 @@
     saveCloud,
     saveMessages,
     deleteMedia,
+    deleteStoragePath,
+    storageEnabled,
+    storageBucket: () => storageBucket,
     decodeDoc: decodeLegacyMain,
     SCHEMA_VERSION,
   };

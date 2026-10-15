@@ -1,0 +1,39 @@
+rules_version = '2';
+// Publicar en Firebase Console → Storage → Rules
+// Lectura pública (la app usa URLs). Escritura limitada por tipo y tamaño.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    function isPdfOrImage() {
+      return isImage() || request.resource.contentType == 'application/pdf';
+    }
+
+    match /employees/{empId}/photo.jpg {
+      allow read: if true;
+      allow write: if isImage() && request.resource.size < 200 * 1024;
+      allow delete: if true;
+    }
+    match /employees/{empId}/document {
+      allow read: if true;
+      allow write: if isPdfOrImage() && request.resource.size < 500 * 1024;
+      allow delete: if true;
+    }
+    match /hr/{appId}/photo.jpg {
+      allow read: if true;
+      allow write: if isImage() && request.resource.size < 200 * 1024;
+      allow delete: if true;
+    }
+    match /caja/{expenseId}/check.jpg {
+      allow read: if true;
+      allow write: if isImage() && request.resource.size < 300 * 1024;
+      allow delete: if true;
+    }
+    match /dep/{candId}/cedula.jpg {
+      allow read: if true;
+      allow write: if isImage() && request.resource.size < 300 * 1024;
+      allow delete: if true;
+    }
+  }
+}
