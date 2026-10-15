@@ -5597,15 +5597,33 @@ function getMonorrielEmployees(includeInactive = false) {
     .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
-/** Importa personal AM/PM a la lista general sin borrar datos ya llenos */
+/** Importa personal AM/PM (+ roster de nómina Excel) a la lista general sin borrar datos ya llenos */
 function ensureMonorrielEmployeesImported() {
   const data = monoData();
-  const names = [...new Set([...(data.staffAm || []), ...(data.staffPm || [])].map((n) => n.trim()).filter(Boolean))];
+  const rosterByKey = new Map();
+  (data.payrollRoster || []).forEach((r) => {
+    const base = String((r && r.name) || "").trim();
+    if (!base) return;
+    rosterByKey.set(employeeKey(base), r);
+  });
+  const names = [
+    ...new Set(
+      [
+        ...(data.staffAm || []),
+        ...(data.staffPm || []),
+        ...(data.payrollRoster || []).map((r) => (r && r.name) || ""),
+      ]
+        .map((n) => String(n || "").trim())
+        .filter(Boolean)
+    ),
+  ];
   let added = 0;
   names.forEach((base) => {
     const display = monoDisplayName(base);
     const key = employeeKey(display);
     const keyBase = employeeKey(base);
+    const roster = rosterByKey.get(keyBase) || rosterByKey.get(key);
+    const salaryFromRoster = roster ? Math.max(0, Number(roster.salaryMonthly) || 0) : 0;
     const existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
@@ -5613,11 +5631,13 @@ function ensureMonorrielEmployeesImported() {
         name: /\(monorriel\)/i.test(existing.name) ? existing.name : display,
         sites: ["Monorriel"],
         roles: ["Monorriel"],
+        salary: existing.salary > 0 ? existing.salary : salaryFromRoster,
       });
       // Forzar etiqueta Monorriel en nombre si faltaba
       if (!/\(monorriel\)/i.test(merged.name)) merged.name = display;
       merged.sites = [...new Set([...(merged.sites || []), "Monorriel"])];
       merged.roles = [...new Set([...(merged.roles || []), "Monorriel"])];
+      if (!(Number(merged.salary) > 0) && salaryFromRoster) merged.salary = salaryFromRoster;
       employees[idx] = merged;
       return;
     }
@@ -5626,6 +5646,7 @@ function ensureMonorrielEmployeesImported() {
         name: display,
         sites: ["Monorriel"],
         roles: ["Monorriel"],
+        salary: salaryFromRoster || 0,
       })
     );
     added += 1;
@@ -10207,7 +10228,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=111").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=112").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10222,7 +10243,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v111").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v112").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

@@ -258,7 +258,7 @@ function computePayrollLineTotals(line, opts = {}) {
     if (!sfs && salaryQuincena) sfs = roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE);
   }
 
-  // La Vega: comida (almuerzo editable) + SVDA fijo 90; ambas suman en descuentos
+  // La Vega / Monorriel: comida (almuerzo editable) + SVDA fijo 90; ambas suman
   const svda = lavega && hasName ? LVA_PAYROLL_SVDA : 0;
   const almuerzoSvda = roundMoney2(almuerzo + svda);
 
@@ -303,7 +303,7 @@ function computePayrollLineTotals(line, opts = {}) {
 function computePayrollLineTotalsForPayroll(p, line) {
   return computePayrollLineTotals(line, {
     office: payrollIsOffice(p),
-    lavega: payrollIsLavega(p),
+    lavega: payrollUsesLvaParams(p),
   });
 }
 
@@ -378,7 +378,7 @@ function normalizePayroll(p = {}) {
     ? p.group
     : p.group || "lavega";
   const office = group === "oficina";
-  const lavega = group === "lavega";
+  const lavega = group === "lavega" || group === "monorriel";
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -986,8 +986,63 @@ function getOfficeStaffForPayroll() {
     }));
 }
 
+function getMonorrielPayrollRoster() {
+  try {
+    const data =
+      typeof monoData === "function"
+        ? monoData()
+        : typeof window !== "undefined"
+          ? window.RFS_MONORRIEL
+          : null;
+    return Array.isArray(data && data.payrollRoster) ? data.payrollRoster : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 function getMonorrielStaffForPayroll() {
   try {
+    const roster = getMonorrielPayrollRoster();
+    if (roster.length) {
+      // Emparejar con empleados Monorriel existentes (id/cédula) si ya están en la app
+      const byKey = new Map();
+      try {
+        if (typeof getMonorrielEmployees === "function") {
+          getMonorrielEmployees(true).forEach((e) => {
+            const base =
+              typeof monoBaseName === "function" ? monoBaseName(e.name) : String(e.name || "");
+            const k = String(base || e.name || "")
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase()
+              .replace(/\s+/g, " ")
+              .trim();
+            if (k) byKey.set(k, e);
+          });
+        }
+      } catch (_) {}
+      return roster
+        .filter((r) => r && String(r.name || "").trim())
+        .map((r, idx) => {
+          const raw = String(r.name || "").trim();
+          const k = raw
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .trim();
+          const emp = byKey.get(k);
+          return {
+            id: (emp && emp.id) || `mono-pay-${idx}-${k.slice(0, 12)}`,
+            employeeId: (emp && emp.id) || "",
+            name: raw,
+            cedula: (emp && emp.cedula) || "",
+            salaryMonthly: Math.max(0, Number(r.salaryMonthly) || Number(emp && emp.salary) || 0),
+            position: r.position || (emp && (emp.role || emp.position)) || "Monorriel",
+          };
+        })
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+    }
     if (typeof getMonorrielEmployees !== "function") return [];
     return getMonorrielEmployees(false)
       .filter((e) => e && String(e.name || "").trim())
@@ -1049,6 +1104,15 @@ function payrollIsLavega(p) {
   if (p.group === "lavega") return true;
   if (!p.group && String(p.note || "").toLowerCase().includes("vega")) return true;
   return false;
+}
+
+function payrollIsMonorriel(p) {
+  return !!(p && p.group === "monorriel");
+}
+
+/** La Vega Autopista y Monorriel: mismas columnas / Unif-Rifa / Almuerzo-SVDA / nombres cortos. */
+function payrollUsesLvaParams(p) {
+  return payrollIsLavega(p) || payrollIsMonorriel(p);
 }
 
 /** Columnas editor/impresión exclusivas de nómina oficina. */
@@ -1215,7 +1279,7 @@ function generateOfficePayroll() {
     if (key) prevByName.set(key, l);
   });
   const isOffice = group === "oficina";
-  const isLavega = group === "lavega";
+  const isLavega = group === "lavega" || group === "monorriel";
   let lines;
   if (group === "general") {
     const kept = (existing && existing.lines ? existing.lines : []).map((l) =>
@@ -1303,7 +1367,7 @@ function readPayrollLinesFromDom(payrollId) {
       return el ? el.value : "";
     };
     const isOffice = payrollIsOffice(p);
-    const isLavega = payrollIsLavega(p);
+    const isLavega = payrollUsesLvaParams(p);
     const ur = isOffice ? { uniformes: 0, rifa: 0 } : parseUnifRifa(g("unifRifa"), prev);
     const showFer = !isOffice && payrollShowsFeriado(p);
     const rifaVal = isOffice
@@ -1352,7 +1416,7 @@ function recalculateOpenPayroll(save = false) {
   if (!lines) return;
   // Recalcular: La Vega desde días+sueldo; Oficina = sueldo/2 + SFS fijo
   const office = payrollIsOffice(p);
-  const lavega = payrollIsLavega(p);
+  const lavega = payrollUsesLvaParams(p);
   p.lines = lines.map((l) =>
     computePayrollLineTotals(
       {
@@ -1437,7 +1501,7 @@ function payrollShowsFeriado(p) {
 
 function getPayrollEditorCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_TABLE_COLS;
-  const lavega = payrollIsLavega(p);
+  const lavega = payrollUsesLvaParams(p);
   return PAYROLL_TABLE_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
@@ -1449,7 +1513,7 @@ function getPayrollEditorCols(p) {
 
 function getPayrollPrintCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_PRINT_COLS;
-  const lavega = payrollIsLavega(p);
+  const lavega = payrollUsesLvaParams(p);
   return PAYROLL_PRINT_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
@@ -1596,7 +1660,7 @@ function syncOpenPayrollFromDom(recalc = false) {
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return p;
   const office = payrollIsOffice(p);
-  const lavega = payrollIsLavega(p);
+  const lavega = payrollUsesLvaParams(p);
   p.lines = lines.map((l) =>
     computePayrollLineTotals(
       recalc
@@ -1664,7 +1728,7 @@ function addBlankPayrollRows() {
     p.lines.push(
       normalizePayrollLine(emptyPayrollLine(blankOpts), {
         office: payrollIsOffice(p),
-        lavega: payrollIsLavega(p),
+        lavega: payrollUsesLvaParams(p),
       })
     );
   }
@@ -1687,7 +1751,7 @@ function payrollShareCaption(p) {
 function buildPayrollPrintHtml(p) {
   const cols = getPayrollPrintCols(p);
   const isOffice = payrollIsOffice(p);
-  const isLavega = payrollIsLavega(p);
+  const isLavega = payrollUsesLvaParams(p);
   const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
     // Migrar uniforme viejo 215 → 115 (salvo que ya lo hayan cambiado a otro valor)
     let uniformes = Number(l.uniformes) || 0;
@@ -1912,7 +1976,7 @@ function togglePayrollFeriado() {
     p.lines = (p.lines || []).map((l) =>
       computePayrollLineTotals(
         { ...l, feriado: 0 },
-        { office: payrollIsOffice(p), lavega: payrollIsLavega(p) }
+        { office: payrollIsOffice(p), lavega: payrollUsesLvaParams(p) }
       )
     );
   }
@@ -1959,7 +2023,7 @@ async function buildPayrollPdfBlob(p) {
   const paper = getPayrollPaperForExport(p);
   const fmt = paper === "letter" ? "letter" : "legal";
   const isOffice = payrollIsOffice(p);
-  const isLavega = payrollIsLavega(p);
+  const isLavega = payrollUsesLvaParams(p);
   // Ancho del lienzo ≈ hoja horizontal (Carta ~1056px @96dpi; Legal más ancha)
   const canvasW = fmt === "legal" ? 1340 : isOffice ? 1020 : 1100;
   const caption = payrollShareCaption(p);
@@ -2045,7 +2109,7 @@ function printOpenPayrollSheet() {
   const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
   const isOffice = payrollIsOffice(p);
-  const isLavega = payrollIsLavega(p);
+  const isLavega = payrollUsesLvaParams(p);
   if (typeof openPrintWindow !== "function") {
     downloadOpenPayrollPdf().catch(() => toast("No se pudo abrir la impresión."));
     return;
@@ -2198,7 +2262,7 @@ function updatePayrollReadonlyDom(p) {
     incentivos: sumPayrollField(lines, "incentivos"),
     horasExtras: sumPayrollField(lines, "horasExtras"),
     feriado: sumPayrollField(lines, "feriado"),
-    almuerzo: payrollIsLavega(p)
+    almuerzo: payrollUsesLvaParams(p)
       ? roundMoney2(payrollLinesForTotals(lines).reduce((acc, l) => acc + almuerzoSvdaAmount(l), 0))
       : sumPayrollField(lines, "almuerzo"),
     rifa: sumPayrollField(lines, "rifa"),
@@ -2245,7 +2309,7 @@ function applyPayrollLiveUpdate(ev) {
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return;
   const office = payrollIsOffice(p);
-  const lavega = payrollIsLavega(p);
+  const lavega = payrollUsesLvaParams(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
   p.lines = lines.map((l, i) => {
     if (forceBase && i === idx) {
@@ -2453,8 +2517,8 @@ function renderNominaTab() {
       saveContabilidadData(true);
     }
   }
-  // La Vega: nombre corto + uniforme 215→115; comida editable + SVDA 90 aparte
-  if (payrollIsLavega(p)) {
+  // La Vega / Monorriel: nombre corto + uniforme 215→115; comida editable + SVDA 90
+  if (payrollUsesLvaParams(p)) {
     const staffById = new Map();
     try {
       getLvaStaffForPayroll().forEach((s) => {
@@ -2517,7 +2581,7 @@ function renderNominaTab() {
     incentivos: sumPayrollField(lines, "incentivos"),
     horasExtras: sumPayrollField(lines, "horasExtras"),
     feriado: sumPayrollField(lines, "feriado"),
-    almuerzo: payrollIsLavega(p)
+    almuerzo: payrollUsesLvaParams(p)
       ? roundMoney2(payrollLinesForTotals(lines).reduce((acc, l) => acc + almuerzoSvdaAmount(l), 0))
       : sumPayrollField(lines, "almuerzo"),
     rifa: sumPayrollField(lines, "rifa"),
@@ -2621,8 +2685,8 @@ function renderNominaTab() {
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85.${
-        payrollIsLavega(p)
-          ? ` Almuerzo/SVDA = comida (editable) + SVDA fijo RD$ ${LVA_PAYROLL_SVDA}; ambas suman.`
+        payrollUsesLvaParams(p)
+          ? ` Unif/Rifa · Almuerzo/SVDA = comida (editable) + SVDA fijo RD$ ${LVA_PAYROLL_SVDA}; nombre corto.`
           : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `

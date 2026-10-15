@@ -1,4 +1,4 @@
-/** Plantilla fija del servicio Monorriel (puestos + personal base AM/PM) */
+/** Plantilla fija del servicio Monorriel (puestos + personal base AM/PM + nómina) */
 window.RFS_MONORRIEL = {
   posts: [
     { id: "m01", no: 1, location: "Estación 01", position: "Ascensor" },
@@ -30,58 +30,441 @@ window.RFS_MONORRIEL = {
     { id: "m27", no: 27, location: "Estación 12", position: "Escalera" },
     { id: "m28", no: 28, location: "Estación 12", position: "Ascensor" },
   ],
-  /** Personal base turno diurno (AM) — se importa a empleados como "(Monorriel)" */
+  /**
+   * Nómina Monorriel (Excel NOMINA_MONO · 16-30 sep 2026).
+   * Mismos parámetros que La Vega Autopista: Unif/Rifa, Almuerzo/SVDA (comida+90), nombre corto.
+   */
+  payrollRoster: [
+    {
+      "name": "ALEXIS BIENVENIDO PERALTA",
+      "position": "COMEDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FRANCISCO ANT CERDA",
+      "position": "ESTACION 4",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JESUS MARIA MATA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JOSE LUIS AQUINO",
+      "position": "LOTE 8",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JUAN BAEZ",
+      "position": "ESTACION 3",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JOSE TINEO",
+      "position": "ESTACION 7",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "RAFAEL CRUZ CRUZ",
+      "position": "ESTACION 1",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "RAFAEL RODRIGUEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 38000
+    },
+    {
+      "name": "SEVERO GARCIA",
+      "position": "MOTO",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ONELIO QUEZADA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "WILLY ESTEVEZ",
+      "position": "MOTO",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ANTONIO ROSIS",
+      "position": "POR FUERA",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ALEXI MERCADO",
+      "position": "ESTACION 12",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ALCELMO REYES",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "CARLOS PERALTA JERES",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FERNANDO PIERRE",
+      "position": "ESTACION 4",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FRANCISCO LUCIANO CONTRERAS",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FRANCISCO MARTINEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FRANCISCO MERAN",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "HENYORY POLANCO",
+      "position": "ESTACION 2",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "HILARIO ENRRIQUEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JEUDY RODRIGUEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JOSE MANUEL MINAYA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JOSE RAMON ANT RODRIGUEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JUAN CARLOS CONTRERAS",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JUAN CARLOS TAVARES",
+      "position": "ESTACION 12",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JUAN CARLOS GONZALEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "LINO RAMON PAULINO",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "LUCIO CONTRERA ALCANTARA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "MARIO JOSE GONZALEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "MANUEL LORENZO",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "RAMON UREÑA",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ROMAN ROSARIO",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "RAMON NUÑEZ",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ROBERT SUERO",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "SANDY ZAPATA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "WILIAM RODRIGUEZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ONELKI DELGADO",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "YNOCENCIO CONTRERA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "WILLY MERCADO",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ARIEL AQUILES DOMINGUEZ",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "AQUILES GARCIA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "BENITO RAMIREZ",
+      "position": "ESTACION 5",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "CARLOS MANUEL TORIBIO",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "DANIEL PEREZ DIAZ",
+      "position": "RAYO 2",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ENMANUEL MARTINEZ",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FAUSTO MARTINEZ",
+      "position": "ESTACION 6",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FELIZ MARIA ESTEVEZ",
+      "position": "ESTACION 3",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FRANCISCO PEÑA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FERNANDO CONTRERAS",
+      "position": "ESTACION 3",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FERNANDO SANTOS",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "FELLO GARCIA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "GILBERTO GARCIA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "HECTOR LOPEZ",
+      "position": "LOTE 8",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "HECTOR FELIX",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JUNIOR DE JESUS TAVAREZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JORGE TEJADA",
+      "position": "MOTO",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JOSE ANTONIO BELTRE",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "JIMMI DE AZA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "LEONARDO VASQUEZ",
+      "position": "ESTACION 12",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "LINO ANT FERNANDEZ",
+      "position": "ESTACION 4",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "MARIO PEÑA",
+      "position": "PONCHE",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "MARINO PEÑA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "MANUEL PEÑA",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ROBERTO FERREIRA",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "ROBERTICO DIAZ",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "SANTO SANTOS AYBAR",
+      "position": "ESTACION 1",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "SANTO RAFAEL SANTOS",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "VICTOR CONTRERAS",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "WARLYN CASTILLO",
+      "position": "Monorriel",
+      "salaryMonthly": 24000
+    },
+    {
+      "name": "YORDY REYES",
+      "position": "CUBRIDOR",
+      "salaryMonthly": 24000
+    }
+  ],
+  /** Personal base (importa a Empleados como "(Monorriel)") — lista unificada desde Excel nómina */
   staffAm: [
-    "HECTOR LOPEZ",
-    "JIMMY DE AZA",
-    "ROBERTO FERREIRA",
-    "MANUEL PEÑA",
-    "FERNANDO CONTRERA",
-    "FELIX MARIA ESTEVEZ",
-    "TEODORO PEÑA",
-    "SANTOS SANTOS AYBAR",
-    "OSIRIS CONTRERA",
-    "BENITO RAMIREZ",
-    "JOSE MIGUEL ABREU",
-    "FAUSTO MARTINEZ",
-    "MARIANO BURGOS",
-    "FELLO GARCIA",
-    "ENMANUEL MARTINEZ",
-    "GILBERTO GARCIA",
-    "ODANNY GARCIA",
-    "FERNANDO SANTOS",
-    "MARIO PEÑA",
-    "ALEXIS PERALTA",
-    "NARCISO ESTRELLA",
-    "DANIEL PEREZ DIAZ",
-    "LINO ANTONIO FERNANDEZ",
-    "JORGE TEJADA",
-    "JUNIOR TAVAREZ",
-    "ROBERTICO DIAZ",
-  ],
-  /** Personal base turno nocturno (PM) */
-  staffPm: [
-    "FRANCISCO MERAN",
-    "ANEUDY GARCIA",
-    "ROMAN ROSARIO",
-    "RAMON UREÑA",
-    "JUAN BAEZ",
-    "FRANCISCO CARRASCO",
-    "FRANCISCO ANTONIO CERDA",
-    "CARLOS PERALTA",
-    "FERNANDO PIERRE",
-    "JOSE RAMON RODRIGUEZ",
-    "ANTONIO ROSSIS",
-    "ROBINSON JOSUE LOPEZ",
-    "MIGUEL ALEJANDRO",
+    "ALEXIS BIENVENIDO PERALTA",
+    "FRANCISCO ANT CERDA",
     "JESUS MARIA MATA",
-    "JEUDY RODRIGUEZ",
-    "MANUEL LORENZO",
-    "ANSELMO REYES",
-    "FRANCISCO LUCIANO CONTRERA",
-    "WILLIAM RODRIGUEZ",
-    "HENYORI POLANCO",
+    "JOSE LUIS AQUINO",
+    "JUAN BAEZ",
+    "JOSE TINEO",
+    "RAFAEL CRUZ CRUZ",
+    "RAFAEL RODRIGUEZ",
+    "SEVERO GARCIA",
+    "ONELIO QUEZADA",
     "WILLY ESTEVEZ",
-    "CRIS ANDERSON",
+    "ANTONIO ROSIS",
+    "ALEXI MERCADO",
+    "ALCELMO REYES",
+    "CARLOS PERALTA JERES",
+    "FERNANDO PIERRE",
+    "FRANCISCO LUCIANO CONTRERAS",
+    "FRANCISCO MARTINEZ",
+    "FRANCISCO MERAN",
+    "HENYORY POLANCO",
+    "HILARIO ENRRIQUEZ",
+    "JEUDY RODRIGUEZ",
+    "JOSE MANUEL MINAYA",
+    "JOSE RAMON ANT RODRIGUEZ",
+    "JUAN CARLOS CONTRERAS",
+    "JUAN CARLOS TAVARES",
+    "JUAN CARLOS GONZALEZ",
+    "LINO RAMON PAULINO",
+    "LUCIO CONTRERA ALCANTARA",
+    "MARIO JOSE GONZALEZ",
+    "MANUEL LORENZO",
+    "RAMON UREÑA",
+    "ROMAN ROSARIO",
+    "RAMON NUÑEZ",
+    "ROBERT SUERO",
+    "SANDY ZAPATA",
+    "WILIAM RODRIGUEZ",
+    "ONELKI DELGADO",
+    "YNOCENCIO CONTRERA",
+    "WILLY MERCADO",
+    "ARIEL AQUILES DOMINGUEZ",
+    "AQUILES GARCIA",
+    "BENITO RAMIREZ",
+    "CARLOS MANUEL TORIBIO",
+    "DANIEL PEREZ DIAZ",
+    "ENMANUEL MARTINEZ",
+    "FAUSTO MARTINEZ",
+    "FELIZ MARIA ESTEVEZ",
+    "FRANCISCO PEÑA",
+    "FERNANDO CONTRERAS",
+    "FERNANDO SANTOS",
+    "FELLO GARCIA",
+    "GILBERTO GARCIA",
+    "HECTOR LOPEZ",
+    "HECTOR FELIX",
+    "JUNIOR DE JESUS TAVAREZ",
+    "JORGE TEJADA",
+    "JOSE ANTONIO BELTRE",
+    "JIMMI DE AZA",
+    "LEONARDO VASQUEZ",
+    "LINO ANT FERNANDEZ",
+    "MARIO PEÑA",
+    "MARINO PEÑA",
+    "MANUEL PEÑA",
+    "ROBERTO FERREIRA",
+    "ROBERTICO DIAZ",
+    "SANTO SANTOS AYBAR",
+    "SANTO RAFAEL SANTOS",
+    "VICTOR CONTRERAS",
+    "WARLYN CASTILLO",
+    "YORDY REYES"
   ],
+  /** Compat: lista PM vacía; el roster unificado está en staffAm / payrollRoster */
+  staffPm: [],
 };
