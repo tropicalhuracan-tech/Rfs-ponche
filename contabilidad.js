@@ -198,6 +198,8 @@ const LVA_PAYROLL_UNIFORMES = 115;
 const LVA_PAYROLL_RIFA = 85;
 const LVA_PAYROLL_SFS_RATE = 0.0591; // ~SFS/SVDS observado en nómina Excel
 const LVA_PAYROLL_DAY_BASE = 26;
+/** Seguro de vida (SVDA): descuento fijo La Vega Autopista; columna Almuerzo/SVDA no editable. */
+const LVA_PAYROLL_SVDA = 90;
 /** Nómina oficina: SFS fijo; quincena = sueldo mensual / 2 (días no influyen). */
 const OFFICE_PAYROLL_SFS = 800;
 const OFFICE_PAYROLL_RIFA = 85;
@@ -223,6 +225,7 @@ function parsePayrollDays(raw) {
 
 function computePayrollLineTotals(line, opts = {}) {
   const office = !!(opts && opts.office);
+  const lavega = !!(opts && opts.lavega);
   const salaryMonthly = Math.max(0, Number(line.salaryMonthly) || 0);
   const daysInfo = parsePayrollDays(line.daysWorked);
   let salaryQuincena = Math.max(0, Number(line.salaryQuincena) || 0);
@@ -236,10 +239,10 @@ function computePayrollLineTotals(line, opts = {}) {
   let rifa = Math.max(0, Number(line.rifa) || 0);
   const adelantos = Math.max(0, Number(line.adelantos) || 0);
   const prestamos = Math.max(0, Number(line.prestamos) || 0);
+  const hasName = !!String(line.fullName || "").trim();
 
   if (office) {
     // Oficina: quincena = mitad del sueldo; días no influyen. SFS fijo. Sin unif/volao/comida/feriado/extras.
-    const hasName = !!String(line.fullName || "").trim();
     salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
     sfs = hasName ? OFFICE_PAYROLL_SFS : 0;
     uniformes = 0;
@@ -253,9 +256,11 @@ function computePayrollLineTotals(line, opts = {}) {
       salaryQuincena = roundMoney2((salaryMonthly * daysInfo.days) / LVA_PAYROLL_DAY_BASE);
     }
     if (!sfs && salaryQuincena) sfs = roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE);
+    // La Vega Autopista: Almuerzo/SVDA = seguro de vida fijo RD$ 90 (no editable)
+    if (lavega) almuerzo = hasName ? LVA_PAYROLL_SVDA : 0;
   }
 
-  // Restan: SFS/SVDS, uniformes, almuerzo/cena, rifa, adelantos, descuento préstamos
+  // Restan: SFS/SVDS, uniformes, almuerzo/SVDA, rifa, adelantos, descuento préstamos
   const totalDescuentos = roundMoney2(sfs + uniformes + almuerzo + rifa + adelantos + prestamos);
   // Suman al quincenal: volaos, incentivos, horas extras, feriado
   const totalCobrar = roundMoney2(salaryQuincena + volaos + incentivos + horasExtras + feriado);
@@ -292,11 +297,15 @@ function computePayrollLineTotals(line, opts = {}) {
 }
 
 function computePayrollLineTotalsForPayroll(p, line) {
-  return computePayrollLineTotals(line, { office: payrollIsOffice(p) });
+  return computePayrollLineTotals(line, {
+    office: payrollIsOffice(p),
+    lavega: payrollIsLavega(p),
+  });
 }
 
 function normalizePayrollLine(l = {}, opts = {}) {
   const office = !!(opts && opts.office);
+  const lavega = !!(opts && opts.lavega);
   const base = {
     employeeId: l.employeeId || "",
     fullName: String(l.fullName || "").trim(),
@@ -341,7 +350,7 @@ function normalizePayrollLine(l = {}, opts = {}) {
     (base.daysWorked && base.salaryMonthly) ||
     (office && base.salaryMonthly);
   if (hasExcelShape || base.salaryMonthly) {
-    return computePayrollLineTotals(base, { office });
+    return computePayrollLineTotals(base, { office, lavega });
   }
   const salary = base.salary || base.salaryMonthly;
   const other = base.other;
@@ -365,6 +374,7 @@ function normalizePayroll(p = {}) {
     ? p.group
     : p.group || "lavega";
   const office = group === "oficina";
+  const lavega = group === "lavega";
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -373,7 +383,7 @@ function normalizePayroll(p = {}) {
     payDate,
     status,
     showFeriado: office ? false : p.showFeriado === true,
-    lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, { office })) : [],
+    lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, { office, lavega })) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
     createdAt: p.createdAt || new Date().toISOString(),
@@ -1029,6 +1039,13 @@ function payrollIsOffice(p) {
   return !!(p && p.group === "oficina");
 }
 
+function payrollIsLavega(p) {
+  if (!p) return false;
+  if (p.group === "lavega") return true;
+  if (!p.group && String(p.note || "").toLowerCase().includes("vega")) return true;
+  return false;
+}
+
 /** Columnas editor/impresión exclusivas de nómina oficina. */
 const PAYROLL_OFFICE_TABLE_COLS = [
   ["fullName", "Nombre", "name"],
@@ -1064,6 +1081,7 @@ const PAYROLL_OFFICE_PRINT_COLS = [
 function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {}) {
   const opts = options && typeof options === "object" ? options : {};
   const isOffice = !!opts.office;
+  const isLavega = !!opts.lavega;
   const rawName = String(person.name || person.fullName || "").trim();
   // Oficina y La Vega: un nombre + un apellido (compacto para Carta horizontal).
   const baseName = payrollShortEmployeeName(rawName) || payrollCleanEmployeeName(rawName) || rawName;
@@ -1101,7 +1119,7 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
       incentivos: prevLine.incentivos || 0,
       horasExtras: isOffice ? 0 : prevLine.horasExtras || 0,
       feriado: isOffice ? 0 : prevLine.feriado || 0,
-      almuerzo: isOffice ? 0 : prevLine.almuerzo || 0,
+      almuerzo: isOffice ? 0 : isLavega ? LVA_PAYROLL_SVDA : prevLine.almuerzo || 0,
       rifa: isOffice
         ? prevLine.rifa != null && Number.isFinite(prevRifa)
           ? Math.max(0, prevRifa)
@@ -1111,7 +1129,7 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
       prestamos: prevLine.prestamos || 0,
       note: prevLine.note || "",
     },
-    { office: isOffice }
+    { office: isOffice, lavega: isLavega }
   );
 }
 
@@ -1192,6 +1210,7 @@ function generateOfficePayroll() {
     if (key) prevByName.set(key, l);
   });
   const isOffice = group === "oficina";
+  const isLavega = group === "lavega";
   let lines;
   if (group === "general") {
     const kept = (existing && existing.lines ? existing.lines : []).map((l) =>
@@ -1204,7 +1223,7 @@ function generateOfficePayroll() {
         prevById.get(s.employeeId) ||
         prevById.get(s.id) ||
         prevByName.get(String(s.name || "").trim().toLowerCase());
-      return buildPayrollLineFromPerson(s, prev, meta.label, { office: isOffice });
+      return buildPayrollLineFromPerson(s, prev, meta.label, { office: isOffice, lavega: isLavega });
     });
   }
   const payroll = normalizePayroll({
@@ -1279,6 +1298,7 @@ function readPayrollLinesFromDom(payrollId) {
       return el ? el.value : "";
     };
     const isOffice = payrollIsOffice(p);
+    const isLavega = payrollIsLavega(p);
     const ur = isOffice ? { uniformes: 0, rifa: 0 } : parseUnifRifa(g("unifRifa"), prev);
     const showFer = !isOffice && payrollShowsFeriado(p);
     const rifaVal = isOffice
@@ -1303,11 +1323,11 @@ function readPayrollLinesFromDom(payrollId) {
         incentivos: g("incentivos"),
         horasExtras: isOffice ? 0 : g("horasExtras"),
         feriado: showFer ? g("feriado") : 0,
-        almuerzo: isOffice ? 0 : g("almuerzo"),
+        almuerzo: isOffice ? 0 : isLavega ? LVA_PAYROLL_SVDA : g("almuerzo"),
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
       },
-      { office: isOffice }
+      { office: isOffice, lavega: isLavega }
     );
   });
   return lines;
@@ -1323,6 +1343,7 @@ function recalculateOpenPayroll(save = false) {
   if (!lines) return;
   // Recalcular: La Vega desde días+sueldo; Oficina = sueldo/2 + SFS fijo
   const office = payrollIsOffice(p);
+  const lavega = payrollIsLavega(p);
   p.lines = lines.map((l) =>
     computePayrollLineTotals(
       {
@@ -1330,7 +1351,7 @@ function recalculateOpenPayroll(save = false) {
         salaryQuincena: 0,
         sfs: office ? OFFICE_PAYROLL_SFS : 0,
       },
-      { office }
+      { office, lavega }
     )
   );
   p.updatedAt = new Date().toISOString();
@@ -1407,17 +1428,25 @@ function payrollShowsFeriado(p) {
 
 function getPayrollEditorCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_TABLE_COLS;
+  const lavega = payrollIsLavega(p);
   return PAYROLL_TABLE_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
+  }).map(([key, label, kind]) => {
+    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "ro"];
+    return [key, label, kind];
   });
 }
 
 function getPayrollPrintCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_PRINT_COLS;
+  const lavega = payrollIsLavega(p);
   return PAYROLL_PRINT_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
+  }).map(([key, label, kind]) => {
+    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "ro"];
+    return [key, label, kind];
   });
 }
 
@@ -1530,6 +1559,7 @@ function syncOpenPayrollFromDom(recalc = false) {
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return p;
   const office = payrollIsOffice(p);
+  const lavega = payrollIsLavega(p);
   p.lines = lines.map((l) =>
     computePayrollLineTotals(
       recalc
@@ -1539,7 +1569,7 @@ function syncOpenPayrollFromDom(recalc = false) {
             sfs: office ? OFFICE_PAYROLL_SFS : 0,
           }
         : l,
-      { office }
+      { office, lavega }
     )
   );
   p.updatedAt = new Date().toISOString();
@@ -1595,7 +1625,10 @@ function addBlankPayrollRows() {
     : {};
   for (let i = 0; i < n; i += 1) {
     p.lines.push(
-      normalizePayrollLine(emptyPayrollLine(blankOpts), { office: payrollIsOffice(p) })
+      normalizePayrollLine(emptyPayrollLine(blankOpts), {
+        office: payrollIsOffice(p),
+        lavega: payrollIsLavega(p),
+      })
     );
   }
   p.updatedAt = new Date().toISOString();
@@ -1617,6 +1650,7 @@ function payrollShareCaption(p) {
 function buildPayrollPrintHtml(p) {
   const cols = getPayrollPrintCols(p);
   const isOffice = payrollIsOffice(p);
+  const isLavega = payrollIsLavega(p);
   const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
     // Migrar uniforme viejo 215 → 115 (salvo que ya lo hayan cambiado a otro valor)
     let uniformes = Number(l.uniformes) || 0;
@@ -1628,16 +1662,16 @@ function buildPayrollPrintHtml(p) {
       uniformes,
       rifa: isOffice ? Number(l.rifa) || OFFICE_PAYROLL_RIFA : Number(l.rifa) || LVA_PAYROLL_RIFA,
       volaos: isOffice ? 0 : l.volaos,
-      almuerzo: isOffice ? 0 : l.almuerzo,
+      almuerzo: isOffice ? 0 : isLavega ? LVA_PAYROLL_SVDA : l.almuerzo,
       feriado: isOffice ? 0 : l.feriado,
       horasExtras: isOffice ? 0 : l.horasExtras,
       daysWorked: isOffice ? "" : l.daysWorked,
       salaryQuincena: isOffice ? 0 : l.salaryQuincena,
       sfs: isOffice ? OFFICE_PAYROLL_SFS : l.sfs,
     };
-    const computed = computePayrollLineTotals(named, { office: isOffice });
+    const computed = computePayrollLineTotals(named, { office: isOffice, lavega: isLavega });
     if (!payrollShowsFeriado(p) && Number(computed.feriado)) {
-      return computePayrollLineTotals({ ...computed, feriado: 0 }, { office: isOffice });
+      return computePayrollLineTotals({ ...computed, feriado: 0 }, { office: isOffice, lavega: isLavega });
     }
     return computed;
   });
@@ -1726,7 +1760,9 @@ function buildPayrollPrintHtml(p) {
       <div><strong>Total redondeo:</strong> ${escapeHtml(moneyPlain(totals.redondeo || 0))}</div>
       ${payrollShowsFeriado(p) ? "<div><strong>Feriado:</strong> activo</div>" : ""}
     </div>
-    <table class="nomina-print${isOffice ? " nomina-print-office" : ""}">
+    <table class="nomina-print${isOffice ? " nomina-print-office" : ""}${
+      isLavega ? " nomina-print-lavega" : ""
+    }">
       <thead><tr>${head}</tr></thead>
       <tbody>${body || `<tr><td colspan="${cols.length}">Sin líneas</td></tr>`}</tbody>
       <tfoot><tr>${totalRow}</tr></tfoot>
@@ -1743,6 +1779,8 @@ function buildPayrollPrintHtml(p) {
 function payrollPrintCss(paperSize, options = {}) {
   const paper = paperSize === "letter" ? "letter" : "legal";
   const office = !!(options && options.office);
+  const lavega = !!(options && options.lavega);
+  const colored = office || lavega;
   // Keyword landscape evita hoja en blanco / orientación mal interpretada en Chrome
   const page =
     paper === "letter"
@@ -1760,14 +1798,14 @@ function payrollPrintCss(paperSize, options = {}) {
     body.print-nomina h2{font-size:${office ? "14px" : "13px"};margin:0 0 4px;font-weight:900;text-align:center;color:#111}
     #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch;background:#fff;color:#111}
     #rfsPrintRoot > .footer{text-align:center;align-self:center}
-    table.nomina-print{width:${office ? "100%" : "auto"};max-width:100%;border-collapse:collapse;table-layout:${
-      office ? "auto" : "auto"
-    };font-size:${office ? "11.5px" : "11.5px"};margin:0 auto}
+    table.nomina-print{width:${office ? "100%" : "auto"};max-width:100%;border-collapse:collapse;table-layout:auto;font-size:${
+      office ? "11.5px" : "11.5px"
+    };margin:0 auto}
     table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:${
       office ? "4px 5px" : "2px 4px"
     };vertical-align:middle}
-    table.nomina-print th{background:${office ? "#b71c1c" : "#e8e8e8"};color:${
-      office ? "#fff" : "#000"
+    table.nomina-print th{background:${colored ? "#b71c1c" : "#e8e8e8"};color:${
+      colored ? "#fff" : "#000"
     };font-weight:900;font-size:${office ? "11px" : "11px"};line-height:1.15;white-space:nowrap;letter-spacing:0.01em}
     table.nomina-print td{white-space:nowrap;padding:${office ? "4px 5px" : "2px 4px"}}
     table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:${
@@ -1775,14 +1813,18 @@ function payrollPrintCss(paperSize, options = {}) {
     };max-width:11em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap !important;word-break:normal}
     table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right}
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
-    table.nomina-print tfoot td{background:${office ? "#ffe082" : "#efefef"};font-weight:900}
+    table.nomina-print tfoot td{background:${colored ? "#ffe082" : "#efefef"};font-weight:900}
     table.nomina-print tfoot td.col-redondeo-total{font-size:${office ? "12px" : "11.5px"}}
     table.nomina-print-office{width:100% !important}
-    table.nomina-print-office tbody tr:nth-child(even) td{background:#f3f3f3}
-    table.nomina-print-office tbody tr:nth-child(odd) td{background:#ffffff}
-    table.nomina-print-office tbody tr:nth-child(even) td.col-name{background:#eceff1}
-    table.nomina-print-office td.col-name{color:#0d47a1;font-weight:800}
-    .meta{font-size:${office ? "11px" : "11px"};display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+    table.nomina-print-office tbody tr:nth-child(even) td,
+    table.nomina-print-lavega tbody tr:nth-child(even) td{background:#f3f3f3}
+    table.nomina-print-office tbody tr:nth-child(odd) td,
+    table.nomina-print-lavega tbody tr:nth-child(odd) td{background:#ffffff}
+    table.nomina-print-office tbody tr:nth-child(even) td.col-name,
+    table.nomina-print-lavega tbody tr:nth-child(even) td.col-name{background:#eceff1}
+    table.nomina-print-office td.col-name,
+    table.nomina-print-lavega td.col-name{color:#0d47a1;font-weight:800}
+    .meta{font-size:11px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
     .sign-box{margin-top:${office ? "16px" : "12px"};display:grid;grid-template-columns:1fr 1fr;gap:18px;width:${
       office ? "min(100%,640px)" : "min(100%,520px)"
     };align-self:center;margin-left:auto;margin-right:auto}
@@ -1818,7 +1860,12 @@ function togglePayrollFeriado() {
   }
   p.showFeriado = !p.showFeriado;
   if (!p.showFeriado) {
-    p.lines = (p.lines || []).map((l) => computePayrollLineTotals({ ...l, feriado: 0 }));
+    p.lines = (p.lines || []).map((l) =>
+      computePayrollLineTotals(
+        { ...l, feriado: 0 },
+        { office: payrollIsOffice(p), lavega: payrollIsLavega(p) }
+      )
+    );
   }
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
@@ -1863,6 +1910,7 @@ async function buildPayrollPdfBlob(p) {
   const paper = getPayrollPaperForExport(p);
   const fmt = paper === "letter" ? "letter" : "legal";
   const isOffice = payrollIsOffice(p);
+  const isLavega = payrollIsLavega(p);
   // Ancho del lienzo ≈ hoja horizontal (Carta ~1056px @96dpi; Legal más ancha)
   const canvasW = fmt === "legal" ? 1340 : isOffice ? 1020 : 1100;
   const caption = payrollShareCaption(p);
@@ -1882,7 +1930,7 @@ async function buildPayrollPdfBlob(p) {
     isOffice ? "13px" : "12px"
   };line-height:1.25;z-index:2147483000;pointer-events:none;`;
   host.innerHTML = `
-    <style>${payrollPrintCss(paper, { office: isOffice })}
+    <style>${payrollPrintCss(paper, { office: isOffice, lavega: isLavega })}
       [data-rfs-payroll-pdf] #rfsPdfInner{width:100%;box-sizing:border-box}
       [data-rfs-payroll-pdf] table.nomina-print{width:100% !important;max-width:100%}
       [data-rfs-payroll-pdf] .brand{justify-content:center;margin:0 auto 10px}
@@ -1948,6 +1996,7 @@ function printOpenPayrollSheet() {
   const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
   const isOffice = payrollIsOffice(p);
+  const isLavega = payrollIsLavega(p);
   if (typeof openPrintWindow !== "function") {
     downloadOpenPayrollPdf().catch(() => toast("No se pudo abrir la impresión."));
     return;
@@ -1960,7 +2009,7 @@ function printOpenPayrollSheet() {
     pdfOrientation: "landscape",
     wide: true,
     autoPrint: false,
-    extraCss: payrollPrintCss(paper, { office: isOffice }),
+    extraCss: payrollPrintCss(paper, { office: isOffice, lavega: isLavega }),
     share: {
       text: caption,
       subject: caption,
@@ -2143,15 +2192,16 @@ function applyPayrollLiveUpdate(ev) {
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return;
   const office = payrollIsOffice(p);
+  const lavega = payrollIsLavega(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
   p.lines = lines.map((l, i) => {
     if (forceBase && i === idx) {
       return computePayrollLineTotals(
         { ...l, salaryQuincena: 0, sfs: office ? OFFICE_PAYROLL_SFS : 0 },
-        { office }
+        { office, lavega }
       );
     }
-    return computePayrollLineTotals(l, { office });
+    return computePayrollLineTotals(l, { office, lavega });
   });
   p.updatedAt = new Date().toISOString();
   updatePayrollReadonlyDom(p);
@@ -2350,8 +2400,8 @@ function renderNominaTab() {
       saveContabilidadData(true);
     }
   }
-  // Nombre corto + migrar uniforme 215→115 si aún está el valor viejo
-  if (p.group === "lavega" || String(p.note || "").toLowerCase().includes("vega")) {
+  // La Vega: nombre corto + uniforme 215→115 + SVDA fijo 90 en Almuerzo/SVDA
+  if (payrollIsLavega(p)) {
     const staffById = new Map();
     try {
       getLvaStaffForPayroll().forEach((s) => {
@@ -2366,17 +2416,23 @@ function renderNominaTab() {
       const short = staff
         ? payrollShortEmployeeName(staff.name)
         : payrollShortEmployeeName(l.fullName);
+      const hasName = !!(short || String(l.fullName || "").trim());
+      const wantSvda = hasName ? LVA_PAYROLL_SVDA : 0;
       if (short && short !== String(l.fullName || "").trim()) {
         cleaned = true;
         next = { ...next, fullName: short };
       }
-      if (Number(next.uniformes) === 215) {
+      if (Number(next.uniformes) === 215 || Number(next.almuerzo) !== wantSvda) {
         cleaned = true;
-        next = computePayrollLineTotals({
-          ...next,
-          uniformes: LVA_PAYROLL_UNIFORMES,
-          rifa: Number(next.rifa) || LVA_PAYROLL_RIFA,
-        });
+        next = computePayrollLineTotals(
+          {
+            ...next,
+            uniformes: Number(next.uniformes) === 215 ? LVA_PAYROLL_UNIFORMES : next.uniformes,
+            rifa: Number(next.rifa) || LVA_PAYROLL_RIFA,
+            almuerzo: wantSvda,
+          },
+          { lavega: true }
+        );
       }
       return next;
     });
@@ -2486,9 +2542,11 @@ function renderNominaTab() {
       } · ${namedCount}/${lines.length} con nombre. Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85. Feriado ${
-        p.showFeriado ? "ON" : "OFF"
-      }. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
+      } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85.${
+        payrollIsLavega(p)
+          ? ` Almuerzo/SVDA fijo RD$ ${LVA_PAYROLL_SVDA} (seguro de vida, no editable).`
+          : ""
+      } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
     <h2>NOMINA REACTION · ${escapeHtml(openMeta.title)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
       monthLabel(p.period).toUpperCase()
