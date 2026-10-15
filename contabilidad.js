@@ -376,11 +376,19 @@ function normalizePayroll(p = {}) {
     payDate = `${period}-${String(day).padStart(2, "0")}`;
   }
   const status = ["draft", "paid", "cancelled"].includes(p.status) ? p.status : "draft";
-  const group = ["oficina", "lavega", "monorriel", "lotedom", "general"].includes(p.group)
+  const group = [
+    "oficina",
+    "lavega",
+    "monorriel",
+    "lotedom",
+    "banco",
+    "efectivo",
+    "general",
+  ].includes(p.group)
     ? p.group
     : p.group || "lavega";
   const office = group === "oficina";
-  const lavega = group === "lavega" || group === "monorriel" || group === "lotedom";
+  const lavega = payrollGroupUsesLvaParams(group);
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -920,8 +928,17 @@ const PAYROLL_GROUP_META = {
   oficina: { label: "Oficina", short: "Oficina", title: "OFICINA" },
   monorriel: { label: "Monorriel", short: "Monorriel", title: "MONORRIEL" },
   lotedom: { label: "LOTEDOM", short: "LOTEDOM", title: "LOTEDOM" },
+  banco: { label: "Reaction Banco", short: "Banco", title: "REACTION BANCO" },
+  efectivo: { label: "Reaction Efectivo", short: "Efectivo", title: "REACTION EFECTIVO" },
   general: { label: "General / Otros", short: "General", title: "GENERAL / OTROS" },
 };
+
+/** Grupos con fórmula La Vega (Unif/Rifa, Almuerzo/SVDA, nombres cortos). */
+const PAYROLL_LVA_GROUPS = ["lavega", "monorriel", "lotedom", "banco", "efectivo"];
+
+function payrollGroupUsesLvaParams(group) {
+  return PAYROLL_LVA_GROUPS.includes(group);
+}
 
 /**
  * Semilla nómina LOTEDOM (PDF Nómina Lotedom · 16-30 sep 2026).
@@ -1216,10 +1233,58 @@ function getMonorrielStaffForPayroll() {
   }
 }
 
+function getReactionPayrollRoster(kind) {
+  try {
+    const data = typeof window !== "undefined" ? window.RFS_REACTION_PAYROLL : null;
+    if (!data) return [];
+    const key = kind === "efectivo" ? "efectivoRoster" : "bancoRoster";
+    return Array.isArray(data[key]) ? data[key] : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function mapReactionRosterToStaff(roster, prefix, defaultPosition) {
+  return (roster || [])
+    .filter((r) => r && String(r.name || "").trim())
+    .map((r, idx) => ({
+      id: r.id || `${prefix}-${idx}`,
+      employeeId: r.employeeId || "",
+      name: String(r.name || "").trim(),
+      cedula: r.cedula || "",
+      salaryMonthly: Math.max(0, Number(r.salaryMonthly) || 0),
+      position: r.position || defaultPosition,
+      daysWorked: r.daysWorked != null ? String(r.daysWorked) : undefined,
+      horasExtras: r.horasExtras,
+      feriado: r.feriado,
+      sfs: r.sfs,
+      adelantos: r.adelantos,
+      prestamos: r.prestamos,
+      volaos: r.volaos,
+      incentivos: r.incentivos,
+      almuerzo: r.almuerzo,
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+}
+
+function getReactionBancoStaffForPayroll() {
+  return mapReactionRosterToStaff(getReactionPayrollRoster("banco"), "banco", "Reaction Banco");
+}
+
+function getReactionEfectivoStaffForPayroll() {
+  return mapReactionRosterToStaff(
+    getReactionPayrollRoster("efectivo"),
+    "efectivo",
+    "Reaction Efectivo"
+  );
+}
+
 function getStaffForPayrollGroup(group) {
   if (group === "oficina") return getOfficeStaffForPayroll();
   if (group === "monorriel") return getMonorrielStaffForPayroll();
   if (group === "lotedom") return getLotedomStaffForPayroll();
+  if (group === "banco") return getReactionBancoStaffForPayroll();
+  if (group === "efectivo") return getReactionEfectivoStaffForPayroll();
   if (group === "general") return [];
   return getLvaStaffForPayroll();
 }
@@ -1270,9 +1335,19 @@ function payrollIsLotedom(p) {
   return !!(p && p.group === "lotedom");
 }
 
-/** La Vega, Monorriel y LOTEDOM: mismas columnas / Unif-Rifa / Almuerzo-SVDA / nombres cortos. */
+function payrollIsBanco(p) {
+  return !!(p && p.group === "banco");
+}
+
+function payrollIsEfectivo(p) {
+  return !!(p && p.group === "efectivo");
+}
+
+/** La Vega, Monorriel, LOTEDOM, Banco y Efectivo: mismas columnas / Unif-Rifa / Almuerzo-SVDA / nombres cortos. */
 function payrollUsesLvaParams(p) {
-  return payrollIsLavega(p) || payrollIsMonorriel(p) || payrollIsLotedom(p);
+  if (!p) return false;
+  if (payrollGroupUsesLvaParams(p.group)) return true;
+  return payrollIsLavega(p);
 }
 
 /** Columnas editor/impresión exclusivas de nómina oficina. */
@@ -1357,11 +1432,11 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
         : prevLine.uniformes != null && Number.isFinite(prevUniformes)
           ? Math.max(0, prevUniformes)
           : LVA_PAYROLL_UNIFORMES,
-      volaos: isOffice ? 0 : prevLine.volaos || 0,
-      incentivos: prevLine.incentivos || 0,
+      volaos: isOffice ? 0 : pickSeedNum(prevLine.volaos, person.volaos, 0),
+      incentivos: pickSeedNum(prevLine.incentivos, person.incentivos, 0),
       horasExtras: isOffice ? 0 : pickSeedNum(prevLine.horasExtras, person.horasExtras, 0),
       feriado: isOffice ? 0 : pickSeedNum(prevLine.feriado, person.feriado, 0),
-      almuerzo: isOffice ? 0 : prevLine.almuerzo || 0,
+      almuerzo: isOffice ? 0 : pickSeedNum(prevLine.almuerzo, person.almuerzo, 0),
       rifa: isOffice
         ? prevLine.rifa != null && Number.isFinite(prevRifa)
           ? Math.max(0, prevRifa)
@@ -1428,7 +1503,11 @@ function generateOfficePayroll() {
           ? "No hay personal activo de Monorriel."
           : group === "lotedom"
             ? "No hay personal activo de LOTEDOM."
-            : "No hay empleados activos en La Vega Autopista."
+            : group === "banco"
+              ? "No hay personal activo de Reaction Banco."
+              : group === "efectivo"
+                ? "No hay personal activo de Reaction Efectivo."
+                : "No hay empleados activos en La Vega Autopista."
     );
     return;
   }
@@ -1454,7 +1533,7 @@ function generateOfficePayroll() {
     if (key) prevByName.set(key, l);
   });
   const isOffice = group === "oficina";
-  const isLavega = group === "lavega" || group === "monorriel" || group === "lotedom";
+  const isLavega = payrollGroupUsesLvaParams(group);
   let lines;
   if (group === "general") {
     const kept = (existing && existing.lines ? existing.lines : []).map((l) =>

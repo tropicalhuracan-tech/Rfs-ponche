@@ -1,28 +1,30 @@
-const CACHE = "rfs-ops-v116";
+const CACHE = "rfs-ops-v117";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=116",
+  "styles.css?v=117",
   "app.js",
-  "app.js?v=116",
+  "app.js?v=117",
   "hr.js",
-  "hr.js?v=116",
+  "hr.js?v=117",
   "depuracion.js",
-  "depuracion.js?v=116",
+  "depuracion.js?v=117",
   "contabilidad.js",
-  "contabilidad.js?v=116",
+  "contabilidad.js?v=117",
   "quotes.js",
-  "quotes.js?v=116",
+  "quotes.js?v=117",
   "cloud.js",
-  "cloud.js?v=116",
+  "cloud.js?v=117",
   "cloud-config.js",
-  "cloud-config.js?v=116",
+  "cloud-config.js?v=117",
   "monorriel-data.js",
-  "monorriel-data.js?v=116",
+  "monorriel-data.js?v=117",
+  "reaction-payroll-data.js",
+  "reaction-payroll-data.js?v=117",
   "manifest.json",
   "logo.jpg",
-  "logo.jpg?v=116",
+  "logo.jpg?v=117",
   "quote-assets/clientes-rfs-1.jpg",
   "quote-assets/clientes-rfs-2.jpg",
   "import-posts.json",
@@ -66,6 +68,7 @@ self.addEventListener("fetch", (event) => {
     path.includes("quote-assets") ||
     path.startsWith("cloud") ||
     path.startsWith("monorriel") ||
+    path.startsWith("reaction") ||
     path.startsWith("sw.js");
   if (isShell) {
     event.respondWith(
