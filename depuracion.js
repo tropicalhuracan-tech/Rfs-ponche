@@ -702,6 +702,29 @@ function bindDepuracionUi() {
   });
   document.getElementById("depCedulaPhoto")?.addEventListener("change", onDepCedulaPhotoSelected);
   document.getElementById("btnDepClearPhoto")?.addEventListener("click", clearDepCedulaPhoto);
+  document.getElementById("btnDepCedulaCamera")?.addEventListener("click", () => {
+    if (typeof openPcCameraCapture !== "function") {
+      toast("Cámara no disponible. Recarga la app.");
+      return;
+    }
+    openPcCameraCapture({
+      title: "Foto de cédula",
+      facingMode: "environment",
+      maxSide: 900,
+      quality: 0.72,
+      onCapture: (dataUrl) => {
+        pendingDepCedulaPhoto = dataUrl;
+        const img = document.getElementById("depCedulaPreview");
+        const wrap = document.getElementById("depCedulaPreviewWrap");
+        if (img && wrap) {
+          img.src = pendingDepCedulaPhoto;
+          wrap.hidden = false;
+        }
+        if (typeof scheduleDepDraftAutosave === "function") scheduleDepDraftAutosave();
+        toast("Foto de cédula lista. Guarda el candidato.");
+      },
+    });
+  });
   document.getElementById("depCedula")?.addEventListener("input", (e) => {
     e.target.value = String(e.target.value || "").replace(/\D/g, "").slice(0, 11);
   });

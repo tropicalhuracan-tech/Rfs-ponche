@@ -9768,24 +9768,235 @@ function compressImage(file, maxSide = 1280, quality = 0.72) {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("No se pudo leer la foto"));
     reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxSide || height > maxSide) {
-          const ratio = Math.min(maxSide / width, maxSide / height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = () => reject(new Error("Foto inválida"));
-      img.src = reader.result;
+      compressDataUrl(String(reader.result || ""), maxSide, quality).then(resolve).catch(reject);
     };
     reader.readAsDataURL(file);
+  });
+}
+
+function compressDataUrl(dataUrl, maxSide = 1280, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxSide || height > maxSide) {
+        const ratio = Math.min(maxSide / width, maxSide / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => reject(new Error("Foto inválida"));
+    img.src = dataUrl;
+  });
+}
+
+/** Cámara de la PC (webcam) para RRHH / Depuración / Empleados / Caja */
+let pcCameraStream = null;
+let pcCameraOnCapture = null;
+
+function stopPcCameraStream() {
+  if (pcCameraStream) {
+    try {
+      pcCameraStream.getTracks().forEach((t) => t.stop());
+    } catch (_) {}
+    pcCameraStream = null;
+  }
+  const video = document.getElementById("pcCameraVideo");
+  if (video) {
+    try {
+      video.srcObject = null;
+    } catch (_) {}
+  }
+}
+
+function closePcCameraModal() {
+  stopPcCameraStream();
+  pcCameraOnCapture = null;
+  const modal = document.getElementById("pcCameraModal");
+  if (modal) modal.hidden = true;
+  const status = document.getElementById("pcCameraStatus");
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
+  const shot = document.getElementById("btnPcCameraShot");
+  if (shot) shot.disabled = false;
+}
+
+/**
+ * Abre la webcam de la PC, captura un JPEG y llama onCapture(dataUrl).
+ * facingMode: "user" (rostro) | "environment" (documento / cédula).
+ */
+async function openPcCameraCapture(opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const title = options.title || "Tomar foto";
+  const facingMode = options.facingMode === "user" ? "user" : "environment";
+  const maxSide = Number(options.maxSide) || 1100;
+  const quality = Number(options.quality) || 0.7;
+  const onCapture = typeof options.onCapture === "function" ? options.onCapture : null;
+  if (!onCapture) return;
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("Este navegador no permite abrir la cámara. Usa Chrome o Edge en la PC.");
+    return;
+  }
+
+  closePcCameraModal();
+  const modal = document.getElementById("pcCameraModal");
+  const video = document.getElementById("pcCameraVideo");
+  const titleEl = document.getElementById("pcCameraTitle");
+  const status = document.getElementById("pcCameraStatus");
+  const shot = document.getElementById("btnPcCameraShot");
+  if (!modal || !video) {
+    toast("No se encontró el módulo de cámara.");
+    return;
+  }
+  if (titleEl) titleEl.textContent = title;
+  if (status) {
+    status.hidden = false;
+    status.textContent = "Abriendo cámara…";
+  }
+  if (shot) shot.disabled = true;
+  pcCameraOnCapture = async (rawDataUrl) => {
+    const dataUrl = await compressDataUrl(rawDataUrl, maxSide, quality);
+    onCapture(dataUrl);
+  };
+  modal.hidden = false;
+
+  const tryConstraints = [
+    { video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode }, audio: false },
+    { video: true, audio: false },
+  ];
+
+  let lastErr = null;
+  for (const constraints of tryConstraints) {
+    try {
+      pcCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      break;
+    } catch (err) {
+      lastErr = err;
+      pcCameraStream = null;
+    }
+  }
+
+  if (!pcCameraStream) {
+    closePcCameraModal();
+    const name = String((lastErr && (lastErr.name || lastErr.message)) || "");
+    if (/NotAllowed|Permission/i.test(name)) {
+      toast("Permiso de cámara denegado. Actívalo en el navegador (candado de la barra de dirección).");
+    } else if (/NotFound|DevicesNotFound/i.test(name)) {
+      toast("No se encontró una cámara conectada a esta PC.");
+    } else {
+      toast("No se pudo abrir la cámara de la PC.");
+    }
+    return;
+  }
+
+  video.srcObject = pcCameraStream;
+  try {
+    await video.play();
+  } catch (_) {}
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
+  if (shot) shot.disabled = false;
+}
+
+async function capturePcCameraShot() {
+  const video = document.getElementById("pcCameraVideo");
+  const canvas = document.getElementById("pcCameraCanvas");
+  const shot = document.getElementById("btnPcCameraShot");
+  const status = document.getElementById("pcCameraStatus");
+  if (!video || !canvas || !pcCameraStream) {
+    toast("La cámara no está lista.");
+    return;
+  }
+  const w = video.videoWidth || 0;
+  const h = video.videoHeight || 0;
+  if (!w || !h) {
+    toast("Espera un segundo a que la cámara enfoque.");
+    return;
+  }
+  if (shot) shot.disabled = true;
+  if (status) {
+    status.hidden = false;
+    status.textContent = "Capturando…";
+  }
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+  const raw = canvas.toDataURL("image/jpeg", 0.92);
+  const cb = pcCameraOnCapture;
+  try {
+    if (cb) await cb(raw);
+    closePcCameraModal();
+  } catch (err) {
+    console.error(err);
+    if (shot) shot.disabled = false;
+    if (status) {
+      status.hidden = false;
+      status.textContent = "No se pudo guardar la captura.";
+    }
+    toast("No se pudo procesar la foto de la cámara.");
+  }
+}
+
+function bindPcCameraUi() {
+  document.getElementById("btnPcCameraCancel")?.addEventListener("click", closePcCameraModal);
+  document.getElementById("btnPcCameraShot")?.addEventListener("click", () => {
+    capturePcCameraShot().catch(() => {});
+  });
+  document.getElementById("pcCameraModal")?.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "pcCameraModal") closePcCameraModal();
+  });
+
+  document.getElementById("btnEmpPhotoCamera")?.addEventListener("click", () => {
+    openPcCameraCapture({
+      title: "Foto del empleado",
+      facingMode: "user",
+      maxSide: 640,
+      quality: 0.62,
+      onCapture: (dataUrl) => {
+        pendingEmpPhoto = dataUrl;
+        renderEmpPhotoPreview();
+        toast("Foto lista. Pulsa Guardar empleado.");
+      },
+    });
+  });
+
+  document.getElementById("btnEmpDocCamera")?.addEventListener("click", () => {
+    openPcCameraCapture({
+      title: "Foto del documento / cédula",
+      facingMode: "environment",
+      maxSide: 1100,
+      quality: 0.68,
+      onCapture: (dataUrl) => {
+        pendingEmpDoc = { dataUrl, name: "cedula.jpg", mime: "image/jpeg" };
+        renderEmpDocPreview();
+        toast("Documento listo. Pulsa Guardar empleado.");
+      },
+    });
+  });
+
+  document.getElementById("btnCajaCheckCamera")?.addEventListener("click", () => {
+    openPcCameraCapture({
+      title: "Foto del cheque",
+      facingMode: "environment",
+      maxSide: 1280,
+      quality: 0.7,
+      onCapture: (dataUrl) => {
+        pendingCajaCheckPhoto = dataUrl;
+        if (typeof renderCajaCheckPreview === "function") renderCajaCheckPreview();
+        toast("Foto del cheque lista.");
+      },
+    });
   });
 }
 
@@ -10299,8 +10510,15 @@ function bindUi() {
     if (e.target && e.target.id === "mediaLightbox") closeMediaLightbox();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeMediaLightbox();
+    if (e.key !== "Escape") return;
+    const cam = document.getElementById("pcCameraModal");
+    if (cam && !cam.hidden) {
+      closePcCameraModal();
+      return;
+    }
+    closeMediaLightbox();
   });
+  bindPcCameraUi();
   bindLoansUi();
   bindCajaUi();
   bindHrUi();

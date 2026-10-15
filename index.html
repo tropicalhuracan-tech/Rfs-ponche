@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=122" />
+  <link rel="stylesheet" href="styles.css?v=123" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v122 · Foto RRHH sin distorsión</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v123 · Cámara PC en RRHH/Depur./Empleados</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -201,9 +201,12 @@
 
         <div class="attach-block">
           <h3 class="attach-title">Foto del empleado</h3>
-          <label id="ePhotoUploadLabel" class="photo-label">Subir / tomar foto
-            <input id="ePhotoFile" type="file" accept="image/*" />
-          </label>
+          <div class="cam-upload-row">
+            <label id="ePhotoUploadLabel" class="photo-label">Elegir archivo
+              <input id="ePhotoFile" type="file" accept="image/*" />
+            </label>
+            <button id="btnEmpPhotoCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+          </div>
           <div id="ePhotoPreviewWrap" class="photo-preview emp-attach-preview" hidden>
             <button id="btnEmpPhotoExpand" class="media-thumb-btn" type="button" aria-label="Ver foto grande">
               <img id="ePhotoPreview" alt="Foto del empleado" />
@@ -218,10 +221,13 @@
 
         <div class="attach-block">
           <h3 class="attach-title">Documento (JPG o PDF)</h3>
-          <p class="muted tight">Cédula, contrato u otro archivo (JPG/PNG/PDF). Las fotos de cámara se comprimen solas.</p>
-          <label id="eDocUploadLabel" class="photo-label">Subir / tomar documento
-            <input id="eDocFile" type="file" accept="image/*,application/pdf,.jpg,.jpeg,.png,.pdf" />
-          </label>
+          <p class="muted tight">Cédula, contrato u otro archivo (JPG/PNG/PDF). En PC puedes abrir la cámara y fotografiar el documento.</p>
+          <div class="cam-upload-row">
+            <label id="eDocUploadLabel" class="photo-label">Elegir archivo
+              <input id="eDocFile" type="file" accept="image/*,application/pdf,.jpg,.jpeg,.png,.pdf" />
+            </label>
+            <button id="btnEmpDocCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+          </div>
           <div id="eDocPreviewWrap" class="emp-attach-preview" hidden>
             <p id="eDocName" class="doc-name"></p>
             <button id="btnEmpDocExpand" class="media-thumb-btn" type="button" aria-label="Ver documento grande" hidden>
@@ -660,9 +666,12 @@
           <div class="attach-block">
             <h3 class="attach-title">Foto del cheque (opcional)</h3>
             <p class="muted tight">Si te pagan con cheque, toma la foto y queda en el expediente de esa persona.</p>
-            <label class="photo-label">Abrir cámara / elegir foto
-              <input id="cajaCheckPhoto" type="file" accept="image/*" capture="environment" />
-            </label>
+            <div class="cam-upload-row">
+              <label class="photo-label">Elegir archivo
+                <input id="cajaCheckPhoto" type="file" accept="image/*" capture="environment" />
+              </label>
+              <button id="btnCajaCheckCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+            </div>
             <div id="cajaCheckPreviewWrap" class="photo-preview emp-attach-preview" hidden>
               <img id="cajaCheckPreview" alt="Foto del cheque" />
               <div class="attach-actions">
@@ -883,9 +892,13 @@
 
         <div class="form-card">
           <h2>4. Foto de cédula</h2>
-          <label class="photo-label">Subir foto / escaneo
-            <input id="depCedulaPhoto" type="file" accept="image/*" />
-          </label>
+          <p class="muted tight">En PC usa «Tomar con cámara» para fotografiar la cédula al instante.</p>
+          <div class="cam-upload-row">
+            <label class="photo-label">Elegir archivo
+              <input id="depCedulaPhoto" type="file" accept="image/*" />
+            </label>
+            <button id="btnDepCedulaCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+          </div>
           <div id="depCedulaPreviewWrap" hidden style="margin-top:10px">
             <img id="depCedulaPreview" alt="Cédula" style="max-width:100%;border-radius:8px;border:1px solid #333" />
             <button id="btnDepClearPhoto" class="btn ghost" type="button" style="width:auto;margin-top:8px">Quitar foto</button>
@@ -1141,9 +1154,13 @@
         <div class="hr-section-panel" data-hr-section="datos">
           <div class="form-card">
             <h2>Datos personales</h2>
-            <label class="photo-label">Foto del solicitante
-              <input id="hrPhoto" type="file" accept="image/*" capture="environment" />
-            </label>
+            <p class="muted tight">En PC puedes abrir la cámara conectada y tomar la foto al momento.</p>
+            <div class="cam-upload-row">
+              <label class="photo-label">Elegir archivo
+                <input id="hrPhoto" type="file" accept="image/*" capture="environment" />
+              </label>
+              <button id="btnHrPhotoCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+            </div>
             <div id="hrPhotoPreviewWrap" class="photo-preview emp-attach-preview" hidden>
               <img id="hrPhotoPreview" alt="Foto solicitante" />
               <button id="btnHrClearPhoto" class="btn ghost attach-btn" type="button">Quitar foto</button>
@@ -1749,6 +1766,22 @@
       </div>
     </div>
 
+    <div id="pcCameraModal" class="modal pc-camera-modal" hidden>
+      <div class="modal-card pc-camera-card">
+        <h2 id="pcCameraTitle">Tomar foto</h2>
+        <p id="pcCameraHint" class="muted tight">Permite el acceso a la cámara de la PC cuando el navegador lo pida.</p>
+        <div class="pc-camera-stage">
+          <video id="pcCameraVideo" autoplay playsinline muted></video>
+          <canvas id="pcCameraCanvas" hidden></canvas>
+        </div>
+        <p id="pcCameraStatus" class="muted tight" hidden></p>
+        <div class="modal-actions pc-camera-actions">
+          <button id="btnPcCameraCancel" class="btn secondary" type="button">Cancelar</button>
+          <button id="btnPcCameraShot" class="btn primary" type="button">Capturar foto</button>
+        </div>
+      </div>
+    </div>
+
     <nav class="tabbar">
       <button class="tab" data-view="homeView" type="button"><span>Inicio</span></button>
       <button class="tab" data-view="mapView" type="button"><span>Mapa</span></button>
@@ -1772,14 +1805,14 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
-  <script src="cloud-config.js?v=122"></script>
-  <script src="monorriel-data.js?v=122"></script>
-  <script src="reaction-payroll-data.js?v=122"></script>
-  <script src="cloud.js?v=122"></script>
-  <script src="hr.js?v=122"></script>
-  <script src="depuracion.js?v=122"></script>
-  <script src="contabilidad.js?v=122"></script>
-  <script src="quotes.js?v=122"></script>
-  <script src="app.js?v=122"></script>
+  <script src="cloud-config.js?v=123"></script>
+  <script src="monorriel-data.js?v=123"></script>
+  <script src="reaction-payroll-data.js?v=123"></script>
+  <script src="cloud.js?v=123"></script>
+  <script src="hr.js?v=123"></script>
+  <script src="depuracion.js?v=123"></script>
+  <script src="contabilidad.js?v=123"></script>
+  <script src="quotes.js?v=123"></script>
+  <script src="app.js?v=123"></script>
 </body>
 </html>

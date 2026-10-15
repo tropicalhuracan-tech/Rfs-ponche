@@ -1686,6 +1686,29 @@ function bindHrUi() {
   });
   document.getElementById("hrPhoto")?.addEventListener("change", onHrPhotoSelected);
   document.getElementById("btnHrClearPhoto")?.addEventListener("click", clearHrPhoto);
+  document.getElementById("btnHrPhotoCamera")?.addEventListener("click", () => {
+    if (typeof openPcCameraCapture !== "function") {
+      toast("Cámara no disponible. Recarga la app.");
+      return;
+    }
+    openPcCameraCapture({
+      title: "Foto del solicitante",
+      facingMode: "user",
+      maxSide: 720,
+      quality: 0.7,
+      onCapture: (dataUrl) => {
+        pendingHrPhoto = dataUrl;
+        const img = document.getElementById("hrPhotoPreview");
+        const wrap = document.getElementById("hrPhotoPreviewWrap");
+        if (img && wrap) {
+          img.src = pendingHrPhoto;
+          wrap.hidden = false;
+        }
+        if (typeof scheduleHrDraftAutosave === "function") scheduleHrDraftAutosave();
+        toast("Foto lista. Se guardará con la solicitud.");
+      },
+    });
+  });
   // Delegación: los botones de uniforme se recrean; el listener vive en el grid
   const uniGrid = document.getElementById("hrUniformGrid");
   if (uniGrid && uniGrid.dataset.bound !== "1") {
