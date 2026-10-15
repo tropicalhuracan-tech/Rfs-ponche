@@ -44,7 +44,8 @@ let employeeListFilter = "active"; // active | inactive
 let creatingEmployee = false;
 let pendingEmpPhoto = null; // data URL or "" to clear
 let pendingEmpDoc = null; // { dataUrl, name, mime } or null; use { dataUrl:"" } to clear
-const EMP_DOC_MAX_BYTES = 400 * 1024;
+/** Límite del archivo final (tras comprimir imágenes). Antes no se rechaza la cámara en bruto. */
+const EMP_DOC_MAX_BYTES = 450 * 1024;
 let map;
 let markersLayer;
 let selectedId = null;
@@ -960,13 +961,15 @@ function clearEmpDocPending() {
 async function onEmpPhotoSelected(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
+  toast("Procesando foto…");
   try {
     // Más liviana para Firebase Storage (~640px / 0.62)
     pendingEmpPhoto = await compressImage(file, 640, 0.62);
     renderEmpPhotoPreview();
     toast("Foto lista. Pulsa Guardar empleado (se sube a Storage).");
-  } catch (_) {
-    toast("No se pudo procesar la foto.");
+  } catch (err) {
+    console.error(err);
+    toast("No se pudo procesar la foto. Prueba JPG/PNG o otra toma.");
     event.target.value = "";
   }
 }
@@ -986,40 +989,56 @@ async function onEmpDocSelected(event) {
   const mime = (file.type || "").toLowerCase();
   const name = file.name || "documento";
   const isPdf = mime === "application/pdf" || /\.pdf$/i.test(name);
-  const isImage = mime.startsWith("image/") || /\.(jpe?g|png)$/i.test(name);
+  const isImage =
+    mime.startsWith("image/") ||
+    /\.(jpe?g|png|heic|heif|webp)$/i.test(name) ||
+    (!mime && /\.(jpe?g|png|heic|heif|webp)$/i.test(name));
   if (!isPdf && !isImage) {
     toast("Solo se permiten JPG, PNG o PDF.");
     event.target.value = "";
     return;
   }
-  if (file.size > EMP_DOC_MAX_BYTES) {
-    toast("El documento es muy pesado. Usa uno de máximo 400 KB.");
+  // PDF: límite en bruto. Imagen (cámara): comprimir primero — el original suele pesar varios MB.
+  if (isPdf && file.size > EMP_DOC_MAX_BYTES) {
+    toast("El PDF es muy pesado. Usa uno de máximo ~450 KB.");
     event.target.value = "";
     return;
   }
+  toast(isImage ? "Procesando imagen del documento…" : "Leyendo PDF…");
   try {
     let dataUrl;
     let outMime = mime;
     let outName = name;
     if (isImage) {
-      dataUrl = await compressImage(file, 1280, 0.72);
+      dataUrl = await compressImage(file, 1100, 0.68);
       outMime = "image/jpeg";
-      if (!/\.jpe?g$/i.test(outName)) outName = outName.replace(/\.[^.]+$/, "") + ".jpg";
+      if (!/\.jpe?g$/i.test(outName)) outName = outName.replace(/\.[^.]+$/, "") + ".jpg" || "cedula.jpg";
+      if (!outName || outName === ".jpg") outName = "cedula.jpg";
     } else {
       dataUrl = await readFileAsDataUrl(file);
       outMime = "application/pdf";
     }
     // data URL ~ +33% size
-    if (String(dataUrl).length > EMP_DOC_MAX_BYTES * 1.45) {
-      toast("El archivo quedó muy grande después de cargarlo. Usa uno más liviano.");
-      event.target.value = "";
-      return;
+    if (String(dataUrl).length > EMP_DOC_MAX_BYTES * 1.5) {
+      if (isImage) {
+        dataUrl = await compressImage(file, 900, 0.55);
+        if (String(dataUrl).length > EMP_DOC_MAX_BYTES * 1.5) {
+          toast("La imagen quedó muy grande. Acércate menos o toma de nuevo.");
+          event.target.value = "";
+          return;
+        }
+      } else {
+        toast("El archivo quedó muy grande después de cargarlo.");
+        event.target.value = "";
+        return;
+      }
     }
     pendingEmpDoc = { dataUrl, name: outName, mime: outMime };
     renderEmpDocPreview();
     toast("Documento listo. Pulsa Guardar empleado.");
-  } catch (_) {
-    toast("No se pudo leer el documento.");
+  } catch (err) {
+    console.error(err);
+    toast("No se pudo leer el documento. Prueba JPG o PDF más liviano.");
     event.target.value = "";
   }
 }
@@ -1142,6 +1161,24 @@ function openEmployeeDetail(id) {
   renderEmpPhotoPreview();
   renderEmpDocPreview();
   syncEmployeeHrFromApplications(emp.id);
+  // Si faltó la cédula al contratar (versión anterior), recuperar desde RRHH/Depuración
+  try {
+    const live = getEmployee(selectedEmployeeId) || emp;
+    if (
+      live &&
+      !(live.documentData || live.documentUrl) &&
+      live.hrApplicationId &&
+      typeof getHrApp === "function" &&
+      typeof attachCedulaDocToEmployee === "function"
+    ) {
+      const app = getHrApp(live.hrApplicationId);
+      if (app && attachCedulaDocToEmployee(live, app)) {
+        saveEmployees();
+        renderEmpDocPreview();
+        toast("Se adjuntó la cédula desde Depuración/RRHH.");
+      }
+    }
+  } catch (_) {}
   renderEmpHrProfile(getEmployee(selectedEmployeeId) || emp);
   switchView("employeeDetailView");
   applyEmployeeWriteUi();

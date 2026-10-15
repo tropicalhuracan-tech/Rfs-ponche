@@ -521,6 +521,33 @@
         copy.photoUrl = copy.photo;
         copy.photo = "";
       }
+      // Cédula (desde Depuración) también a Storage
+      if (isHeavyMedia(copy.cedulaPhoto) || isDataUrl(copy.cedulaPhoto)) {
+        const mediaId = mediaDocId("hr", copy.id || "x", "cedula");
+        const path = `hr/${safeId(copy.id || "x")}/cedula.jpg`;
+        const put = await putHeavyToStorageOrMedia({
+          dataUrl: copy.cedulaPhoto,
+          storagePath: path,
+          mediaId: copy.cedulaPhotoMediaId || mediaId,
+          kind: "hr",
+          ownerId: copy.id || "",
+          field: "cedulaPhoto",
+          mime: "image/jpeg",
+          mediaJobs,
+        });
+        if (put.usedStorage) {
+          copy.cedulaPhotoUrl = put.url;
+          copy.cedulaPhotoStoragePath = path;
+          copy.cedulaPhoto = "";
+          copy.cedulaPhotoMediaId = "";
+        } else {
+          copy.cedulaPhoto = "";
+          copy.cedulaPhotoMediaId = put.mediaId || mediaId;
+        }
+      } else if (isHttpUrl(copy.cedulaPhoto)) {
+        copy.cedulaPhotoUrl = copy.cedulaPhoto;
+        copy.cedulaPhoto = "";
+      }
       applications.push(copy);
     }
     return { light: { ...src, applications }, mediaJobs };
@@ -587,6 +614,7 @@
     });
     ((hr && hr.applications) || []).forEach((a) => {
       if (a && a.photoMediaId) ids.push(a.photoMediaId);
+      if (a && a.cedulaPhotoMediaId) ids.push(a.cedulaPhotoMediaId);
     });
     ((depuracion && depuracion.candidates) || []).forEach((c) => {
       if (c && c.cedulaPhotoMediaId) ids.push(c.cedulaPhotoMediaId);
@@ -637,6 +665,11 @@
         copy.photo = copy.photoUrl;
       } else if (copy.photoMediaId && mediaMap[copy.photoMediaId]) {
         copy.photo = mediaMap[copy.photoMediaId];
+      }
+      if (copy.cedulaPhotoUrl && isHttpUrl(copy.cedulaPhotoUrl)) {
+        copy.cedulaPhoto = copy.cedulaPhotoUrl;
+      } else if (copy.cedulaPhotoMediaId && mediaMap[copy.cedulaPhotoMediaId]) {
+        copy.cedulaPhoto = mediaMap[copy.cedulaPhotoMediaId];
       }
       return copy;
     });

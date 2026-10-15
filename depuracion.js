@@ -105,7 +105,9 @@ function normalizeDepCandidate(c = {}) {
     checklist,
     references: refs.slice(0, 4),
     cedulaPhoto: typeof c.cedulaPhoto === "string" ? c.cedulaPhoto : "",
+    cedulaPhotoUrl: typeof c.cedulaPhotoUrl === "string" ? c.cedulaPhotoUrl : "",
     cedulaPhotoMediaId: c.cedulaPhotoMediaId || "",
+    cedulaPhotoStoragePath: c.cedulaPhotoStoragePath || "",
     antecedentesNote: String(c.antecedentesNote || "").trim(),
     fieldCheckNote: String(c.fieldCheckNote || "").trim(),
     employerHistoryNote: String(c.employerHistoryNote || "").trim(),
@@ -256,7 +258,7 @@ function fillDepForm(c) {
   }
   const img = document.getElementById("depCedulaPreview");
   const wrap = document.getElementById("depCedulaPreviewWrap");
-  const photo = pendingDepCedulaPhoto || c.cedulaPhoto || "";
+  const photo = pendingDepCedulaPhoto || c.cedulaPhoto || c.cedulaPhotoUrl || "";
   if (img && wrap) {
     if (photo) {
       img.src = photo;
@@ -401,6 +403,13 @@ function sendDepToHr() {
     toast("Módulo RRHH no disponible.");
     return;
   }
+  // Asegurar foto de cédula pendiente guardada en el candidato
+  if (pendingDepCedulaPhoto) {
+    c.cedulaPhoto = pendingDepCedulaPhoto;
+    c.cedulaPhotoMediaId = "";
+    pendingDepCedulaPhoto = null;
+  }
+  const cedulaPhoto = c.cedulaPhoto || c.cedulaPhotoUrl || "";
   let app = c.hrApplicationId ? getHrApp(c.hrApplicationId) : null;
   if (!app) {
     app = emptyHrApplication();
@@ -411,6 +420,8 @@ function sendDepToHr() {
     app.address = c.address;
     app.hiredPosition = c.hiredPosition || "";
     app.fromDepuracionId = c.id;
+    app.cedulaPhoto = cedulaPhoto;
+    app.cedulaPhotoUrl = /^https?:\/\//i.test(cedulaPhoto) ? cedulaPhoto : "";
     app.hrNotes = `Desde Depuración. Veredicto: ${DEP_VERDICT[c.verdict]}. ${c.verdictNote || ""}`.trim();
     app.createdBy =
       typeof currentUser !== "undefined" && currentUser
@@ -428,6 +439,10 @@ function sendDepToHr() {
     if (c.email) app.email = c.email;
     if (c.address) app.address = c.address;
     app.fromDepuracionId = c.id;
+    if (cedulaPhoto && !(app.cedulaPhoto || app.cedulaPhotoUrl)) {
+      app.cedulaPhoto = cedulaPhoto;
+      app.cedulaPhotoUrl = /^https?:\/\//i.test(cedulaPhoto) ? cedulaPhoto : "";
+    }
     app.updatedAt = new Date().toISOString();
     saveHrData(true);
   }

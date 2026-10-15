@@ -493,6 +493,9 @@ function emptyHrApplication() {
     updatedAt: new Date().toISOString(),
     createdBy: "",
     photo: "",
+    /** Foto de cédula (suele venir de Depuración); al contratar → documentData del empleado */
+    cedulaPhoto: "",
+    cedulaPhotoUrl: "",
     fullName: "",
     cedula: "",
     birthDate: "",
@@ -622,6 +625,8 @@ function normalizeHrApplication(a = {}) {
     status,
     // Conservar cualquier foto válida (data URL, http o media id); antes se borraba si no era data:image
     photo: typeof a.photo === "string" ? a.photo : "",
+    cedulaPhoto: typeof a.cedulaPhoto === "string" ? a.cedulaPhoto : "",
+    cedulaPhotoUrl: typeof a.cedulaPhotoUrl === "string" ? a.cedulaPhotoUrl : "",
     fullName: String(a.fullName || "").trim(),
     cedula: String(a.cedula || "").replace(/\D/g, "").slice(0, 11),
     phone: String(a.phone || "").trim(),
@@ -1186,6 +1191,38 @@ function renderHrHireSummary(app) {
   }
 }
 
+/** Foto de cédula: en la solicitud RRHH o, si vino de Depuración, en el candidato. */
+function resolveHrCedulaPhoto(app) {
+  if (!app) return "";
+  const direct = app.cedulaPhoto || app.cedulaPhotoUrl || "";
+  if (direct) return direct;
+  const depId = app.fromDepuracionId || "";
+  if (!depId) return "";
+  try {
+    if (typeof getDepCandidate === "function") {
+      const c = getDepCandidate(depId);
+      if (c) return c.cedulaPhoto || c.cedulaPhotoUrl || "";
+    }
+    if (typeof depuracionData !== "undefined" && depuracionData && Array.isArray(depuracionData.candidates)) {
+      const c = depuracionData.candidates.find((x) => x && x.id === depId);
+      if (c) return c.cedulaPhoto || c.cedulaPhotoUrl || "";
+    }
+  } catch (_) {}
+  return "";
+}
+
+function attachCedulaDocToEmployee(emp, app) {
+  if (!emp || (emp.documentData || emp.documentUrl)) return false;
+  const cedulaDoc = resolveHrCedulaPhoto(app);
+  if (!cedulaDoc) return false;
+  emp.documentData = cedulaDoc;
+  emp.documentUrl = /^https?:\/\//i.test(cedulaDoc) ? cedulaDoc : emp.documentUrl || "";
+  emp.documentName = emp.documentName || "cedula.jpg";
+  emp.documentMime = emp.documentMime || "image/jpeg";
+  emp.updatedAt = new Date().toISOString();
+  return true;
+}
+
 function hireHrApplication() {
   try {
     if (!canAccessRrhh()) {
@@ -1252,8 +1289,18 @@ function hireHrApplication() {
       app.hiredEmployeeId = dup.id;
       app.hiredAt = new Date().toISOString();
       app.updatedAt = new Date().toISOString();
+      let touchedDup = false;
       if (!dup.hrApplicationId) {
         dup.hrApplicationId = app.id;
+        touchedDup = true;
+      }
+      if (attachCedulaDocToEmployee(dup, app)) touchedDup = true;
+      if (!dup.photo && (app.photo || app.photoUrl)) {
+        dup.photo = app.photo || app.photoUrl;
+        if (/^https?:\/\//i.test(dup.photo)) dup.photoUrl = dup.photo;
+        touchedDup = true;
+      }
+      if (touchedDup) {
         dup.updatedAt = new Date().toISOString();
         saveEmployees();
       }
@@ -1307,12 +1354,19 @@ function hireHrApplication() {
           };
     if (hrProfile && typeof hrProfile === "object") hrProfile.hiredPosition = app.hiredPosition || "";
     const puesto = String(app.hiredPosition || "").trim();
+    const facePhoto = app.photo || app.photoUrl || "";
+    const cedulaDoc = resolveHrCedulaPhoto(app);
     const emp = normalizeEmployee({
       name: app.fullName,
       phone: app.phone,
       cedula: app.cedula,
       companyEntryDate: typeof localDateISO === "function" ? localDateISO() : new Date().toISOString().slice(0, 10),
-      photo: app.photo || "",
+      photo: facePhoto,
+      photoUrl: /^https?:\/\//i.test(facePhoto) ? facePhoto : "",
+      documentData: cedulaDoc,
+      documentUrl: /^https?:\/\//i.test(cedulaDoc) ? cedulaDoc : "",
+      documentName: cedulaDoc ? "cedula.jpg" : "",
+      documentMime: cedulaDoc ? "image/jpeg" : "",
       note: noteParts.join(" · "),
       status: "active",
       roles: puesto ? [puesto] : [],
@@ -1334,7 +1388,11 @@ function hireHrApplication() {
     saveHrData(true);
     logActivity("hr_hire", `RRHH contrató: ${emp.name} · puesto ${puesto || "—"}`);
     fillHrForm(app);
-    toast(`Contratado${puesto ? ` como ${puesto}` : ""}. Ya aparece en Empleados.`);
+    toast(
+      `Contratado${puesto ? ` como ${puesto}` : ""}. Ya aparece en Empleados${
+        cedulaDoc ? " · cédula adjunta" : ""
+      }.`
+    );
     if (typeof openEmployeeDetail === "function") {
       setTimeout(() => {
         if (window.confirm("¿Abrir la ficha del empleado ahora?")) {

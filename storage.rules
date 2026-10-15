@@ -25,6 +25,11 @@ service firebase.storage {
       allow write: if isImage() && request.resource.size < 200 * 1024;
       allow delete: if true;
     }
+    match /hr/{appId}/cedula.jpg {
+      allow read: if true;
+      allow write: if isImage() && request.resource.size < 300 * 1024;
+      allow delete: if true;
+    }
     match /caja/{expenseId}/check.jpg {
       allow read: if true;
       allow write: if isImage() && request.resource.size < 300 * 1024;
