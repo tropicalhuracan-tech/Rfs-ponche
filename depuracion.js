@@ -22,6 +22,9 @@ let depuracionData = { candidates: [], settings: {} };
 let selectedDepId = "";
 let depTab = "list";
 let pendingDepCedulaPhoto = null;
+let depDraftSaveTimer = null;
+let lastDepFormEditAt = 0;
+const DEP_DRAFT_AUTOSAVE_MS = 500;
 
 function emptyDepChecklist() {
   const o = {};
@@ -138,15 +141,57 @@ function saveDepuracionData(push = true) {
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
 
+/** ¿Formulario Depuración abierto y con foco / edición reciente? */
+function isDepFormBeingEdited() {
+  if (depTab !== "form" || !selectedDepId) return false;
+  const form = document.getElementById("depTabForm");
+  if (form && document.activeElement && form.contains(document.activeElement)) return true;
+  return Date.now() - lastDepFormEditAt < 20000;
+}
+
+/** Copia el DOM del candidato abierto a memoria (+ nube si push). */
+function flushOpenDepDraft(push = false) {
+  if (depTab !== "form" || !selectedDepId) return false;
+  const c = getDepCandidate(selectedDepId);
+  if (!c) return false;
+  const form = document.getElementById("depTabForm");
+  if (!form || form.hidden) return false;
+  try {
+    readDepFormInto(c);
+    saveDepuracionData(!!push);
+    return true;
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+}
+
+function scheduleDepDraftAutosave() {
+  lastDepFormEditAt = Date.now();
+  if (typeof lastLocalEditAt !== "undefined") lastLocalEditAt = Date.now();
+  clearTimeout(depDraftSaveTimer);
+  depDraftSaveTimer = setTimeout(() => {
+    depDraftSaveTimer = null;
+    flushOpenDepDraft(true);
+  }, DEP_DRAFT_AUTOSAVE_MS);
+}
+
 function applyRemoteDepuracionData(remote) {
+  flushOpenDepDraft(false);
+  const protectId = depTab === "form" && selectedDepId ? selectedDepId : "";
+  const protectedRow = protectId
+    ? (depuracionData.candidates || []).find((c) => c && c.id === protectId) || null
+    : null;
   const remoteNorm = normalizeDepuracionData(remote || {});
   const local = normalizeDepuracionData(depuracionData);
   const map = new Map();
   [...local.candidates, ...remoteNorm.candidates].forEach((c) => {
     if (!c || !c.id) return;
+    if (protectId && c.id === protectId && protectedRow) return;
     const prev = map.get(c.id);
     if (!prev || String(c.updatedAt) > String(prev.updatedAt)) map.set(c.id, c);
   });
+  if (protectedRow) map.set(protectedRow.id, protectedRow);
   depuracionData = {
     candidates: [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
     settings: {},
@@ -165,7 +210,13 @@ function formatCedulaDisplay(cedula) {
 }
 
 function setDepTab(tab) {
-  depTab = tab || "list";
+  const next = tab || "list";
+  if (depTab === "form" && next !== "form") {
+    clearTimeout(depDraftSaveTimer);
+    depDraftSaveTimer = null;
+    flushOpenDepDraft(true);
+  }
+  depTab = next;
   document.querySelectorAll(".dep-tabs .emp-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.depTab === depTab);
   });
@@ -173,13 +224,18 @@ function setDepTab(tab) {
   const form = document.getElementById("depTabForm");
   if (list) list.hidden = depTab !== "list";
   if (form) form.hidden = depTab !== "form";
-  renderDepuracionModule();
+  renderDepuracionModule({ refillForm: next === "form" });
 }
 
 function startNewDepCandidate() {
   if (typeof canAccessDepuracion === "function" && !canAccessDepuracion()) {
     toast("No tienes acceso a Depuración.");
     return;
+  }
+  if (selectedDepId && depTab === "form") {
+    clearTimeout(depDraftSaveTimer);
+    depDraftSaveTimer = null;
+    flushOpenDepDraft(true);
   }
   const row = emptyDepCandidate();
   row.createdBy =
@@ -190,6 +246,7 @@ function startNewDepCandidate() {
   saveDepuracionData(true);
   selectedDepId = row.id;
   pendingDepCedulaPhoto = null;
+  lastDepFormEditAt = 0;
   setDepTab("form");
   fillDepForm(row);
   toast("Nuevo candidato creado.");
@@ -198,8 +255,14 @@ function startNewDepCandidate() {
 function openDepCandidate(id) {
   const row = getDepCandidate(id);
   if (!row) return;
+  if (selectedDepId && selectedDepId !== row.id) {
+    clearTimeout(depDraftSaveTimer);
+    depDraftSaveTimer = null;
+    flushOpenDepDraft(true);
+  }
   selectedDepId = row.id;
   pendingDepCedulaPhoto = null;
+  lastDepFormEditAt = 0;
   setDepTab("form");
   fillDepForm(row);
 }
@@ -508,7 +571,8 @@ function renderDepList() {
   });
 }
 
-function renderDepuracionModule() {
+function renderDepuracionModule(opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
   if (typeof canAccessDepuracion === "function" && !canAccessDepuracion()) return;
   const summary = document.getElementById("depSummary");
   const rows = depuracionData.candidates || [];
@@ -518,7 +582,10 @@ function renderDepuracionModule() {
     summary.textContent = `${rows.length} candidato(s) · ${pending} pendiente(s) · ${aptos} apto(s). Depuración interna RFS.`;
   }
   if (depTab === "list") renderDepList();
-  else if (selectedDepId && getDepCandidate(selectedDepId)) fillDepForm(getDepCandidate(selectedDepId));
+  else if (selectedDepId && getDepCandidate(selectedDepId)) {
+    // Solo rellenar al abrir el formulario. Sync en vivo no pasa refillForm.
+    if (options.refillForm) fillDepForm(getDepCandidate(selectedDepId));
+  }
 }
 
 async function onDepCedulaPhotoSelected(event) {
@@ -638,6 +705,21 @@ function bindDepuracionUi() {
   document.getElementById("depCedula")?.addEventListener("input", (e) => {
     e.target.value = String(e.target.value || "").replace(/\D/g, "").slice(0, 11);
   });
+  const depForm = document.getElementById("depTabForm");
+  if (depForm && depForm.dataset.draftBound !== "1") {
+    depForm.dataset.draftBound = "1";
+    depForm.addEventListener("input", (ev) => {
+      const t = ev.target;
+      if (!t || !depForm.contains(t)) return;
+      if (t.id === "depSearch") return;
+      scheduleDepDraftAutosave();
+    });
+    depForm.addEventListener("change", (ev) => {
+      const t = ev.target;
+      if (!t || !depForm.contains(t)) return;
+      scheduleDepDraftAutosave();
+    });
+  }
 }
 
 /* ==== FIN DEPURACIÓN ==== */

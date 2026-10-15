@@ -1575,7 +1575,7 @@ let liveSyncTimer = null;
 const CLOUD_SAVE_DEBOUNCE_MS = 250;
 const LIVE_SYNC_INTERVAL_MS = 12000;
 const LIVE_PULL_MIN_GAP_MS = 8000;
-const LOCAL_EDIT_GRACE_MS = 2500;
+const LOCAL_EDIT_GRACE_MS = 4000;
 
 function setCloudStatus(text) {
   const el = document.getElementById("cloudStatus");
@@ -1667,6 +1667,13 @@ async function livePullFromCloud(reason, opts) {
   const now = Date.now();
   if (!force && now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) {
     return { pulled: false, skipped: "local-edit" };
+  }
+  // No bajar nube mientras se escribe en RRHH / Depuración (evita borrar el formulario)
+  if (!force && typeof isHrFormBeingEdited === "function" && isHrFormBeingEdited()) {
+    return { pulled: false, skipped: "hr-editing" };
+  }
+  if (!force && typeof isDepFormBeingEdited === "function" && isDepFormBeingEdited()) {
+    return { pulled: false, skipped: "dep-editing" };
   }
   if (!force && now - lastLivePullAt < LIVE_PULL_MIN_GAP_MS) {
     return { pulled: false, skipped: "throttle" };
@@ -1837,8 +1844,13 @@ async function mergeRemoteBundleBeforeSave() {
       employees = mergeEmployeeListsForCloud(employees, remote.employees);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     }
+    if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
+    if (typeof flushOpenDepDraft === "function") flushOpenDepDraft(false);
     if (remote.hr && typeof remote.hr === "object" && typeof applyRemoteHrData === "function") {
       applyRemoteHrData(remote.hr);
+    }
+    if (remote.depuracion && typeof remote.depuracion === "object" && typeof applyRemoteDepuracionData === "function") {
+      applyRemoteDepuracionData(remote.depuracion);
     }
     if (remote.contabilidad && typeof remote.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
       applyRemoteContabilidadData(remote.contabilidad);
@@ -2056,6 +2068,8 @@ async function syncFromCloud() {
         savePettyCash(true);
       }
     }
+    if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
+    if (typeof flushOpenDepDraft === "function") flushOpenDepDraft(false);
     if (remote.hr && typeof remote.hr === "object") {
       applyRemoteHrData(remote.hr);
     } else if (!(hrData.applications && hrData.applications.length)) {

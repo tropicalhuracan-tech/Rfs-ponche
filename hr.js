@@ -462,6 +462,9 @@ let hrFormSection = "datos";
 let selectedHrAppId = null;
 let pendingHrPhoto = null;
 let hrPsychAnswers = {};
+let hrDraftSaveTimer = null;
+let lastHrFormEditAt = 0;
+const HR_DRAFT_AUTOSAVE_MS = 500;
 
 function emptyHrData() {
   return { applications: [], deletedIds: [] };
@@ -668,7 +671,53 @@ function saveHrData(push = true) {
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
 
+/** ¿Formulario RRHH abierto y con foco / edición reciente? (evita que el sync borre lo escrito) */
+function isHrFormBeingEdited() {
+  if (hrTab !== "form" || !selectedHrAppId) return false;
+  const form = document.getElementById("hrTabForm");
+  if (form && document.activeElement && form.contains(document.activeElement)) return true;
+  return Date.now() - lastHrFormEditAt < 20000;
+}
+
+/**
+ * Copia el DOM del formulario abierto a memoria + localStorage.
+ * push=false solo local (antes de merge remoto); push=true también sube a la nube.
+ */
+function flushOpenHrDraft(push = false) {
+  if (hrTab !== "form" || !selectedHrAppId) return false;
+  const app = getHrApp(selectedHrAppId);
+  if (!app) return false;
+  const form = document.getElementById("hrTabForm");
+  if (!form || form.hidden) return false;
+  try {
+    readHrFormInto(app);
+    const idx = hrData.applications.findIndex((a) => a.id === app.id);
+    if (idx >= 0) hrData.applications[idx] = normalizeHrApplication(app);
+    saveHrData(!!push);
+    return true;
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+}
+
+function scheduleHrDraftAutosave() {
+  lastHrFormEditAt = Date.now();
+  if (typeof lastLocalEditAt !== "undefined") lastLocalEditAt = Date.now();
+  clearTimeout(hrDraftSaveTimer);
+  hrDraftSaveTimer = setTimeout(() => {
+    hrDraftSaveTimer = null;
+    flushOpenHrDraft(true);
+  }, HR_DRAFT_AUTOSAVE_MS);
+}
+
 function applyRemoteHrData(remote) {
+  // Guardar lo que el usuario está escribiendo ANTES de fusionar con la nube
+  flushOpenHrDraft(false);
+  const protectId = hrTab === "form" && selectedHrAppId ? selectedHrAppId : "";
+  const protectedApp = protectId
+    ? (hrData.applications || []).find((a) => a && a.id === protectId) || null
+    : null;
   const remoteNorm = normalizeHrData(remote || {});
   const local = normalizeHrData(hrData);
   const deleted = new Set([...(local.deletedIds || []), ...(remoteNorm.deletedIds || [])]);
@@ -681,9 +730,14 @@ function applyRemoteHrData(remote) {
     if (!a || !a.id) return;
     if (deleted.has(a.id)) return;
     if (!hrApplicationHasName(a) && a.id !== selectedHrAppId) return;
+    // No pisar el borrador abierto con una versión remota más vieja/igual
+    if (protectId && a.id === protectId && protectedApp) return;
     const prev = map.get(a.id);
     if (!prev || String(a.updatedAt) > String(prev.updatedAt)) map.set(a.id, a);
   });
+  if (protectedApp && !deleted.has(protectedApp.id)) {
+    map.set(protectedApp.id, protectedApp);
+  }
   hrData = {
     applications: [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
     deletedIds: [...deleted].slice(-800),
@@ -719,6 +773,12 @@ function getHrApp(id) {
 
 function setHrTab(tab) {
   const next = tab || "list";
+  // Al salir del formulario, volcar lo escrito a memoria
+  if (hrTab === "form" && next !== "form") {
+    clearTimeout(hrDraftSaveTimer);
+    hrDraftSaveTimer = null;
+    flushOpenHrDraft(true);
+  }
   // Al volver a la lista, desechar borrador sin nombre (no dejar “Sin nombre” colgado)
   if (next === "list" && selectedHrAppId) {
     const open = getHrApp(selectedHrAppId);
@@ -737,7 +797,8 @@ function setHrTab(tab) {
   const form = document.getElementById("hrTabForm");
   if (list) list.hidden = hrTab !== "list";
   if (form) form.hidden = hrTab !== "form";
-  renderHrModule();
+  // Solo rellenar campos al ENTRAR al formulario (no en cada sync)
+  renderHrModule({ refillForm: next === "form" });
 }
 
 function setHrFormSection(section) {
@@ -755,6 +816,11 @@ function startNewHrApplication() {
     toast("No tienes acceso a Recursos Humanos.");
     return;
   }
+  if (selectedHrAppId && hrTab === "form") {
+    clearTimeout(hrDraftSaveTimer);
+    hrDraftSaveTimer = null;
+    flushOpenHrDraft(true);
+  }
   const app = emptyHrApplication();
   app.createdBy = currentUser ? currentUser.displayName || currentUser.username : "";
   hrData.applications.unshift(app);
@@ -762,6 +828,7 @@ function startNewHrApplication() {
   selectedHrAppId = app.id;
   pendingHrPhoto = null;
   hrPsychAnswers = {};
+  lastHrFormEditAt = 0;
   setHrTab("form");
   setHrFormSection("datos");
   fillHrForm(app);
@@ -771,9 +838,16 @@ function startNewHrApplication() {
 function openHrApplication(id) {
   const app = getHrApp(id);
   if (!app) return;
+  // Guardar borrador actual antes de cambiar de solicitud
+  if (selectedHrAppId && selectedHrAppId !== app.id) {
+    clearTimeout(hrDraftSaveTimer);
+    hrDraftSaveTimer = null;
+    flushOpenHrDraft(true);
+  }
   selectedHrAppId = app.id;
   pendingHrPhoto = null;
   hrPsychAnswers = { ...(app.psychTest.answers || {}) };
+  lastHrFormEditAt = 0;
   setHrTab("form");
   setHrFormSection("datos");
   fillHrForm(app);
@@ -1527,7 +1601,8 @@ function renderHrList() {
   list.querySelectorAll(".btn-del-hr").forEach((btn) => btn.addEventListener("click", () => deleteHrApplication(btn.dataset.id)));
 }
 
-function renderHrModule() {
+function renderHrModule(opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
   if (!canAccessRrhh()) return;
   // Limpieza al entrar a la lista: basura “Sin nombre” no vuelve por sync
   if (hrTab === "list") {
@@ -1542,7 +1617,11 @@ function renderHrModule() {
     summary.textContent = `${apps.length} solicitud(es) · ${pending} en proceso · ${hired} contratado(s)`;
   }
   if (hrTab === "list") renderHrList();
-  else if (selectedHrAppId && getHrApp(selectedHrAppId)) fillHrForm(getHrApp(selectedHrAppId));
+  else if (selectedHrAppId && getHrApp(selectedHrAppId)) {
+    // Solo rellenar al abrir el formulario (refillForm). El sync en vivo NO pasa
+    // refillForm: si no, fillHrForm pisa lo que el usuario está escribiendo.
+    if (options.refillForm) fillHrForm(getHrApp(selectedHrAppId));
+  }
 }
 
 async function onHrPhotoSelected(event) {
@@ -1644,6 +1723,22 @@ function bindHrUi() {
   document.getElementById("hrHiredPositionHire")?.addEventListener("input", () =>
     syncHiredPositionInputs("hrHiredPositionHire", "hrHiredPosition")
   );
+  // Autoguardado del borrador: no perder datos si el sync refresca la UI
+  const hrForm = document.getElementById("hrTabForm");
+  if (hrForm && hrForm.dataset.draftBound !== "1") {
+    hrForm.dataset.draftBound = "1";
+    hrForm.addEventListener("input", (ev) => {
+      const t = ev.target;
+      if (!t || !hrForm.contains(t)) return;
+      if (t.id === "hrSearch") return;
+      scheduleHrDraftAutosave();
+    });
+    hrForm.addEventListener("change", (ev) => {
+      const t = ev.target;
+      if (!t || !hrForm.contains(t)) return;
+      scheduleHrDraftAutosave();
+    });
+  }
 }
 
 /* ==== FIN RRHH ==== */
