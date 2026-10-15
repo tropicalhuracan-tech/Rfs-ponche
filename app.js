@@ -453,6 +453,19 @@ function preferFill(current, incoming) {
   return cur;
 }
 
+/** Prefiere data URL o http(s) de cualquiera de los dos lados (no perder fotos en merge). */
+function preferMediaField(a, b) {
+  const aa = String(a || "").trim();
+  const bb = String(b || "").trim();
+  const score = (v) => {
+    if (!v) return 0;
+    if (v.startsWith("data:")) return 3;
+    if (/^https?:\/\//i.test(v)) return 2;
+    return 1;
+  };
+  return score(bb) > score(aa) ? bb : aa || bb;
+}
+
 function mergeEmployeeRecord(base, incoming) {
   const out = normalizeEmployee({
     ...base,
@@ -463,12 +476,12 @@ function mergeEmployeeRecord(base, incoming) {
     weapons: preferFill(base.weapons, incoming.weapons),
     serial: preferFill(base.serial, incoming.serial),
     note: preferFill(base.note, incoming.note),
-    photo: preferFill(base.photo, incoming.photo),
-    photoUrl: preferFill(base.photoUrl, incoming.photoUrl),
+    photo: preferMediaField(base.photo, incoming.photo),
+    photoUrl: preferMediaField(base.photoUrl, incoming.photoUrl),
     photoMediaId: preferFill(base.photoMediaId, incoming.photoMediaId),
     photoStoragePath: preferFill(base.photoStoragePath, incoming.photoStoragePath),
-    documentData: preferFill(base.documentData, incoming.documentData),
-    documentUrl: preferFill(base.documentUrl, incoming.documentUrl),
+    documentData: preferMediaField(base.documentData, incoming.documentData),
+    documentUrl: preferMediaField(base.documentUrl, incoming.documentUrl),
     documentMediaId: preferFill(base.documentMediaId, incoming.documentMediaId),
     documentStoragePath: preferFill(base.documentStoragePath, incoming.documentStoragePath),
     documentName: preferFill(base.documentName, incoming.documentName),
@@ -1398,10 +1411,62 @@ function saveEmployeeDetail() {
   const photo = currentEmpPhoto();
   const doc = currentEmpDoc();
   const isMono = document.getElementById("eMonorriel").checked;
+  const clearingPhoto = pendingEmpPhoto === "";
+  const clearingDoc = pendingEmpDoc && pendingEmpDoc.dataUrl === "";
+  const newPhotoData = !!(pendingEmpPhoto && String(pendingEmpPhoto).startsWith("data:"));
+  const newDocData = !!(pendingEmpDoc && pendingEmpDoc.dataUrl && String(pendingEmpDoc.dataUrl).startsWith("data:"));
   const photoIsHttp = /^https?:\/\//i.test(photo || "");
-  const photoIsData = String(photo || "").startsWith("data:");
-  const docIsHttp = /^https?:\/\//i.test(doc.dataUrl || "");
-  const docIsData = String(doc.dataUrl || "").startsWith("data:");
+  const docIsHttp = /^https?:\/\//i.test((doc && doc.dataUrl) || "");
+  // Nunca borrar foto/doc de Storage solo porque el formulario no la tenía en memoria
+  let nextPhoto = current.photo || "";
+  let nextPhotoUrl = current.photoUrl || "";
+  let nextPhotoMediaId = current.photoMediaId || "";
+  let nextPhotoStoragePath = current.photoStoragePath || "";
+  if (clearingPhoto) {
+    nextPhoto = "";
+    nextPhotoUrl = "";
+    nextPhotoMediaId = "";
+    nextPhotoStoragePath = "";
+  } else if (newPhotoData) {
+    nextPhoto = pendingEmpPhoto;
+    nextPhotoUrl = "";
+    nextPhotoMediaId = "";
+    // se conserva photoStoragePath para sobrescribir el mismo archivo en Storage
+  } else if (photoIsHttp) {
+    nextPhoto = photo;
+    nextPhotoUrl = photo;
+  } else if (photo) {
+    nextPhoto = photo;
+  }
+
+  let nextDocData = current.documentData || "";
+  let nextDocUrl = current.documentUrl || "";
+  let nextDocMediaId = current.documentMediaId || "";
+  let nextDocStoragePath = current.documentStoragePath || "";
+  let nextDocName = current.documentName || "";
+  let nextDocMime = current.documentMime || "";
+  if (clearingDoc) {
+    nextDocData = "";
+    nextDocUrl = "";
+    nextDocMediaId = "";
+    nextDocStoragePath = "";
+    nextDocName = "";
+    nextDocMime = "";
+  } else if (newDocData) {
+    nextDocData = pendingEmpDoc.dataUrl;
+    nextDocUrl = "";
+    nextDocMediaId = "";
+    nextDocName = pendingEmpDoc.name || current.documentName || "";
+    nextDocMime = pendingEmpDoc.mime || current.documentMime || "";
+  } else if (docIsHttp) {
+    nextDocData = doc.dataUrl;
+    nextDocUrl = doc.dataUrl;
+  } else if (doc && doc.dataUrl) {
+    nextDocData = doc.dataUrl;
+    nextDocName = doc.name || nextDocName;
+    nextDocMime = doc.mime || nextDocMime;
+  }
+
   let updated = normalizeEmployee({
     ...current,
     name,
@@ -1411,23 +1476,16 @@ function saveEmployeeDetail() {
     weapons: document.getElementById("eWeapons").value.trim(),
     serial: document.getElementById("eSerial").value.trim(),
     note: document.getElementById("eNote").value.trim(),
-    photo,
-    // Nueva data URL → Storage al guardar nube; URL http se conserva; vacío limpia Storage
-    photoUrl: photoIsHttp ? photo : photoIsData ? "" : photo ? current.photoUrl || "" : "",
-    photoMediaId: photo ? current.photoMediaId || "" : "",
-    photoStoragePath: photo ? current.photoStoragePath || "" : "",
-    documentData: doc.dataUrl || "",
-    documentUrl: docIsHttp
-      ? doc.dataUrl
-      : docIsData
-        ? ""
-        : doc.dataUrl
-          ? current.documentUrl || ""
-          : "",
-    documentMediaId: doc.dataUrl ? current.documentMediaId || "" : "",
-    documentStoragePath: doc.dataUrl ? current.documentStoragePath || "" : "",
-    documentName: doc.dataUrl ? doc.name || "" : "",
-    documentMime: doc.dataUrl ? doc.mime || "" : "",
+    photo: nextPhoto,
+    photoUrl: nextPhotoUrl,
+    photoMediaId: nextPhotoMediaId,
+    photoStoragePath: nextPhotoStoragePath,
+    documentData: nextDocData,
+    documentUrl: nextDocUrl,
+    documentMediaId: nextDocMediaId,
+    documentStoragePath: nextDocStoragePath,
+    documentName: nextDocName,
+    documentMime: nextDocMime,
     status: current.status || "active",
     inactiveReason: current.inactiveReason || "",
     inactiveAt: current.inactiveAt || "",
@@ -1438,8 +1496,29 @@ function saveEmployeeDetail() {
   updated = applyMonorrielFlag(updated, isMono);
   employees[idx] = updated;
   selectedEmployeeId = updated.id;
+  const prevPhotoPath = current.photoStoragePath || "";
+  const prevDocPath = current.documentStoragePath || "";
+  const prevPhotoMedia = current.photoMediaId || "";
+  const prevDocMedia = current.documentMediaId || "";
   pendingEmpPhoto = null;
   pendingEmpDoc = null;
+  // Borrado explícito en Storage / rfs_media solo si el usuario quitó la foto/doc
+  if (clearingPhoto && window.RFSCloudApi) {
+    if (prevPhotoPath && typeof window.RFSCloudApi.deleteStoragePath === "function") {
+      window.RFSCloudApi.deleteStoragePath(prevPhotoPath).catch(() => {});
+    }
+    if (prevPhotoMedia && typeof window.RFSCloudApi.deleteMedia === "function") {
+      window.RFSCloudApi.deleteMedia(prevPhotoMedia).catch(() => {});
+    }
+  }
+  if (clearingDoc && window.RFSCloudApi) {
+    if (prevDocPath && typeof window.RFSCloudApi.deleteStoragePath === "function") {
+      window.RFSCloudApi.deleteStoragePath(prevDocPath).catch(() => {});
+    }
+    if (prevDocMedia && typeof window.RFSCloudApi.deleteMedia === "function") {
+      window.RFSCloudApi.deleteMedia(prevDocMedia).catch(() => {});
+    }
+  }
   const postsTouched = pushEmployeeIntoPosts(updated);
   if (postsTouched) {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));

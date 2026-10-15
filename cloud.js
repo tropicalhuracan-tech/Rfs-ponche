@@ -374,24 +374,8 @@
       } else if (isHttpUrl(copy.photo)) {
         copy.photoUrl = copy.photo;
         copy.photo = "";
-      } else if (!copy.photo) {
-        if (!copy.photoUrl) {
-          const path = copy.photoStoragePath || `employees/${safeId(owner)}/photo.jpg`;
-          if (copy.photoStoragePath || copy.photoMediaId) {
-            try {
-              await deleteStoragePath(path);
-            } catch (_) {}
-            if (copy.photoMediaId) {
-              try {
-                await deleteMedia(copy.photoMediaId);
-              } catch (_) {}
-            }
-          }
-          copy.photoUrl = "";
-          copy.photoStoragePath = "";
-          copy.photoMediaId = "";
-        }
       }
+      // Si no hay foto en memoria pero sí URL/path/media, conservar (no borrar Storage en sync)
 
       // Documento → Storage o rfs_media
       if (isHeavyMedia(copy.documentData) || isDataUrl(copy.documentData)) {
@@ -420,24 +404,8 @@
       } else if (isHttpUrl(copy.documentData)) {
         copy.documentUrl = copy.documentData;
         copy.documentData = "";
-      } else if (!copy.documentData && !copy.documentUrl) {
-        const path = copy.documentStoragePath || `employees/${safeId(owner)}/document`;
-        if (copy.documentStoragePath || copy.documentMediaId) {
-          try {
-            await deleteStoragePath(path);
-          } catch (_) {}
-          if (copy.documentMediaId) {
-            try {
-              await deleteMedia(copy.documentMediaId);
-            } catch (_) {}
-          }
-        }
-        copy.documentUrl = "";
-        copy.documentStoragePath = "";
-        copy.documentMediaId = "";
-        copy.documentName = "";
-        copy.documentMime = "";
       }
+      // Conservar documentUrl/path/media si el doc no vino en este guardado
 
       light.push(copy);
     }
@@ -622,6 +590,13 @@
     return ids;
   }
 
+  function storagePublicUrl(path) {
+    if (!path || !storageBucket) return "";
+    return `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodeURIComponent(
+      path
+    )}?alt=media`;
+  }
+
   function hydrateEmployees(employees, mediaMap) {
     return (employees || []).map((emp) => {
       const copy = { ...(emp || {}) };
@@ -630,11 +605,18 @@
         copy.photo = copy.photoUrl;
       } else if (copy.photoMediaId && mediaMap[copy.photoMediaId]) {
         copy.photo = mediaMap[copy.photoMediaId];
+      } else if (!copy.photo && copy.photoStoragePath) {
+        // Recuperar URL si se perdió photoUrl pero quedó la ruta
+        copy.photoUrl = storagePublicUrl(copy.photoStoragePath);
+        copy.photo = copy.photoUrl;
       }
       if (copy.documentUrl && isHttpUrl(copy.documentUrl)) {
         copy.documentData = copy.documentUrl;
       } else if (copy.documentMediaId && mediaMap[copy.documentMediaId]) {
         copy.documentData = mediaMap[copy.documentMediaId];
+      } else if (!copy.documentData && copy.documentStoragePath) {
+        copy.documentUrl = storagePublicUrl(copy.documentStoragePath);
+        copy.documentData = copy.documentUrl;
       }
       return copy;
     });
