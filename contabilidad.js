@@ -924,10 +924,119 @@ const PAYROLL_GROUP_META = {
 };
 
 /**
- * Semilla nómina LOTEDOM (misma estructura que Monorriel/La Vega).
- * Vacía por ahora: se completa cuando envíen la lista de empleados.
+ * Semilla nómina LOTEDOM (PDF Nómina Lotedom · 16-30 sep 2026).
+ * Mismos parámetros que Monorriel/La Vega: Unif/Rifa 115/85, Almuerzo/SVDA (comida+90),
+ * nombre corto (1+1). Seguro vida del PDF se une en SVDA; sueldos/días/extras/desc. del PDF.
  */
-const LOTEDOM_PAYROLL_ROSTER = [];
+const LOTEDOM_PAYROLL_ROSTER = [
+  {
+    name: "GERARDO MERCECDES",
+    cedula: "",
+    position: "Puerta Tamboril",
+    salaryMonthly: 22000,
+    daysWorked: "13",
+    horasExtras: 500,
+    feriado: 700,
+    sfs: 700,
+    adelantos: 0,
+    prestamos: 0,
+  },
+  {
+    name: "LUIS ADONIS MARTINEZ",
+    cedula: "",
+    position: "LOTEDOM",
+    salaryMonthly: 24000,
+    daysWorked: "13",
+    horasExtras: 500,
+    feriado: 700,
+    sfs: 800,
+    adelantos: 0,
+    prestamos: 0,
+  },
+  {
+    name: "CARLOS VASQUEZ",
+    cedula: "402-4549159-8",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "13",
+    horasExtras: 0,
+    feriado: 700,
+    sfs: 700,
+    adelantos: 0,
+    prestamos: 1000,
+  },
+  {
+    name: "NATHANAEL GIL",
+    cedula: "",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "13",
+    horasExtras: 0,
+    feriado: 700,
+    sfs: 700,
+    adelantos: 800,
+    prestamos: 0,
+  },
+  {
+    name: "ALBERTO REYES",
+    cedula: "",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "13",
+    horasExtras: 0,
+    feriado: 700,
+    adelantos: 0,
+    prestamos: 1319,
+  },
+  {
+    name: "MAYLIN PARRA",
+    cedula: "",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "13",
+    horasExtras: 0,
+    feriado: 700,
+    sfs: 700,
+    adelantos: 0,
+    prestamos: 0,
+  },
+  {
+    name: "JUAN AGUILAR",
+    cedula: "",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "13",
+    horasExtras: 0,
+    feriado: 700,
+    sfs: 700,
+    adelantos: 0,
+    prestamos: 0,
+  },
+  {
+    name: "CARLOS POLANCO",
+    cedula: "",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "12",
+    horasExtras: 0,
+    feriado: 0,
+    sfs: 700,
+    adelantos: 0,
+    prestamos: 1628,
+  },
+  {
+    name: "ROBERTO PIMENETEL",
+    cedula: "031-0257662-0",
+    position: "LOTEDOM",
+    salaryMonthly: 21000,
+    daysWorked: "2+9INC",
+    horasExtras: 0,
+    feriado: 0,
+    sfs: 700,
+    adelantos: 0,
+    prestamos: 0,
+  },
+];
 
 function payrollGroupMeta(group) {
   return PAYROLL_GROUP_META[group] || PAYROLL_GROUP_META.lavega;
@@ -1036,6 +1145,12 @@ function getLotedomStaffForPayroll() {
       cedula: r.cedula || "",
       salaryMonthly: Math.max(0, Number(r.salaryMonthly) || 0),
       position: r.position || "LOTEDOM",
+      daysWorked: r.daysWorked != null ? String(r.daysWorked) : undefined,
+      horasExtras: r.horasExtras,
+      feriado: r.feriado,
+      sfs: r.sfs,
+      adelantos: r.adelantos,
+      prestamos: r.prestamos,
     }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
 }
@@ -1206,7 +1321,17 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
     defaultPosition ||
     "";
   const prevLine = prev || {};
-  const daysWorked = isOffice ? "" : prevLine.daysWorked || "15";
+  const hasPrev = !!prev;
+  const pickSeedNum = (prevVal, personVal, fallback = 0) => {
+    if (hasPrev && prevVal != null && prevVal !== "") return Math.max(0, Number(prevVal) || 0);
+    if (personVal != null && personVal !== "") return Math.max(0, Number(personVal) || 0);
+    return fallback;
+  };
+  const daysWorked = isOffice
+    ? ""
+    : (hasPrev && prevLine.daysWorked) ||
+      (person.daysWorked != null && String(person.daysWorked).trim()) ||
+      "15";
   const salaryMonthly =
     Math.max(0, Number(person.salaryMonthly) || 0) ||
     Math.max(0, Number(prevLine.salaryMonthly) || 0) ||
@@ -1222,8 +1347,11 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
       daysWorked,
       salaryMonthly,
       salaryQuincena: 0,
-      sfs: isOffice ? OFFICE_PAYROLL_SFS : prevLine.sfs || 0,
+      sfs: isOffice
+        ? OFFICE_PAYROLL_SFS
+        : pickSeedNum(prevLine.sfs, person.sfs, 0),
       // Oficina: sin uniforme/volao/comida/feriado/extras; sí rifa
+      // La Vega/Monorriel/LOTEDOM: Unif/Rifa unidos (115/85); SVDA en Almuerzo/SVDA
       uniformes: isOffice
         ? 0
         : prevLine.uniformes != null && Number.isFinite(prevUniformes)
@@ -1231,16 +1359,16 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
           : LVA_PAYROLL_UNIFORMES,
       volaos: isOffice ? 0 : prevLine.volaos || 0,
       incentivos: prevLine.incentivos || 0,
-      horasExtras: isOffice ? 0 : prevLine.horasExtras || 0,
-      feriado: isOffice ? 0 : prevLine.feriado || 0,
+      horasExtras: isOffice ? 0 : pickSeedNum(prevLine.horasExtras, person.horasExtras, 0),
+      feriado: isOffice ? 0 : pickSeedNum(prevLine.feriado, person.feriado, 0),
       almuerzo: isOffice ? 0 : prevLine.almuerzo || 0,
       rifa: isOffice
         ? prevLine.rifa != null && Number.isFinite(prevRifa)
           ? Math.max(0, prevRifa)
           : OFFICE_PAYROLL_RIFA
         : LVA_PAYROLL_RIFA,
-      adelantos: prevLine.adelantos || 0,
-      prestamos: prevLine.prestamos || 0,
+      adelantos: pickSeedNum(prevLine.adelantos, person.adelantos, 0),
+      prestamos: pickSeedNum(prevLine.prestamos, person.prestamos, 0),
       note: prevLine.note || "",
     },
     { office: isOffice, lavega: isLavega }
@@ -1299,7 +1427,7 @@ function generateOfficePayroll() {
         : group === "monorriel"
           ? "No hay personal activo de Monorriel."
           : group === "lotedom"
-            ? "LOTEDOM listo: aún falta la lista de empleados. Envíala para cargarla."
+            ? "No hay personal activo de LOTEDOM."
             : "No hay empleados activos en La Vega Autopista."
     );
     return;
