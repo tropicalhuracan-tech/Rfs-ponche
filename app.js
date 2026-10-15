@@ -1786,13 +1786,27 @@ function cloudDepuracionPayload() {
 function cloudContabilidadPayload() {
   return typeof contabilidadData !== "undefined"
     ? contabilidadData
-    : { expenses: [], itbisCollected: [], officeEmployees: [], payrolls: [], settings: { defaultBook: "EDWARD" } };
+    : {
+        expenses: [],
+        itbisCollected: [],
+        officeEmployees: [],
+        lotedomEmployees: [],
+        payrolls: [],
+        settings: { defaultBook: "EDWARD" },
+      };
 }
 
 function emptyContabilidadDataSafe() {
   return typeof emptyContabilidadData === "function"
     ? emptyContabilidadData()
-    : { expenses: [], itbisCollected: [], officeEmployees: [], payrolls: [], settings: { defaultBook: "EDWARD" } };
+    : {
+        expenses: [],
+        itbisCollected: [],
+        officeEmployees: [],
+        lotedomEmployees: [],
+        payrolls: [],
+        settings: { defaultBook: "EDWARD" },
+      };
 }
 
 async function saveCloudBundle(options) {
@@ -10228,7 +10242,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=113").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=114").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10243,7 +10257,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v113").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v114").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

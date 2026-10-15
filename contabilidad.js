@@ -13,6 +13,8 @@ function emptyContabilidadData() {
     expenses: [],
     itbisCollected: [],
     officeEmployees: [],
+    /** Empleados nómina LOTEDOM (misma forma que oficina; lista se carga al recibir el Excel). */
+    lotedomEmployees: [],
     payrolls: [],
     settings: { defaultBook: "EDWARD" },
   };
@@ -374,11 +376,11 @@ function normalizePayroll(p = {}) {
     payDate = `${period}-${String(day).padStart(2, "0")}`;
   }
   const status = ["draft", "paid", "cancelled"].includes(p.status) ? p.status : "draft";
-  const group = ["oficina", "lavega", "monorriel", "general"].includes(p.group)
+  const group = ["oficina", "lavega", "monorriel", "lotedom", "general"].includes(p.group)
     ? p.group
     : p.group || "lavega";
   const office = group === "oficina";
-  const lavega = group === "lavega" || group === "monorriel";
+  const lavega = group === "lavega" || group === "monorriel" || group === "lotedom";
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -404,6 +406,9 @@ function normalizeContabilidadData(raw = {}) {
       : [],
     officeEmployees: Array.isArray(raw.officeEmployees)
       ? raw.officeEmployees.map(normalizeOfficeEmployee)
+      : [],
+    lotedomEmployees: Array.isArray(raw.lotedomEmployees)
+      ? raw.lotedomEmployees.map(normalizeOfficeEmployee)
       : [],
     payrolls: Array.isArray(raw.payrolls) ? raw.payrolls.map(normalizePayroll) : [],
     settings: {
@@ -436,6 +441,7 @@ function applyRemoteContabilidadData(remote) {
     expenses: mergeById(local.expenses, remoteNorm.expenses),
     itbisCollected: mergeById(local.itbisCollected, remoteNorm.itbisCollected),
     officeEmployees: mergeById(local.officeEmployees, remoteNorm.officeEmployees),
+    lotedomEmployees: mergeById(local.lotedomEmployees || [], remoteNorm.lotedomEmployees || []),
     payrolls: mergeById(local.payrolls, remoteNorm.payrolls),
     settings: {
       defaultBook: remoteNorm.settings.defaultBook || local.settings.defaultBook || "EDWARD",
@@ -913,8 +919,15 @@ const PAYROLL_GROUP_META = {
   lavega: { label: "La Vega Autopista", short: "La Vega", title: "LA VEGA AUTOPISTA" },
   oficina: { label: "Oficina", short: "Oficina", title: "OFICINA" },
   monorriel: { label: "Monorriel", short: "Monorriel", title: "MONORRIEL" },
+  lotedom: { label: "LOTEDOM", short: "LOTEDOM", title: "LOTEDOM" },
   general: { label: "General / Otros", short: "General", title: "GENERAL / OTROS" },
 };
+
+/**
+ * Semilla nómina LOTEDOM (misma estructura que Monorriel/La Vega).
+ * Vacía por ahora: se completa cuando envíen la lista de empleados.
+ */
+const LOTEDOM_PAYROLL_ROSTER = [];
 
 function payrollGroupMeta(group) {
   return PAYROLL_GROUP_META[group] || PAYROLL_GROUP_META.lavega;
@@ -1000,6 +1013,33 @@ function getMonorrielPayrollRoster() {
   }
 }
 
+function getLotedomStaffForPayroll() {
+  const fromCloud = (contabilidadData.lotedomEmployees || [])
+    .filter((e) => e && e.active !== false && String(e.fullName || "").trim())
+    .map((e) => ({
+      id: e.id,
+      employeeId: e.id,
+      name: e.fullName,
+      cedula: e.cedula || "",
+      salaryMonthly: e.salary || 0,
+      position: e.position || "LOTEDOM",
+    }));
+  if (fromCloud.length) {
+    return fromCloud.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+  }
+  return (LOTEDOM_PAYROLL_ROSTER || [])
+    .filter((r) => r && String(r.name || "").trim())
+    .map((r, idx) => ({
+      id: r.id || `lotedom-${idx}`,
+      employeeId: r.employeeId || "",
+      name: String(r.name || "").trim(),
+      cedula: r.cedula || "",
+      salaryMonthly: Math.max(0, Number(r.salaryMonthly) || 0),
+      position: r.position || "LOTEDOM",
+    }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+}
+
 function getMonorrielStaffForPayroll() {
   try {
     const roster = getMonorrielPayrollRoster();
@@ -1064,6 +1104,7 @@ function getMonorrielStaffForPayroll() {
 function getStaffForPayrollGroup(group) {
   if (group === "oficina") return getOfficeStaffForPayroll();
   if (group === "monorriel") return getMonorrielStaffForPayroll();
+  if (group === "lotedom") return getLotedomStaffForPayroll();
   if (group === "general") return [];
   return getLvaStaffForPayroll();
 }
@@ -1110,9 +1151,13 @@ function payrollIsMonorriel(p) {
   return !!(p && p.group === "monorriel");
 }
 
-/** La Vega Autopista y Monorriel: mismas columnas / Unif-Rifa / Almuerzo-SVDA / nombres cortos. */
+function payrollIsLotedom(p) {
+  return !!(p && p.group === "lotedom");
+}
+
+/** La Vega, Monorriel y LOTEDOM: mismas columnas / Unif-Rifa / Almuerzo-SVDA / nombres cortos. */
 function payrollUsesLvaParams(p) {
-  return payrollIsLavega(p) || payrollIsMonorriel(p);
+  return payrollIsLavega(p) || payrollIsMonorriel(p) || payrollIsLotedom(p);
 }
 
 /** Columnas editor/impresión exclusivas de nómina oficina. */
@@ -1253,7 +1298,9 @@ function generateOfficePayroll() {
         ? "No hay empleados activos en Oficina. Agrégalos en la pestaña Oficina."
         : group === "monorriel"
           ? "No hay personal activo de Monorriel."
-          : "No hay empleados activos en La Vega Autopista."
+          : group === "lotedom"
+            ? "LOTEDOM listo: aún falta la lista de empleados. Envíala para cargarla."
+            : "No hay empleados activos en La Vega Autopista."
     );
     return;
   }
@@ -1279,7 +1326,7 @@ function generateOfficePayroll() {
     if (key) prevByName.set(key, l);
   });
   const isOffice = group === "oficina";
-  const isLavega = group === "lavega" || group === "monorriel";
+  const isLavega = group === "lavega" || group === "monorriel" || group === "lotedom";
   let lines;
   if (group === "general") {
     const kept = (existing && existing.lines ? existing.lines : []).map((l) =>
