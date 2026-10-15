@@ -198,7 +198,7 @@ const LVA_PAYROLL_UNIFORMES = 115;
 const LVA_PAYROLL_RIFA = 85;
 const LVA_PAYROLL_SFS_RATE = 0.0591; // ~SFS/SVDS observado en nómina Excel
 const LVA_PAYROLL_DAY_BASE = 26;
-/** Seguro de vida (SVDA): descuento fijo La Vega Autopista; columna Almuerzo/SVDA no editable. */
+/** Seguro de vida (SVDA): fijo RD$ 90 La Vega. Columna Almuerzo/SVDA = comida (editable) + SVDA. */
 const LVA_PAYROLL_SVDA = 90;
 /** Nómina oficina: SFS fijo; quincena = sueldo mensual / 2 (días no influyen). */
 const OFFICE_PAYROLL_SFS = 800;
@@ -256,12 +256,14 @@ function computePayrollLineTotals(line, opts = {}) {
       salaryQuincena = roundMoney2((salaryMonthly * daysInfo.days) / LVA_PAYROLL_DAY_BASE);
     }
     if (!sfs && salaryQuincena) sfs = roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE);
-    // La Vega Autopista: Almuerzo/SVDA = seguro de vida fijo RD$ 90 (no editable)
-    if (lavega) almuerzo = hasName ? LVA_PAYROLL_SVDA : 0;
   }
 
-  // Restan: SFS/SVDS, uniformes, almuerzo/SVDA, rifa, adelantos, descuento préstamos
-  const totalDescuentos = roundMoney2(sfs + uniformes + almuerzo + rifa + adelantos + prestamos);
+  // La Vega: comida (almuerzo editable) + SVDA fijo 90; ambas suman en descuentos
+  const svda = lavega && hasName ? LVA_PAYROLL_SVDA : 0;
+  const almuerzoSvda = roundMoney2(almuerzo + svda);
+
+  // Restan: SFS/SVDS, uniformes, almuerzo+SVDA, rifa, adelantos, descuento préstamos
+  const totalDescuentos = roundMoney2(sfs + uniformes + almuerzo + svda + rifa + adelantos + prestamos);
   // Suman al quincenal: volaos, incentivos, horas extras, feriado
   const totalCobrar = roundMoney2(salaryQuincena + volaos + incentivos + horasExtras + feriado);
   const salarioDepositar = roundMoney2(Math.max(0, totalCobrar - totalDescuentos));
@@ -281,6 +283,8 @@ function computePayrollLineTotals(line, opts = {}) {
     horasExtras,
     feriado,
     almuerzo,
+    svda,
+    almuerzoSvda,
     rifa,
     adelantos,
     prestamos,
@@ -1119,7 +1123,7 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
       incentivos: prevLine.incentivos || 0,
       horasExtras: isOffice ? 0 : prevLine.horasExtras || 0,
       feriado: isOffice ? 0 : prevLine.feriado || 0,
-      almuerzo: isOffice ? 0 : isLavega ? LVA_PAYROLL_SVDA : prevLine.almuerzo || 0,
+      almuerzo: isOffice ? 0 : prevLine.almuerzo || 0,
       rifa: isOffice
         ? prevLine.rifa != null && Number.isFinite(prevRifa)
           ? Math.max(0, prevRifa)
@@ -1323,7 +1327,11 @@ function readPayrollLinesFromDom(payrollId) {
         incentivos: g("incentivos"),
         horasExtras: isOffice ? 0 : g("horasExtras"),
         feriado: showFer ? g("feriado") : 0,
-        almuerzo: isOffice ? 0 : isLavega ? LVA_PAYROLL_SVDA : g("almuerzo"),
+        almuerzo: isOffice
+          ? 0
+          : isLavega
+            ? parseAlmuerzoSvda(g("almuerzoSvda") || g("almuerzo"), prev).almuerzo
+            : g("almuerzo"),
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
       },
@@ -1433,7 +1441,7 @@ function getPayrollEditorCols(p) {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
-    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "ro"];
+    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "almuerzoSvda"];
     return [key, label, kind];
   });
 }
@@ -1445,7 +1453,7 @@ function getPayrollPrintCols(p) {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
-    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "ro"];
+    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "almuerzoSvda"];
     return [key, label, kind];
   });
 }
@@ -1458,6 +1466,34 @@ function formatUnifRifa(line) {
   const r = Math.max(0, Number(line && line.rifa) || 0);
   if (!u && !r) return "";
   return `${u || 0}/${r || LVA_PAYROLL_RIFA}`;
+}
+
+/** Comida editable / SVDA fijo 90 (La Vega). */
+function formatAlmuerzoSvda(line) {
+  const meal = Math.max(0, Number(line && line.almuerzo) || 0);
+  const hasName = payrollLineHasEmployeeName(line);
+  if (!hasName && !meal) return "";
+  return `${meal || 0}/${LVA_PAYROLL_SVDA}`;
+}
+
+function parseAlmuerzoSvda(raw, prev = {}) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) {
+    return { almuerzo: Math.max(0, Number(prev.almuerzo) || 0) };
+  }
+  const m = s.match(/^(\d+(?:[.,]\d+)?)\s*[\/|]\s*(\d+(?:[.,]\d+)?)?$/);
+  if (m) {
+    return { almuerzo: Math.max(0, Number(String(m[1]).replace(",", ".")) || 0) };
+  }
+  return { almuerzo: Math.max(0, Number(String(s).replace(",", ".")) || 0) };
+}
+
+function almuerzoSvdaAmount(line) {
+  const meal = Math.max(0, Number(line && line.almuerzo) || 0);
+  const svda = Math.max(0, Number(line && line.svda) || 0);
+  if (svda) return roundMoney2(meal + svda);
+  if (payrollLineHasEmployeeName(line)) return roundMoney2(meal + LVA_PAYROLL_SVDA);
+  return meal;
 }
 
 function parseUnifRifa(raw, prev = {}) {
@@ -1662,7 +1698,7 @@ function buildPayrollPrintHtml(p) {
       uniformes,
       rifa: isOffice ? Number(l.rifa) || OFFICE_PAYROLL_RIFA : Number(l.rifa) || LVA_PAYROLL_RIFA,
       volaos: isOffice ? 0 : l.volaos,
-      almuerzo: isOffice ? 0 : isLavega ? LVA_PAYROLL_SVDA : l.almuerzo,
+      almuerzo: isOffice ? 0 : l.almuerzo,
       feriado: isOffice ? 0 : l.feriado,
       horasExtras: isOffice ? 0 : l.horasExtras,
       daysWorked: isOffice ? "" : l.daysWorked,
@@ -1683,6 +1719,12 @@ function buildPayrollPrintHtml(p) {
       );
       return;
     }
+    if (kind === "almuerzoSvda") {
+      totals.almuerzo = roundMoney2(
+        allLines.reduce((acc, l) => acc + almuerzoSvdaAmount(l), 0)
+      );
+      return;
+    }
     if (kind === "ro" || kind === "num") totals[key] = sumPayrollField(allLines, key);
   });
   const head = cols
@@ -1700,6 +1742,9 @@ function buildPayrollPrintHtml(p) {
           }
           if (key === "unifRifa") {
             return `<td class="right col-num">${escapeHtml(formatUnifRifa(l))}</td>`;
+          }
+          if (kind === "almuerzoSvda") {
+            return `<td class="right col-num">${escapeHtml(formatAlmuerzoSvda(l))}</td>`;
           }
           if (kind === "ro" || kind === "num") {
             const v = Number(l[key]) || 0;
@@ -1729,6 +1774,9 @@ function buildPayrollPrintHtml(p) {
       if (key === "daysWorked") return `<td class="col-days"></td>`;
       if (key === "unifRifa") {
         return `<td class="right col-num"><strong>${escapeHtml(moneyPlain(totals.unifRifa))}</strong></td>`;
+      }
+      if (kind === "almuerzoSvda") {
+        return `<td class="right col-num"><strong>${escapeHtml(moneyPlain(totals.almuerzo))}</strong></td>`;
       }
       if (key === "redondeo") {
         const v = Number(totals.redondeo) || 0;
@@ -2132,11 +2180,13 @@ function updatePayrollReadonlyDom(p) {
       const td = [...tr.children].find((cell) => cell.dataset && cell.dataset.ro === key);
       if (td) td.textContent = moneyCell(l[key]);
     });
-    // also sync computed quincena/sfs inputs when auto-forced (La Vega)
+    // also sync computed quincena/sfs / Almuerzo-SVDA when auto-forced (La Vega)
     const q = tr.querySelector('[data-f="salaryQuincena"]');
     const s = tr.querySelector('[data-f="sfs"]');
+    const asv = tr.querySelector('[data-f="almuerzoSvda"]');
     if (q && document.activeElement !== q) q.value = l.salaryQuincena || "";
     if (s && document.activeElement !== s) s.value = l.sfs || "";
+    if (asv && document.activeElement !== asv) asv.value = formatAlmuerzoSvda(l);
   });
   const totals = {
     salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
@@ -2147,7 +2197,9 @@ function updatePayrollReadonlyDom(p) {
     incentivos: sumPayrollField(lines, "incentivos"),
     horasExtras: sumPayrollField(lines, "horasExtras"),
     feriado: sumPayrollField(lines, "feriado"),
-    almuerzo: sumPayrollField(lines, "almuerzo"),
+    almuerzo: payrollIsLavega(p)
+      ? roundMoney2(payrollLinesForTotals(lines).reduce((acc, l) => acc + almuerzoSvdaAmount(l), 0))
+      : sumPayrollField(lines, "almuerzo"),
     rifa: sumPayrollField(lines, "rifa"),
     adelantos: sumPayrollField(lines, "adelantos"),
     prestamos: sumPayrollField(lines, "prestamos"),
@@ -2400,7 +2452,7 @@ function renderNominaTab() {
       saveContabilidadData(true);
     }
   }
-  // La Vega: nombre corto + uniforme 215→115 + SVDA fijo 90 en Almuerzo/SVDA
+  // La Vega: nombre corto + uniforme 215→115; comida editable + SVDA 90 aparte
   if (payrollIsLavega(p)) {
     const staffById = new Map();
     try {
@@ -2410,29 +2462,40 @@ function renderNominaTab() {
       });
     } catch (_) {}
     let cleaned = false;
+    // v110 metió SVDA dentro de almuerzo (=90); una sola vez dejar comida en 0
+    if (!p.svdaMealSplit) {
+      p.lines = (p.lines || []).map((l) => {
+        if (Number(l.almuerzo) === LVA_PAYROLL_SVDA) {
+          cleaned = true;
+          return { ...l, almuerzo: 0 };
+        }
+        return l;
+      });
+      p.svdaMealSplit = true;
+      cleaned = true;
+    }
     p.lines = (p.lines || []).map((l) => {
       let next = l;
       const staff = staffById.get(l.employeeId);
       const short = staff
         ? payrollShortEmployeeName(staff.name)
         : payrollShortEmployeeName(l.fullName);
-      const hasName = !!(short || String(l.fullName || "").trim());
-      const wantSvda = hasName ? LVA_PAYROLL_SVDA : 0;
       if (short && short !== String(l.fullName || "").trim()) {
         cleaned = true;
         next = { ...next, fullName: short };
       }
-      if (Number(next.uniformes) === 215 || Number(next.almuerzo) !== wantSvda) {
+      if (Number(next.uniformes) === 215) {
         cleaned = true;
         next = computePayrollLineTotals(
           {
             ...next,
-            uniformes: Number(next.uniformes) === 215 ? LVA_PAYROLL_UNIFORMES : next.uniformes,
+            uniformes: LVA_PAYROLL_UNIFORMES,
             rifa: Number(next.rifa) || LVA_PAYROLL_RIFA,
-            almuerzo: wantSvda,
           },
           { lavega: true }
         );
+      } else {
+        next = computePayrollLineTotals(next, { lavega: true });
       }
       return next;
     });
@@ -2453,7 +2516,9 @@ function renderNominaTab() {
     incentivos: sumPayrollField(lines, "incentivos"),
     horasExtras: sumPayrollField(lines, "horasExtras"),
     feriado: sumPayrollField(lines, "feriado"),
-    almuerzo: sumPayrollField(lines, "almuerzo"),
+    almuerzo: payrollIsLavega(p)
+      ? roundMoney2(payrollLinesForTotals(lines).reduce((acc, l) => acc + almuerzoSvdaAmount(l), 0))
+      : sumPayrollField(lines, "almuerzo"),
     rifa: sumPayrollField(lines, "rifa"),
     adelantos: sumPayrollField(lines, "adelantos"),
     prestamos: sumPayrollField(lines, "prestamos"),
@@ -2471,7 +2536,11 @@ function renderNominaTab() {
         else if (key === "sfs") cls = "nomina-col-fit nomina-col-sfs";
         else if (key === "redondeo") cls = "nomina-col-fit nomina-col-redondeo";
         else if (kind === "days") cls = "nomina-col-fit nomina-col-days";
-        return `<th class="${cls}" title="${escapeHtml(label)}">${escapeHtml(label)}</th>`;
+        const tip =
+          kind === "almuerzoSvda"
+            ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
+            : label;
+        return `<th class="${cls}" title="${escapeHtml(tip)}">${escapeHtml(label)}</th>`;
       })
       .join("") +
     `<th class="nomina-col-del" title="Eliminar fila (no se imprime)">−</th>`;
@@ -2496,6 +2565,11 @@ function renderNominaTab() {
               formatUnifRifa(l)
             )}" title="Uniforme/Rifa (uniforme editable · rifa fija 85)" /></td>`;
           }
+          if (kind === "almuerzoSvda") {
+            return `<td class="${fit}"><input class="nomina-inp nomina-inp-unifrifa" data-f="almuerzoSvda" type="text" inputmode="decimal" placeholder="0/${LVA_PAYROLL_SVDA}" value="${escapeHtml(
+              formatAlmuerzoSvda(l)
+            )}" title="Comida editable / SVDA fijo ${LVA_PAYROLL_SVDA} (ambas suman)" /></td>`;
+          }
           const cls = kind === "days" ? "nomina-inp nomina-inp-days" : kind === "text" ? "nomina-inp nomina-inp-ced" : "nomina-inp";
           const val = l[key] == null ? "" : l[key];
           const type = kind === "num" ? "number" : "text";
@@ -2510,12 +2584,15 @@ function renderNominaTab() {
     .join("");
   const totalRow =
     cols
-      .map(([key]) => {
+      .map(([key, , kind]) => {
         if (key === "daysWorked") return `<td class="nomina-col-fit"><strong>TOTAL</strong></td>`;
         if (key === "cedula") return `<td class="nomina-col-fit"></td>`;
         if (key === "fullName") return `<td class="sticky-name"></td>`;
         if (key === "unifRifa") {
           return `<td class="right nomina-col-fit" data-ro="unifRifa">${escapeHtml(moneyCell(totals.unifRifa))}</td>`;
+        }
+        if (kind === "almuerzoSvda") {
+          return `<td class="right nomina-col-fit" data-ro="almuerzo">${escapeHtml(moneyCell(totals.almuerzo))}</td>`;
         }
         if (key === "redondeo") {
           return `<td class="right nomina-col-fit nomina-col-redondeo nomina-total-redondeo" data-ro="redondeo"><strong>${escapeHtml(
@@ -2544,7 +2621,7 @@ function renderNominaTab() {
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85.${
         payrollIsLavega(p)
-          ? ` Almuerzo/SVDA fijo RD$ ${LVA_PAYROLL_SVDA} (seguro de vida, no editable).`
+          ? ` Almuerzo/SVDA = comida (editable) + SVDA fijo RD$ ${LVA_PAYROLL_SVDA}; ambas suman.`
           : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
