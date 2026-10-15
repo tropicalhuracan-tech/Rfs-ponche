@@ -1021,7 +1021,8 @@ function payrollShortEmployeeName(name) {
   if (!clean) return "";
   const parts = clean.split(" ").filter(Boolean);
   if (parts.length <= 2) return parts.join(" ");
-  return `${parts[0]} ${parts[parts.length - 2]}`;
+  // Un nombre + un apellido (último token = apellido a imprimir)
+  return `${parts[0]} ${parts[parts.length - 1]}`;
 }
 
 function payrollIsOffice(p) {
@@ -1030,33 +1031,33 @@ function payrollIsOffice(p) {
 
 /** Columnas editor/impresión exclusivas de nómina oficina. */
 const PAYROLL_OFFICE_TABLE_COLS = [
+  ["fullName", "Nombre", "name"],
   ["cedula", "Cédula", "text"],
-  ["fullName", "Nombres", "name"],
   ["salaryMonthly", "Sueldo mes", "num"],
-  ["salaryQuincena", "Sueldo quincena", "ro"],
+  ["salaryQuincena", "Quincena", "ro"],
   ["sfs", "SFS", "ro"],
   ["rifa", "Rifa", "num"],
-  ["incentivos", "Incentivos", "num"],
+  ["incentivos", "Incent.", "num"],
   ["adelantos", "Adelantos", "num"],
   ["prestamos", "Préstamos", "num"],
-  ["totalDescuentos", "Total descuentos", "ro"],
-  ["totalCobrar", "Total cobrar", "ro"],
-  ["salarioDepositar", "A depositar", "ro"],
+  ["totalDescuentos", "Desc.", "ro"],
+  ["totalCobrar", "Cobrar", "ro"],
+  ["salarioDepositar", "Depositar", "ro"],
   ["redondeo", "Redondeo", "ro"],
 ];
 
 const PAYROLL_OFFICE_PRINT_COLS = [
-  ["fullName", "Nombres", "name"],
+  ["fullName", "Nombre", "name"],
   ["salaryMonthly", "Sueldo mes", "num"],
-  ["salaryQuincena", "Sueldo quincena", "num"],
+  ["salaryQuincena", "Quincena", "num"],
   ["sfs", "SFS", "num"],
   ["rifa", "Rifa", "num"],
-  ["incentivos", "Incentivos", "num"],
+  ["incentivos", "Incent.", "num"],
   ["adelantos", "Adelantos", "num"],
   ["prestamos", "Préstamos", "num"],
-  ["totalDescuentos", "Total descuentos", "ro"],
-  ["totalCobrar", "Total cobrar", "ro"],
-  ["salarioDepositar", "A depositar", "ro"],
+  ["totalDescuentos", "Desc.", "ro"],
+  ["totalCobrar", "Cobrar", "ro"],
+  ["salarioDepositar", "Depositar", "ro"],
   ["redondeo", "Redondeo", "ro"],
 ];
 
@@ -1064,10 +1065,8 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
   const opts = options && typeof options === "object" ? options : {};
   const isOffice = !!opts.office;
   const rawName = String(person.name || person.fullName || "").trim();
-  // Oficina: nombre completo de la lista. La Vega/otros: nombre + 1 apellido.
-  const baseName = isOffice
-    ? payrollCleanEmployeeName(rawName) || rawName
-    : payrollShortEmployeeName(rawName);
+  // Oficina y La Vega: un nombre + un apellido (compacto para Carta horizontal).
+  const baseName = payrollShortEmployeeName(rawName) || payrollCleanEmployeeName(rawName) || rawName;
   const post =
     person.position ||
     (person.postName ? String(person.postName).trim() : "") ||
@@ -1625,9 +1624,7 @@ function buildPayrollPrintHtml(p) {
     if (isOffice) uniformes = 0;
     const named = {
       ...l,
-      fullName: isOffice
-        ? payrollCleanEmployeeName(l.fullName) || l.fullName
-        : payrollShortEmployeeName(l.fullName) || l.fullName,
+      fullName: payrollShortEmployeeName(l.fullName) || payrollCleanEmployeeName(l.fullName) || l.fullName,
       uniformes,
       rifa: isOffice ? Number(l.rifa) || OFFICE_PAYROLL_RIFA : Number(l.rifa) || LVA_PAYROLL_RIFA,
       volaos: isOffice ? 0 : l.volaos,
@@ -1749,43 +1746,47 @@ function payrollPrintCss(paperSize, options = {}) {
   // Keyword landscape evita hoja en blanco / orientación mal interpretada en Chrome
   const page =
     paper === "letter"
-      ? "@page{size:letter landscape;margin:8mm}"
+      ? "@page{size:letter landscape;margin:7mm}"
       : "@page{size:legal landscape;margin:6mm}";
   return `
     ${page}
     html,body.print-nomina{width:100% !important;max-width:none !important;min-height:0;overflow:visible !important;background:#fff !important;color:#111 !important}
     body.print-nomina{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:8px 10px;font-size:${
-      office ? "13px" : "12px"
-    };line-height:1.2;margin:0}
+      office ? "12px" : "12px"
+    };line-height:1.15;margin:0}
     body.print-nomina .brand{margin:0 auto 8px;justify-content:center;text-align:center;display:flex;align-items:center;gap:10px}
-    body.print-nomina .brand img{width:${office ? "46px" : "38px"};height:${office ? "46px" : "38px"}}
-    body.print-nomina h1{font-size:${office ? "18px" : "15px"};font-weight:800}
-    body.print-nomina h2{font-size:${office ? "15px" : "13px"};margin:0 0 4px;font-weight:800;text-align:center}
+    body.print-nomina .brand img{width:${office ? "44px" : "38px"};height:${office ? "44px" : "38px"}}
+    body.print-nomina h1{font-size:${office ? "17px" : "15px"};font-weight:900}
+    body.print-nomina h2{font-size:${office ? "14px" : "13px"};margin:0 0 4px;font-weight:900;text-align:center;color:#111}
     #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch;background:#fff;color:#111}
     #rfsPrintRoot > .footer{text-align:center;align-self:center}
     table.nomina-print{width:${office ? "100%" : "auto"};max-width:100%;border-collapse:collapse;table-layout:${
-      office ? "fixed" : "auto"
-    };font-size:${office ? "12.5px" : "11.5px"};margin:0 auto}
-    table.nomina-print th,table.nomina-print td{border:1px solid #111;padding:${
-      office ? "5px 6px" : "2px 4px"
+      office ? "auto" : "auto"
+    };font-size:${office ? "11.5px" : "11.5px"};margin:0 auto}
+    table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:${
+      office ? "4px 5px" : "2px 4px"
     };vertical-align:middle}
-    table.nomina-print th{background:#e8e8e8;color:#000;font-weight:800;font-size:${
-      office ? "12px" : "11px"
-    };line-height:1.2;white-space:normal}
-    table.nomina-print td{white-space:${office ? "normal" : "nowrap"};padding:${office ? "5px 6px" : "2px 4px"}}
+    table.nomina-print th{background:${office ? "#b71c1c" : "#e8e8e8"};color:${
+      office ? "#fff" : "#000"
+    };font-weight:900;font-size:${office ? "11px" : "11px"};line-height:1.15;white-space:nowrap;letter-spacing:0.01em}
+    table.nomina-print td{white-space:nowrap;padding:${office ? "4px 5px" : "2px 4px"}}
     table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:${
-      office ? "5px 7px" : "2px 5px"
-    };max-width:none;overflow:visible;text-overflow:clip;word-break:break-word}
+      office ? "4px 6px" : "2px 5px"
+    };max-width:11em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap !important;word-break:normal}
     table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right}
     table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
-    table.nomina-print tfoot td{background:#efefef;font-weight:800}
-    table.nomina-print tfoot td.col-redondeo-total{font-size:${office ? "13px" : "11.5px"}}
+    table.nomina-print tfoot td{background:${office ? "#ffe082" : "#efefef"};font-weight:900}
+    table.nomina-print tfoot td.col-redondeo-total{font-size:${office ? "12px" : "11.5px"}}
     table.nomina-print-office{width:100% !important}
-    .meta{font-size:${office ? "12px" : "11px"};display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
-    .sign-box{margin-top:${office ? "18px" : "12px"};display:grid;grid-template-columns:1fr 1fr;gap:18px;width:${
+    table.nomina-print-office tbody tr:nth-child(even) td{background:#f3f3f3}
+    table.nomina-print-office tbody tr:nth-child(odd) td{background:#ffffff}
+    table.nomina-print-office tbody tr:nth-child(even) td.col-name{background:#eceff1}
+    table.nomina-print-office td.col-name{color:#0d47a1;font-weight:800}
+    .meta{font-size:${office ? "11px" : "11px"};display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+    .sign-box{margin-top:${office ? "16px" : "12px"};display:grid;grid-template-columns:1fr 1fr;gap:18px;width:${
       office ? "min(100%,640px)" : "min(100%,520px)"
     };align-self:center;margin-left:auto;margin-right:auto}
-    .sign-line{border-top:1px solid #111;margin-top:${office ? "32px" : "26px"};padding-top:3px;text-align:center;font-size:${
+    .sign-line{border-top:1px solid #111;margin-top:${office ? "28px" : "26px"};padding-top:3px;text-align:center;font-size:${
       office ? "11px" : "10px"
     }}
     .footer{font-size:9px;margin-top:6px;text-align:center}
@@ -1794,11 +1795,12 @@ function payrollPrintCss(paperSize, options = {}) {
       body.print-nomina{padding:0 !important;margin:0 !important}
       .no-print{display:none !important}
       #rfsPrintRoot{width:100% !important;align-items:stretch;visibility:visible !important}
-      table.nomina-print{font-size:${office ? "12.5px" : "11.5px"};width:${
+      table.nomina-print{font-size:${office ? "11.5px" : "11.5px"};width:${
         office ? "100%" : "auto"
       };margin:0 auto}
-      table.nomina-print th{font-size:${office ? "12px" : "11px"};font-weight:800}
+      table.nomina-print th{font-size:${office ? "11px" : "11px"};font-weight:900}
       table.nomina-print-office{width:100% !important}
+      table.nomina-print td,table.nomina-print th{white-space:nowrap !important}
     }
   `;
 }
@@ -2296,14 +2298,26 @@ function renderNominaTab() {
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
-  // Oficina: recalcular con reglas propias (sueldo/2, SFS 800, sin columnas excluidas)
+  // Oficina: reglas propias + nombre corto (1 nombre + 1 apellido)
   if (payrollIsOffice(p)) {
     p.showFeriado = false;
+    const officeStaffById = new Map();
+    try {
+      getOfficeStaffForPayroll().forEach((s) => {
+        if (s.employeeId) officeStaffById.set(s.employeeId, s);
+        if (s.id) officeStaffById.set(s.id, s);
+      });
+    } catch (_) {}
     let cleanedOffice = false;
     p.lines = (p.lines || []).map((l) => {
-      const next = computePayrollLineTotals(
+      const staff = officeStaffById.get(l.employeeId);
+      const short = staff
+        ? payrollShortEmployeeName(staff.name || staff.fullName)
+        : payrollShortEmployeeName(l.fullName);
+      let next = computePayrollLineTotals(
         {
           ...l,
+          fullName: short || l.fullName,
           daysWorked: "",
           salaryQuincena: 0,
           sfs: OFFICE_PAYROLL_SFS,
@@ -2317,6 +2331,7 @@ function renderNominaTab() {
         { office: true }
       );
       if (
+        (short && short !== String(l.fullName || "").trim()) ||
         Number(l.salaryQuincena) !== Number(next.salaryQuincena) ||
         Number(l.sfs) !== Number(next.sfs) ||
         Number(l.uniformes) ||
@@ -2468,7 +2483,7 @@ function renderNominaTab() {
   const helpLine = isOfficeOpen
     ? `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre. Quincena = sueldo/2 · SFS fijo RD$ ${OFFICE_PAYROLL_SFS} · Rifa editable. Sin días, unif, volao, comida, feriado ni horas extras. Impresión ${paperLabel} horizontal · Descargar / Correo Gmail.`
+      } · ${namedCount}/${lines.length} con nombre. Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85. Feriado ${
@@ -2488,8 +2503,8 @@ function renderNominaTab() {
       }</button>
     </div>`
     }
-    <div class="nomina-table-wrap">
-      <table class="nomina-table">
+    <div class="nomina-table-wrap${isOfficeOpen ? " nomina-table-wrap-office" : ""}">
+      <table class="nomina-table${isOfficeOpen ? " nomina-table-office" : ""}">
         <thead><tr>${head}</tr></thead>
         <tbody>${body || `<tr><td colspan="${cols.length + 1}">Sin líneas</td></tr>`}</tbody>
         <tfoot><tr class="nomina-total-row">${totalRow}</tr></tfoot>

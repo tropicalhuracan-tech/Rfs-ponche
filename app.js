@@ -10207,7 +10207,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=108").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=109").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10222,7 +10222,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v108").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v109").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
