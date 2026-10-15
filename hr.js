@@ -464,7 +464,17 @@ let pendingHrPhoto = null;
 let hrPsychAnswers = {};
 
 function emptyHrData() {
-  return { applications: [] };
+  return { applications: [], deletedIds: [] };
+}
+
+function hrApplicationHasName(a) {
+  return !!(a && String(a.fullName || "").trim());
+}
+
+/** Quita borradores sin nombre (excepto la solicitud abierta en el formulario). */
+function pruneNamelessHrApplications(apps, keepId) {
+  const keep = keepId || selectedHrAppId || "";
+  return (Array.isArray(apps) ? apps : []).filter((a) => hrApplicationHasName(a) || (keep && a.id === keep));
 }
 
 function emptyUniforms() {
@@ -635,11 +645,20 @@ function normalizeHrApplication(a = {}) {
 
 function normalizeHrData(raw = {}) {
   const applications = Array.isArray(raw.applications) ? raw.applications.map(normalizeHrApplication) : [];
-  return { applications };
+  const deletedIds = [
+    ...new Set(
+      (Array.isArray(raw.deletedIds) ? raw.deletedIds : [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+    ),
+  ].slice(-800);
+  return { applications, deletedIds };
 }
 
 function saveHrData(push = true) {
   hrData = normalizeHrData(hrData);
+  // No persistir “Sin nombre” (vuelven por sync si la nube aún las tiene)
+  hrData.applications = pruneNamelessHrApplications(hrData.applications, selectedHrAppId);
   localStorage.setItem(HR_KEY, JSON.stringify(hrData));
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
@@ -647,16 +666,44 @@ function saveHrData(push = true) {
 function applyRemoteHrData(remote) {
   const remoteNorm = normalizeHrData(remote || {});
   const local = normalizeHrData(hrData);
+  const deleted = new Set([...(local.deletedIds || []), ...(remoteNorm.deletedIds || [])]);
+  // Toda solicitud remota/local sin nombre se considera basura y no debe resucitar
+  [...local.applications, ...remoteNorm.applications].forEach((a) => {
+    if (a && a.id && !hrApplicationHasName(a) && a.id !== selectedHrAppId) deleted.add(a.id);
+  });
   const map = new Map();
   [...local.applications, ...remoteNorm.applications].forEach((a) => {
     if (!a || !a.id) return;
+    if (deleted.has(a.id)) return;
+    if (!hrApplicationHasName(a) && a.id !== selectedHrAppId) return;
     const prev = map.get(a.id);
     if (!prev || String(a.updatedAt) > String(prev.updatedAt)) map.set(a.id, a);
   });
   hrData = {
     applications: [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
+    deletedIds: [...deleted].slice(-800),
   };
   localStorage.setItem(HR_KEY, JSON.stringify(hrData));
+}
+
+/** Limpia de golpe todas las solicitudes sin nombre y las bloquea en la nube. */
+function purgeNamelessHrApplications(push = true) {
+  hrData = normalizeHrData(hrData);
+  const keep =
+    selectedHrAppId && getHrApp(selectedHrAppId) && !hrApplicationHasName(getHrApp(selectedHrAppId))
+      ? selectedHrAppId
+      : "";
+  const removed = [];
+  hrData.applications = (hrData.applications || []).filter((a) => {
+    if (hrApplicationHasName(a) || (keep && a.id === keep)) return true;
+    removed.push(a.id);
+    return false;
+  });
+  if (!removed.length) return 0;
+  hrData.deletedIds = [...new Set([...(hrData.deletedIds || []), ...removed])].slice(-800);
+  localStorage.setItem(HR_KEY, JSON.stringify(hrData));
+  if (push && typeof queueCloudSave === "function") queueCloudSave();
+  return removed.length;
 }
 
 /* canAccessRrhh está definida en app.js para que el menú no falle si hr.js tarda */
@@ -666,7 +713,18 @@ function getHrApp(id) {
 }
 
 function setHrTab(tab) {
-  hrTab = tab || "list";
+  const next = tab || "list";
+  // Al volver a la lista, desechar borrador sin nombre (no dejar “Sin nombre” colgado)
+  if (next === "list" && selectedHrAppId) {
+    const open = getHrApp(selectedHrAppId);
+    if (open && !hrApplicationHasName(open) && open.status !== "hired") {
+      hrData.applications = (hrData.applications || []).filter((a) => a.id !== open.id);
+      hrData.deletedIds = [...new Set([...(hrData.deletedIds || []), open.id])].slice(-800);
+      selectedHrAppId = null;
+      saveHrData(true);
+    }
+  }
+  hrTab = next;
   document.querySelectorAll(".hr-tabs .emp-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.hrTab === hrTab);
   });
@@ -913,15 +971,12 @@ function ensureHrAppForEdit() {
     toast("No tienes acceso a Recursos Humanos.");
     return null;
   }
-  let app = getHrApp(selectedHrAppId);
+  const app = getHrApp(selectedHrAppId);
   if (app) return app;
-  // Si no hay solicitud abierta, crear borrador para poder marcar uniformes
-  app = emptyHrApplication();
-  app.createdBy = currentUser ? currentUser.displayName || currentUser.username : "";
-  hrData.applications.unshift(app);
-  selectedHrAppId = app.id;
-  saveHrData(true);
-  return app;
+  // No crear borradores vacíos desde Uniformes (reaparecían por sync como “Sin nombre”)
+  toast("Abre o crea una solicitud y escribe el nombre primero.");
+  setHrTab("list");
+  return null;
 }
 
 function toggleHrUniformItem(key) {
@@ -1358,6 +1413,7 @@ function deleteHrApplication(id) {
   }
   if (!window.confirm(`¿Eliminar la solicitud de ${app.fullName || "borrador"}?`)) return;
   hrData.applications = hrData.applications.filter((a) => a.id !== id);
+  hrData.deletedIds = [...new Set([...(hrData.deletedIds || []), id])].slice(-800);
   saveHrData(true);
   if (selectedHrAppId === id) {
     selectedHrAppId = null;
@@ -1415,6 +1471,11 @@ function renderHrList() {
 
 function renderHrModule() {
   if (!canAccessRrhh()) return;
+  // Limpieza al entrar a la lista: basura “Sin nombre” no vuelve por sync
+  if (hrTab === "list") {
+    const n = purgeNamelessHrApplications(true);
+    if (n > 0) toast(`Eliminadas ${n} solicitud(es) sin nombre (ya no volverán).`);
+  }
   const summary = document.getElementById("hrSummary");
   const apps = hrData.applications || [];
   const hired = apps.filter((a) => a.status === "hired").length;

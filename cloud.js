@@ -178,7 +178,7 @@
   }
 
   function emptyHr() {
-    return { applications: [] };
+    return { applications: [], deletedIds: [] };
   }
 
   function emptyDepuracion() {
