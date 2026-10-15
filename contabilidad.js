@@ -387,6 +387,7 @@ function normalizePayroll(p = {}) {
     payDate,
     status,
     showFeriado: office ? false : p.showFeriado === true,
+    svdaMealSplit: p.svdaMealSplit === true,
     lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, { office, lavega })) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
