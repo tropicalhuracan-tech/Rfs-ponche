@@ -1612,7 +1612,8 @@ body.lightbox-open {
 }
 
 #app.logged-out #btnLocateMe,
-#app.logged-out #btnPrintCurrent {
+#app.logged-out #btnPrintCurrent,
+#app.logged-out #btnRefreshApp {
   display: none !important;
 }
 

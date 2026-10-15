@@ -3426,6 +3426,8 @@ function applyAccessControl() {
 
   const printBtn = document.getElementById("btnPrintCurrent");
   if (printBtn) printBtn.hidden = !loggedIn;
+  const refreshBtn = document.getElementById("btnRefreshApp");
+  if (refreshBtn) refreshBtn.hidden = !loggedIn;
   const locateBtn = document.getElementById("btnLocateMe");
   if (locateBtn) locateBtn.hidden = !loggedIn;
 
@@ -3795,6 +3797,41 @@ function tryAppLogin() {
   }
   completeAppLogin(found, "password");
   maybeOfferBiometricEnrollment(found);
+}
+
+/** Recarga la app (SW + caché) sin cerrar sesión: botón ⟳ del topbar en todas las pestañas */
+async function refreshAppShell() {
+  const btn = document.getElementById("btnRefreshApp");
+  if (btn) btn.disabled = true;
+  toast("Actualizando app…");
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.update().catch(() => {});
+        if (reg.waiting) {
+          reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          // controllerchange en boot hace reload; respaldo por si no dispara
+          setTimeout(() => {
+            window.location.reload();
+          }, 900);
+          return;
+        }
+      }
+    }
+  } catch (_) {}
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.filter((k) => k.startsWith("rfs-ops-")).map((k) => caches.delete(k))
+      );
+    }
+  } catch (_) {}
+  window.location.reload();
 }
 
 function logoutAppUser() {
@@ -10121,6 +10158,7 @@ function bindUi() {
     if (e.key === "Enter") tryAppLogin();
   });
   document.getElementById("btnLogoutUser").addEventListener("click", logoutAppUser);
+  document.getElementById("btnRefreshApp")?.addEventListener("click", refreshAppShell);
   document.getElementById("btnSaveUser").addEventListener("click", saveUserFromForm);
   document.getElementById("btnCancelUserEdit").addEventListener("click", clearUserForm);
   document.getElementById("btnToggleUserPass")?.addEventListener("click", () => {
@@ -10242,7 +10280,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=114").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=115").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -10257,7 +10295,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v114").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v115").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
