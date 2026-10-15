@@ -9767,39 +9767,37 @@ function clearPhoto() {
   document.getElementById("photoPreview").removeAttribute("src");
 }
 
-/** Notas de voz del reporte (máx. 2): se transcriben al relato; el audio solo es vista previa local. */
+/** Notas de voz del reporte (máx. 2): dictado → texto en el relato. */
 const REPORT_VOICE_MAX = 2;
 const REPORT_VOICE_MAX_MS = 45000;
 let pendingReportVoices = [];
-let reportVoiceRecorder = null;
-let reportVoiceChunks = [];
+let reportVoiceActive = false;
 let reportVoiceStartedAt = 0;
 let reportVoiceTimer = null;
-let reportVoiceStream = null;
 let reportSpeechRec = null;
 let reportSpeechDraft = "";
+let reportSpeechInterim = "";
+let reportSpeechWantRestart = false;
 
 function clearPendingReportVoices() {
-  stopReportVoiceCapture(true);
-  pendingReportVoices.forEach((v) => {
-    if (v && v.objectUrl) {
-      try {
-        URL.revokeObjectURL(v.objectUrl);
-      } catch (_) {}
-    }
-  });
+  stopReportVoiceSession(true);
   pendingReportVoices = [];
   renderReportVoiceList();
   updateReportVoiceButton();
 }
 
+function isReportVoiceRecording() {
+  return !!reportVoiceActive;
+}
+
 function updateReportVoiceButton() {
   const btn = document.getElementById("btnReportVoice");
   if (!btn) return;
-  const recording = !!(reportVoiceRecorder && reportVoiceRecorder.state === "recording");
+  const recording = isReportVoiceRecording();
   btn.classList.toggle("btnReportVoiceRecording", recording);
   if (recording) {
-    btn.textContent = "⏹ Detener grabación";
+    btn.disabled = false;
+    btn.textContent = "⏹ Detener y pegar texto";
   } else if (pendingReportVoices.length >= REPORT_VOICE_MAX) {
     btn.textContent = "🎙 Límite de 2 notas";
     btn.disabled = true;
@@ -9807,9 +9805,21 @@ function updateReportVoiceButton() {
     btn.disabled = false;
     btn.textContent =
       pendingReportVoices.length === 0
-        ? "🎙 Grabar nota de voz"
-        : `🎙 Grabar nota ${pendingReportVoices.length + 1} de ${REPORT_VOICE_MAX}`;
+        ? "🎙 Dictar nota de voz"
+        : `🎙 Dictar nota ${pendingReportVoices.length + 1} de ${REPORT_VOICE_MAX}`;
   }
+}
+
+function setReportVoiceStatus(text, show) {
+  const status = document.getElementById("reportVoiceStatus");
+  if (!status) return;
+  if (!show) {
+    status.hidden = true;
+    status.textContent = "";
+    return;
+  }
+  status.hidden = false;
+  status.textContent = text || "";
 }
 
 function renderReportVoiceList() {
@@ -9822,11 +9832,9 @@ function renderReportVoiceList() {
   box.innerHTML = pendingReportVoices
     .map((v, idx) => {
       const sec = Math.max(1, Math.round((v.durationMs || 0) / 1000));
-      const src = v.objectUrl || v.dataUrl || "";
       return `<div class="report-voice-item" data-voice-id="${escapeHtml(v.id)}">
-        <p class="report-voice-meta">Nota ${idx + 1} · ${sec}s${v.transcript ? " · transcrita" : " · sin transcripción automática"}</p>
-        ${src ? `<audio controls preload="metadata" src="${src}"></audio>` : ""}
-        <p class="report-voice-transcript">${escapeHtml(v.transcript || "(Sin texto — edita el relato arriba)")}</p>
+        <p class="report-voice-meta">Nota ${idx + 1} · ${sec}s · dictada</p>
+        <p class="report-voice-transcript">${escapeHtml(v.transcript || "(Sin texto)")}</p>
         <button type="button" class="btn ghost attach-btn btn-report-voice-del" data-id="${escapeHtml(
           v.id
         )}" style="width:auto">Quitar nota</button>
@@ -9841,15 +9849,10 @@ function renderReportVoiceList() {
 function removePendingReportVoice(id) {
   const idx = pendingReportVoices.findIndex((v) => v.id === id);
   if (idx < 0) return;
-  const [gone] = pendingReportVoices.splice(idx, 1);
-  if (gone && gone.objectUrl) {
-    try {
-      URL.revokeObjectURL(gone.objectUrl);
-    } catch (_) {}
-  }
+  pendingReportVoices.splice(idx, 1);
   renderReportVoiceList();
   updateReportVoiceButton();
-  toast("Nota de voz quitada (el texto del relato no se borra solo).");
+  toast("Nota quitada (el texto del relato no se borra solo).");
 }
 
 function appendTranscriptToReportText(transcript) {
@@ -9860,6 +9863,7 @@ function appendTranscriptToReportText(transcript) {
   const cur = String(el.value || "").trim();
   el.value = cur ? `${cur}\n\n${t}` : t;
   try {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   } catch (_) {}
@@ -9870,25 +9874,81 @@ function getReportSpeechRecognition() {
   return typeof SR === "function" ? SR : null;
 }
 
-function stopReportSpeech() {
-  if (reportSpeechRec) {
-    try {
-      reportSpeechRec.onresult = null;
-      reportSpeechRec.onerror = null;
-      reportSpeechRec.onend = null;
-      reportSpeechRec.stop();
-    } catch (_) {}
-    reportSpeechRec = null;
-  }
+function stopReportSpeechHard() {
+  reportSpeechWantRestart = false;
+  if (!reportSpeechRec) return;
+  const rec = reportSpeechRec;
+  reportSpeechRec = null;
+  try {
+    rec.onresult = null;
+    rec.onerror = null;
+    rec.onend = null;
+    rec.stop();
+  } catch (_) {}
+  try {
+    rec.abort();
+  } catch (_) {}
 }
 
-function startReportSpeech() {
-  const SR = getReportSpeechRecognition();
+function finishReportVoiceNote() {
+  const durationMs = Math.max(0, Date.now() - (reportVoiceStartedAt || Date.now()));
+  const transcript = `${reportSpeechDraft} ${reportSpeechInterim}`.replace(/\s+/g, " ").trim();
   reportSpeechDraft = "";
+  reportSpeechInterim = "";
+  reportVoiceActive = false;
+  clearTimeout(reportVoiceTimer);
+  reportVoiceTimer = null;
+  updateReportVoiceButton();
+  setReportVoiceStatus("", false);
+
+  if (durationMs < 700 && !transcript) {
+    toast("Quedó muy corto. Mantén pulsado unos segundos y habla claro.");
+    return;
+  }
+  if (!transcript) {
+    toast("No se entendió el audio. Habla más cerca del micrófono o escribe el relato.");
+    return;
+  }
+
+  pendingReportVoices.push({
+    id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    durationMs,
+    transcript,
+    recordedAt: new Date().toISOString(),
+  });
+  appendTranscriptToReportText(transcript);
+  renderReportVoiceList();
+  updateReportVoiceButton();
+  toast(`Nota ${pendingReportVoices.length} agregada al relato.`);
+}
+
+function stopReportVoiceSession(silent) {
+  const wasActive = reportVoiceActive;
+  reportVoiceActive = false;
+  clearTimeout(reportVoiceTimer);
+  reportVoiceTimer = null;
+  stopReportSpeechHard();
+  if (!silent && wasActive) {
+    // Si el usuario detiene, cerramos y pegamos lo dictado
+    finishReportVoiceNote();
+    return;
+  }
+  reportSpeechDraft = "";
+  reportSpeechInterim = "";
+  setReportVoiceStatus("", false);
+  updateReportVoiceButton();
+}
+
+function startReportSpeechSession() {
+  const SR = getReportSpeechRecognition();
   if (!SR) return false;
-  try {
+  reportSpeechDraft = "";
+  reportSpeechInterim = "";
+  reportSpeechWantRestart = true;
+
+  const attach = (lang) => {
     const rec = new SR();
-    rec.lang = "es-DO";
+    rec.lang = lang;
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
@@ -9901,146 +9961,119 @@ function startReportSpeech() {
         if (event.results[i].isFinal) finalText += `${piece} `;
         else interim += piece;
       }
-      if (finalText) reportSpeechDraft = `${reportSpeechDraft} ${finalText}`.replace(/\s+/g, " ").trim();
-      const status = document.getElementById("reportVoiceStatus");
-      if (status) {
-        const live = `${reportSpeechDraft} ${interim}`.replace(/\s+/g, " ").trim();
-        status.hidden = false;
-        status.textContent = live ? `Escuchando: ${live.slice(0, 120)}${live.length > 120 ? "…" : ""}` : "Escuchando… habla con claridad";
+      if (finalText) {
+        reportSpeechDraft = `${reportSpeechDraft} ${finalText}`.replace(/\s+/g, " ").trim();
+      }
+      reportSpeechInterim = interim;
+      const live = `${reportSpeechDraft} ${interim}`.replace(/\s+/g, " ").trim();
+      setReportVoiceStatus(
+        live ? `Escuchando: ${live.slice(0, 140)}${live.length > 140 ? "…" : ""}` : "Escuchando… habla ahora",
+        true
+      );
+    };
+    rec.onerror = (ev) => {
+      const err = String((ev && ev.error) || "");
+      if (err === "no-speech" || err === "aborted") return;
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        reportSpeechWantRestart = false;
+        reportVoiceActive = false;
+        stopReportSpeechHard();
+        updateReportVoiceButton();
+        setReportVoiceStatus("", false);
+        toast("Permiso de micrófono denegado. Actívalo en el candado del navegador.");
+        return;
+      }
+      if (err === "network") {
+        setReportVoiceStatus("Sin red para transcribir. Revisa internet e intenta de nuevo.", true);
       }
     };
-    rec.onerror = () => {
-      /* si falla el speech, igual queda el audio local */
+    rec.onend = () => {
+      if (!reportVoiceActive || !reportSpeechWantRestart) return;
+      // Chrome a veces corta solo; reiniciar mientras la sesión siga abierta
+      try {
+        rec.start();
+      } catch (_) {
+        try {
+          reportSpeechRec = null;
+          attach(lang);
+        } catch (__) {}
+      }
     };
-    rec.start();
     reportSpeechRec = rec;
+    rec.start();
+  };
+
+  try {
+    attach("es-DO");
     return true;
   } catch (_) {
-    reportSpeechRec = null;
-    return false;
-  }
-}
-
-function stopReportVoiceCapture(silent) {
-  clearTimeout(reportVoiceTimer);
-  reportVoiceTimer = null;
-  stopReportSpeech();
-  if (reportVoiceRecorder && reportVoiceRecorder.state === "recording") {
     try {
-      reportVoiceRecorder.stop();
-    } catch (_) {}
-  } else if (reportVoiceStream) {
-    try {
-      reportVoiceStream.getTracks().forEach((t) => t.stop());
-    } catch (_) {}
-    reportVoiceStream = null;
+      attach("es-ES");
+      return true;
+    } catch (__) {
+      try {
+        attach("es");
+        return true;
+      } catch (___) {
+        reportSpeechRec = null;
+        reportSpeechWantRestart = false;
+        return false;
+      }
+    }
   }
-  reportVoiceRecorder = null;
-  const status = document.getElementById("reportVoiceStatus");
-  if (status && !silent) {
-    status.hidden = true;
-    status.textContent = "";
-  }
-  updateReportVoiceButton();
 }
 
 async function toggleReportVoiceRecording() {
-  if (reportVoiceRecorder && reportVoiceRecorder.state === "recording") {
-    reportVoiceRecorder.stop();
+  if (isReportVoiceRecording()) {
+    // Detener: pegar lo dictado al relato
+    reportSpeechWantRestart = false;
+    stopReportSpeechHard();
+    finishReportVoiceNote();
     return;
   }
   if (pendingReportVoices.length >= REPORT_VOICE_MAX) {
-    toast("Ya tienes 2 notas de voz. Quita una o genera el informe.");
+    toast("Ya tienes 2 notas. Quita una o genera el informe.");
     return;
   }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    toast("Este dispositivo no permite grabar audio.");
+  if (!window.isSecureContext && location.protocol !== "https:" && location.hostname !== "localhost") {
+    toast("La nota de voz requiere HTTPS (abre la app publicada, no un archivo local).");
     return;
   }
-  const status = document.getElementById("reportVoiceStatus");
+  const SR = getReportSpeechRecognition();
+  if (!SR) {
+    toast("Este navegador no transcribe voz. Usa Chrome o Edge en la PC.");
+    return;
+  }
+
+  // Pedir micrófono primero (permiso claro); SpeechRecognition lo reutiliza mejor después
   try {
-    reportVoiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    reportVoiceChunks = [];
-    reportVoiceStartedAt = Date.now();
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "";
-    reportVoiceRecorder = mime
-      ? new MediaRecorder(reportVoiceStream, { mimeType: mime })
-      : new MediaRecorder(reportVoiceStream);
-    reportVoiceRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size) reportVoiceChunks.push(e.data);
-    };
-    reportVoiceRecorder.onstop = async () => {
-      clearTimeout(reportVoiceTimer);
-      reportVoiceTimer = null;
-      const stream = reportVoiceStream;
-      reportVoiceStream = null;
-      if (stream) {
-        try {
-          stream.getTracks().forEach((t) => t.stop());
-        } catch (_) {}
-      }
-      stopReportSpeech();
-      const durationMs = Date.now() - reportVoiceStartedAt;
-      const blob = new Blob(reportVoiceChunks, { type: (reportVoiceRecorder && reportVoiceRecorder.mimeType) || "audio/webm" });
-      reportVoiceRecorder = null;
-      updateReportVoiceButton();
-      if (status) {
-        status.hidden = false;
-        status.textContent = "Procesando nota…";
-      }
-      if (!blob.size || durationMs < 600) {
-        if (status) status.hidden = true;
-        toast("La grabación quedó muy corta. Intenta de nuevo.");
-        return;
-      }
-      const transcript = String(reportSpeechDraft || "").trim();
-      reportSpeechDraft = "";
-      const objectUrl = URL.createObjectURL(blob);
-      const note = {
-        id: `rv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        durationMs,
-        transcript,
-        objectUrl,
-        recordedAt: new Date().toISOString(),
-      };
-      pendingReportVoices.push(note);
-      if (transcript) appendTranscriptToReportText(transcript);
-      renderReportVoiceList();
-      updateReportVoiceButton();
-      if (status) {
-        status.hidden = true;
-        status.textContent = "";
-      }
-      if (transcript) {
-        toast(`Nota ${pendingReportVoices.length} transcrita y agregada al relato.`);
-      } else {
-        toast(
-          getReportSpeechRecognition()
-            ? "Nota guardada. No se oyó texto claro: edita el relato o vuelve a grabar en un sitio más silencioso."
-            : "Nota guardada. Este navegador no transcribe solo (usa Chrome/Edge); escribe o pega el relato."
-        );
-      }
-    };
-    reportVoiceRecorder.start();
-    const speechOk = startReportSpeech();
-    updateReportVoiceButton();
-    if (status) {
-      status.hidden = false;
-      status.textContent = speechOk
-        ? "Grabando y transcribiendo… pulsa Detener (máx. 45 s)"
-        : "Grabando… (sin transcripción automática en este navegador)";
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
     }
-    reportVoiceTimer = setTimeout(() => {
-      if (reportVoiceRecorder && reportVoiceRecorder.state === "recording") reportVoiceRecorder.stop();
-    }, REPORT_VOICE_MAX_MS);
   } catch (_) {
-    stopReportVoiceCapture(true);
-    toast("No se pudo acceder al micrófono. Permítelo en el navegador.");
+    toast("No se pudo usar el micrófono. Permítelo en el navegador e inténtalo otra vez.");
+    return;
   }
+
+  reportVoiceActive = true;
+  reportVoiceStartedAt = Date.now();
+  const ok = startReportSpeechSession();
+  if (!ok) {
+    reportVoiceActive = false;
+    toast("No se pudo iniciar el dictado. Prueba Chrome/Edge y revisa el micrófono.");
+    updateReportVoiceButton();
+    return;
+  }
+  updateReportVoiceButton();
+  setReportVoiceStatus("Escuchando… habla ahora. Luego pulsa Detener.", true);
+  clearTimeout(reportVoiceTimer);
+  reportVoiceTimer = setTimeout(() => {
+    if (!isReportVoiceRecording()) return;
+    reportSpeechWantRestart = false;
+    stopReportSpeechHard();
+    finishReportVoiceNote();
+  }, REPORT_VOICE_MAX_MS);
 }
 
 function compressImage(file, maxSide = 1280, quality = 0.72) {
