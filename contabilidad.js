@@ -434,7 +434,13 @@ function normalizePayroll(p = {}) {
     : p.group || "lavega";
   const office = group === "oficina";
   const lavega = payrollGroupUsesLvaParams(group);
-  const tanda = group === "monorriel" ? normalizeMonorrielTandaId(p.tanda) : "";
+  // Si no trae tanda, dejarla vacía (nómina Monorriel antigua). No forzar "dia".
+  const tanda =
+    group === "monorriel"
+      ? String(p.tanda || "").trim()
+        ? normalizeMonorrielTandaId(p.tanda)
+        : ""
+      : "";
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -1330,10 +1336,17 @@ const MONORRIEL_PAYROLL_TANDA_FALLBACK = [
 
 function getMonorrielDataRoot() {
   try {
+    // Preferir el objeto de datos (siempre con payrollTandas); monoData() puede
+    // devolver un fallback vacío si se llama antes de cargar monorriel-data.js.
+    if (typeof window !== "undefined" && window.RFS_MONORRIEL) return window.RFS_MONORRIEL;
     if (typeof monoData === "function") return monoData();
-    if (typeof window !== "undefined") return window.RFS_MONORRIEL || null;
   } catch (_) {}
   return null;
+}
+
+/** Nómina Monorriel antigua (antes de tandas): no tiene p.tanda. */
+function isLegacyMonorrielPayroll(p) {
+  return !!(p && p.group === "monorriel" && !String(p.tanda || "").trim());
 }
 
 function getMonorrielPayrollTandas() {
@@ -1379,8 +1392,10 @@ function getSelectedMonorrielTanda() {
 function syncMonorrielTandaUi(group) {
   const wrap = document.getElementById("contabPayrollMonoTandaWrap");
   const sel = document.getElementById("contabPayrollMonoTanda");
+  const genAll = document.getElementById("btnContabGenMonoTandas");
   const isMono = group === "monorriel";
   if (wrap) wrap.hidden = !isMono;
+  if (genAll) genAll.hidden = !isMono;
   if (!sel || !isMono) return;
   const tandas = getMonorrielPayrollTandas();
   const prev = sel.value;
@@ -1739,8 +1754,9 @@ function findPayrollByGroup(period, half, group, tandaId) {
     }
     if (p.group !== g) return false;
     if (g === "monorriel") {
-      const pt = normalizeMonorrielTandaId(p.tanda || "dia");
-      return pt === tanda;
+      // No mezclar la nómina antigua (sin tanda) con Día/Noche/Moto
+      if (isLegacyMonorrielPayroll(p)) return false;
+      return normalizeMonorrielTandaId(p.tanda) === tanda;
     }
     return true;
   });
@@ -1759,43 +1775,47 @@ function halfLabel(half) {
   return half === 2 ? "16 al fin de mes" : "01 al 15";
 }
 
-/** Genera / actualiza nómina del grupo seleccionado (mismo formato). */
-function generateOfficePayroll() {
-  if (!canAccessContabilidad()) {
-    toast("No tienes acceso a Contabilidad.");
-    return;
-  }
-  const period = getSelectedMonth();
-  const half = getSelectedPayrollHalf();
-  const group = getSelectedPayrollGroup();
-  const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+/**
+ * Genera / actualiza una nómina.
+ * opts: { group, half, period, tanda, quiet, skipConfirm }
+ */
+function generatePayrollForSelection(opts = {}) {
+  const period = opts.period || getSelectedMonth();
+  const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : getSelectedPayrollHalf();
+  const group = opts.group || getSelectedPayrollGroup();
+  const tanda = group === "monorriel" ? normalizeMonorrielTandaId(opts.tanda || getSelectedMonorrielTanda()) : "";
   const tandaMeta = group === "monorriel" ? monorrielTandaMeta(tanda) : null;
   const meta = payrollGroupMeta(group);
   const staff = getStaffForPayrollGroup(group, tanda);
   const labelShort =
     group === "monorriel" && tandaMeta ? `${meta.short} · ${tandaMeta.short}` : meta.short;
+  const quiet = !!opts.quiet;
   if (group !== "general" && !staff.length) {
-    toast(
-      group === "oficina"
-        ? "No hay empleados activos en Oficina. Agrégalos en la pestaña Oficina."
-        : group === "monorriel"
-          ? `La tanda «${tandaMeta.label}» aún no tiene empleados. Pasa el Excel y lo cargamos.`
-          : group === "lotedom"
-            ? "No hay personal activo de LOTEDOM."
-            : group === "banco"
-              ? "No hay personal activo de Reaction Banco."
-              : group === "efectivo"
-                ? "No hay personal activo de Reaction Efectivo."
-                : "No hay empleados activos en La Vega Autopista."
-    );
-    return;
+    if (!quiet) {
+      toast(
+        group === "oficina"
+          ? "No hay empleados activos en Oficina. Agrégalos en la pestaña Oficina."
+          : group === "monorriel"
+            ? `La tanda «${tandaMeta.label}» aún no tiene empleados en el Excel.`
+            : group === "lotedom"
+              ? "No hay personal activo de LOTEDOM."
+              : group === "banco"
+                ? "No hay personal activo de Reaction Banco."
+                : group === "efectivo"
+                  ? "No hay personal activo de Reaction Efectivo."
+                  : "No hay empleados activos en La Vega Autopista."
+      );
+    }
+    return null;
   }
   const existing = findPayrollByGroup(period, half, group, tanda);
   if (
     existing &&
+    !opts.skipConfirm &&
+    !quiet &&
     !confirm(`Ya hay nómina ${labelShort} de ${monthLabel(period)} (${halfLabel(half)}). ¿Actualizar?`)
   ) {
-    return;
+    return null;
   }
   const [y, m] = period.split("-").map(Number);
   const last = new Date(y, m, 0).getDate();
@@ -1837,7 +1857,6 @@ function generateOfficePayroll() {
     tanda: group === "monorriel" ? tanda : "",
     payDate,
     status: "draft",
-    // Oficina nunca usa feriado; La Vega/otros conservan preferencia previa
     showFeriado: isOffice ? false : existing ? !!existing.showFeriado : false,
     lines,
     note: isOffice
@@ -1858,10 +1877,98 @@ function generateOfficePayroll() {
   } else {
     contabilidadData.payrolls.unshift(payroll);
   }
-  selectedPayrollId = payroll.id;
+  return { payroll, labelShort, lines, period, half };
+}
+
+/** Genera / actualiza nómina del grupo seleccionado (mismo formato). */
+function generateOfficePayroll() {
+  if (!canAccessContabilidad()) {
+    toast("No tienes acceso a Contabilidad.");
+    return;
+  }
+  const result = generatePayrollForSelection({});
+  if (!result) return;
+  selectedPayrollId = result.payroll.id;
   saveContabilidadData(true);
   setContabTab("nomina");
-  toast(`Nómina ${labelShort} ${halfLabel(half)} · ${monthLabel(period)} · ${lines.length} fila(s).`);
+  toast(
+    `Nómina ${result.labelShort} ${halfLabel(result.half)} · ${monthLabel(result.period)} · ${
+      result.lines.length
+    } fila(s).`
+  );
+  renderNominaTab();
+}
+
+/**
+ * Regenera las 4 tandas Monorriel del Excel (fórmula actual).
+ * Archiva/ignora la nómina antigua sin tanda para el mismo período.
+ */
+function generateAllMonorrielTandas() {
+  if (!canAccessContabilidad()) {
+    toast("No tienes acceso a Contabilidad.");
+    return;
+  }
+  const period = getSelectedMonth();
+  const half = getSelectedPayrollHalf();
+  const tandas = getMonorrielPayrollTandas();
+  const totalRoster = tandas.reduce((n, t) => n + (t.roster || []).length, 0);
+  if (!totalRoster) {
+    toast("No hay empleados en las tandas del Excel.");
+    return;
+  }
+  if (
+    !confirm(
+      `¿Generar / actualizar las 4 tandas Monorriel de ${monthLabel(period)} (${halfLabel(
+        half
+      )})?\n\nDía, Moto día, Noche y Moto noche (${totalRoster} personas del Excel).\nSe usan las fórmulas actuales de nómina.`
+    )
+  ) {
+    return;
+  }
+  // Quitar de la vista activa las nóminas Monorriel antiguas (sin tanda) del mismo período
+  const legacy = (contabilidadData.payrolls || []).filter(
+    (p) =>
+      isLegacyMonorrielPayroll(p) &&
+      p.period === period &&
+      (p.half === half || (!p.half && half === 1)) &&
+      p.status !== "cancelled"
+  );
+  legacy.forEach((p) => {
+    snapshotPayrollBackup(p, "before_delete");
+    p.status = "cancelled";
+    p.note = `${p.note || ""} · Reemplazada por tandas Excel`.trim();
+    p.updatedAt = new Date().toISOString();
+  });
+
+  const counts = [];
+  let lastId = "";
+  tandas.forEach((t) => {
+    const result = generatePayrollForSelection({
+      group: "monorriel",
+      tanda: t.id,
+      period,
+      half,
+      quiet: true,
+      skipConfirm: true,
+    });
+    if (result) {
+      counts.push(`${t.short}: ${result.lines.length}`);
+      lastId = result.payroll.id;
+    } else {
+      counts.push(`${t.short}: 0`);
+    }
+  });
+  if (lastId) selectedPayrollId = lastId;
+  const groupSel = document.getElementById("contabPayrollGroup");
+  if (groupSel) groupSel.value = "monorriel";
+  syncMonorrielTandaUi("monorriel");
+  const tandaSel = document.getElementById("contabPayrollMonoTanda");
+  if (tandaSel) tandaSel.value = "dia";
+  selectedPayrollId = findPayrollByGroup(period, half, "monorriel", "dia")?.id || selectedPayrollId;
+  saveContabilidadData(true);
+  setContabTab("nomina");
+  renderNominaTab();
+  toast(`Monorriel ${halfLabel(half)} · ${counts.join(" · ")}`);
 }
 
 function markPayrollPaid(id) {
@@ -3001,7 +3108,8 @@ function renderNominaTab() {
       }
       if (p.group !== group) return false;
       if (group === "monorriel") {
-        return normalizeMonorrielTandaId(p.tanda || "dia") === monoTanda;
+        if (isLegacyMonorrielPayroll(p)) return false;
+        return normalizeMonorrielTandaId(p.tanda) === monoTanda;
       }
       return true;
     })
@@ -3011,16 +3119,28 @@ function renderNominaTab() {
       if (pk) return pk;
       return (b.half || 1) - (a.half || 1);
     });
+  const legacyMono = (contabilidadData.payrolls || []).filter(
+    (p) =>
+      isLegacyMonorrielPayroll(p) &&
+      p.status !== "cancelled" &&
+      p.period === getSelectedMonth()
+  );
   if (!rows.length) {
     const nStaff = getStaffForPayrollGroup(group, monoTanda).length;
     const emptyLabel =
       group === "monorriel" && monoTandaMeta ? `Monorriel · ${monoTandaMeta.short}` : meta.short;
+    const legacyHint =
+      group === "monorriel" && legacyMono.length
+        ? ` Hay ${legacyMono.length} nómina(s) antigua(s) sin tanda: pulsa «Generar las 4 tandas» para reemplazarlas.`
+        : "";
     list.innerHTML = `<p class="empty">Aún no hay nómina ${escapeHtml(emptyLabel)}. ${
       group === "monorriel" && !nStaff
-        ? "Las tandas están listas; falta cargar el Excel de empleados."
-        : `Pulsa «Generar / actualizar»${
-            group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
-          }.`
+        ? "Falta el Excel de esta tanda."
+        : group === "monorriel"
+          ? `Hay ${nStaff} persona(s) en el Excel. Pulsa «Generar las 4 tandas» o «Generar / actualizar».${legacyHint}`
+          : `Pulsa «Generar / actualizar»${
+              group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
+            }.`
     }</p>`;
   } else {
     list.innerHTML = rows
@@ -3109,9 +3229,9 @@ function renderNominaTab() {
     detail.innerHTML = payrollIsOffice({ group })
       ? `<p class="muted">Genera la nómina de Oficina (01–15 o 16–fin) para cargar los ${getOfficeStaffForPayroll().length} empleado(s): nombre, cédula, cargo y sueldo. Quincena = sueldo/2, SFS fijo RD$ ${OFFICE_PAYROLL_SFS}, con rifa. Sin días, unif, volao, comida, feriado ni horas extras.</p>`
       : group === "monorriel" && monoTandaMeta
-        ? `<p class="muted">Tanda <strong>${escapeHtml(
-            monoTandaMeta.label
-          )}</strong> lista dentro de Monorriel. Aún no hay empleados cargados: cuando pases el Excel los colocamos aquí y luego aplicamos las fórmulas de esta tanda.</p>`
+        ? `<p class="muted">Tanda <strong>${escapeHtml(monoTandaMeta.label)}</strong> · ${
+            getStaffForPayrollGroup("monorriel", monoTanda).length
+          } persona(s) en el Excel. Pulsa <strong>Generar las 4 tandas</strong> para cargar Día, Moto día, Noche y Moto noche con la fórmula actual.</p>`
       : `<p class="muted">Genera la nómina ${escapeHtml(
           meta.short
         )} para ver la tabla (mismo formato: días, sueldo, SFS, Unif/Rifa, volaos, extras, descuentos, depósito y redondeo).</p>`;
@@ -3542,6 +3662,7 @@ function bindContabilidadUi() {
     generateOfficePayroll();
   });
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
+  document.getElementById("btnContabGenMonoTandas")?.addEventListener("click", generateAllMonorrielTandas);
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
   document.getElementById("btnContabPrintPayroll")?.addEventListener("click", () => printOpenPayrollSheet());
