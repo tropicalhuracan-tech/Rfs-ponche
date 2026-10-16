@@ -758,8 +758,8 @@ function renderQuotesHistory() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button type="button" class="btn secondary btn-quote-load" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Cargar</button>
           <button type="button" class="btn primary btn-quote-reprint" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
-          <button type="button" class="btn secondary btn-quote-wa" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">WhatsApp</button>
-          <button type="button" class="btn secondary btn-quote-mail" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Correo</button>
+          <button type="button" class="btn secondary btn-quote-wa" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">WhatsApp PDF</button>
+          <button type="button" class="btn secondary btn-quote-mail" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Correo PDF</button>
           <button type="button" class="btn danger btn-quote-delete" data-id="${escapeHtml(q.id)}" style="width:auto;padding:8px 10px;font-size:12px">Eliminar</button>
         </div>
       </article>`;
@@ -918,28 +918,115 @@ function showQuoteShareBox(row) {
   if (hint) {
     hint.textContent = `Propuesta de ${row.clientName || "cliente"} lista · Creada por ${
       row.createdBy || "—"
-    }. Puedes enviarla por WhatsApp o correo (resumen). Para el PDF usa Imprimir.`;
+    }. WhatsApp y correo envían el PDF de la propuesta.`;
   }
 }
 
-function buildQuoteShareText(data, calc) {
-  const attn = data.attentionTo ? `\nAtención a: ${data.attentionTo}` : "";
-  const itbisLine = calc.includeItbis
-    ? `ITBIS 18%: ${moneyRD(calc.itbis)}\nTotal mensual: ${moneyRD(calc.total)}`
-    : `Total mensual (sin ITBIS): ${moneyRD(calc.total)}`;
-  return (
-    `*Propuesta de seguridad — Reaction Force Security*\n` +
-    `Cliente: ${data.clientName || "—"}${attn}\n` +
-    `Fecha: ${formatQuoteDate(data.date)}\n` +
-    `Turnos: ${quoteShiftLabel(calc)}\n` +
-    `Personal: ${calc.men} hombre(s) · ${calc.hoursPerDay} h/día · ${calc.hoursMonth} h/mes\n` +
-    `Tarifa día: ${moneyRD(calc.dayRate)}/h · Tarifa noche: ${moneyRD(calc.nightRate)}/h\n` +
-    `Subtotal: ${moneyRD(calc.subtotal)}\n` +
-    `${itbisLine}\n\n` +
-    `Contacto RFS: ${RFS_COMPANY.phones}\n` +
-    `${RFS_COMPANY.email}\n` +
-    `\n_Nota: los valores se calculan a 30 días; cada hombre labora 12 h. La facturación puede variar según el mes y feriados._`
-  );
+/** Título corto para WhatsApp / correo / nombre del PDF (el detalle va en el adjunto). */
+function quoteShareCaption(data, calc) {
+  return `Propuesta de seguridad — ${data.clientName || "Cliente"} · ${moneyRD(
+    (calc && calc.total) || data.total || 0
+  )} · Reaction Force Security`;
+}
+
+function quotePdfFileName(data) {
+  const client = String((data && data.clientName) || "cliente")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  const day = String((data && data.date) || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  return `propuesta-rfs-${client || "cliente"}-${day}.pdf`;
+}
+
+function quoteLogoUrl() {
+  try {
+    return new URL("logo.jpg", window.location.href).href;
+  } catch (_) {
+    return "logo.jpg";
+  }
+}
+
+/** Genera el PDF de la misma propuesta que Imprimir (html2pdf en esta ventana). */
+async function buildQuotePdfBlob(data, calc) {
+  if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
+  const html2pdf = await ensureHtml2Pdf();
+  const caption = quoteShareCaption(data, calc);
+  const host = document.createElement("div");
+  host.className = "quote-print";
+  host.setAttribute("data-rfs-quote-pdf", "1");
+  host.style.cssText =
+    "position:fixed;left:0;top:0;width:794px;background:#fff;color:#111;padding:22px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.35;z-index:2147483000;pointer-events:none;";
+  host.innerHTML = `
+    <style>
+      ${quotePrintCss()}
+      [data-rfs-quote-pdf] .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+      [data-rfs-quote-pdf] .brand img{width:64px;height:64px;object-fit:contain}
+      [data-rfs-quote-pdf] .brand h1{font-size:18px;margin:0 0 2px}
+      [data-rfs-quote-pdf] table{width:100%;border-collapse:collapse}
+      [data-rfs-quote-pdf] th,td{border:1px solid #333;padding:6px 8px;text-align:left}
+      [data-rfs-quote-pdf] .right{text-align:right}
+      [data-rfs-quote-pdf] .meta{display:flex;gap:10px;flex-wrap:wrap}
+      [data-rfs-quote-pdf] .sign-box{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:28px}
+      [data-rfs-quote-pdf] .sign-line{border-top:2px solid #0b0b0c;margin-top:48px;padding-top:8px;font-size:11px;text-align:center}
+      [data-rfs-quote-pdf] ul{padding-left:18px;margin:6px 0}
+    </style>
+    <div id="rfsQuotePdfInner">
+      <div class="brand">
+        <img src="${escapeHtml(quoteLogoUrl())}" alt="RFS" crossorigin="anonymous" />
+        <div>
+          <h1>Reaction Force Security</h1>
+          <div>${escapeHtml(caption)}</div>
+        </div>
+      </div>
+      ${buildQuoteBodyHtml(data, calc)}
+    </div>
+  `;
+  // Rutas relativas (quote-assets/…) → absolutas para html2canvas
+  host.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src") || "";
+    if (!src || /^(https?:|data:|blob:)/i.test(src)) return;
+    try {
+      img.setAttribute("src", new URL(src, window.location.href).href);
+    } catch (_) {}
+  });
+  document.body.appendChild(host);
+  try {
+    if (typeof waitForImages === "function") await waitForImages(host);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const target = host.querySelector("#rfsQuotePdfInner") || host;
+    const opt = {
+      margin: [10, 10, 12, 10],
+      filename: quotePdfFileName(data),
+      image: { type: "jpeg", quality: 0.92 },
+      html2canvas: {
+        scale: 1.5,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        windowWidth: 794,
+      },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+    };
+    let blob = null;
+    try {
+      blob = await html2pdf().set(opt).from(target).outputPdf("blob");
+    } catch (_) {
+      blob = await html2pdf().set(opt).from(target).toPdf().get("pdf").then((pdf) => pdf.output("blob"));
+    }
+    if (!blob || !blob.size) throw new Error("PDF vacío");
+    return blob;
+  } finally {
+    host.remove();
+  }
+}
+
+async function buildQuotePdfFile(data, calc) {
+  const blob = await buildQuotePdfBlob(data, calc);
+  return new File([blob], quotePdfFileName(data), { type: "application/pdf" });
 }
 
 function resolveQuoteForShare(id) {
@@ -957,31 +1044,64 @@ function resolveQuoteForShare(id) {
   return persistQuote(data, calc);
 }
 
-function shareQuoteByWhatsApp(id) {
+async function shareQuoteByWhatsApp(id) {
   const q = resolveQuoteForShare(id);
   if (!q) return;
   const calc = calcQuoteTotals(q);
-  const text = buildQuoteShareText(q, calc);
-  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-  window.open(url, "_blank");
-  if (typeof logActivity === "function") {
-    logActivity("quote_share_wa", `Cotización WhatsApp: ${q.clientName} · ${moneyRD(calc.total)}`);
+  const caption = quoteShareCaption(q, calc);
+  toast("Preparando PDF de la propuesta para WhatsApp…");
+  try {
+    const file = await buildQuotePdfFile(q, calc);
+    let shared = false;
+    if (typeof trySharePdfFile === "function") {
+      shared = await trySharePdfFile(file, caption, caption);
+    }
+    if (shared) {
+      toast("Elige WhatsApp en el menú para enviar el PDF.");
+    } else {
+      if (typeof downloadBlobFile === "function") downloadBlobFile(file, file.name);
+      window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
+      toast("PDF descargado. Adjúntalo en WhatsApp.");
+    }
+    if (typeof logActivity === "function") {
+      logActivity("quote_share_wa", `Cotización WhatsApp PDF: ${q.clientName} · ${moneyRD(calc.total)}`);
+    }
+  } catch (err) {
+    console.error(err);
+    window.open(`https://wa.me/?text=${encodeURIComponent(caption)}`, "_blank");
+    toast("No se pudo crear el PDF; se abrió WhatsApp solo con el título. Usa Imprimir / PDF.");
   }
-  toast("Abriendo WhatsApp con el resumen. Si necesitas el PDF, usa Imprimir y adjúntalo.");
 }
 
-function shareQuoteByEmail(id) {
+async function shareQuoteByEmail(id) {
   const q = resolveQuoteForShare(id);
   if (!q) return;
   const calc = calcQuoteTotals(q);
-  const text = buildQuoteShareText(q, calc);
-  const subject = `Propuesta de seguridad — ${q.clientName || "Cliente"} · Reaction Force Security`;
-  const href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-  window.location.href = href;
-  if (typeof logActivity === "function") {
-    logActivity("quote_share_mail", `Cotización correo: ${q.clientName} · ${moneyRD(calc.total)}`);
+  const caption = quoteShareCaption(q, calc);
+  toast("Preparando PDF de la propuesta para correo…");
+  try {
+    const file = await buildQuotePdfFile(q, calc);
+    let shared = false;
+    if (typeof trySharePdfFile === "function") {
+      shared = await trySharePdfFile(file, caption, caption);
+    }
+    if (shared) {
+      toast("Elige Correo / Gmail en el menú para enviar el PDF.");
+    } else {
+      if (typeof downloadBlobFile === "function") downloadBlobFile(file, file.name);
+      window.location.href = `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(
+        `${caption}\n\nAdjunta el PDF descargado (${file.name}).`
+      )}`;
+      toast("PDF descargado. Adjúntalo al correo.");
+    }
+    if (typeof logActivity === "function") {
+      logActivity("quote_share_mail", `Cotización correo PDF: ${q.clientName} · ${moneyRD(calc.total)}`);
+    }
+  } catch (err) {
+    console.error(err);
+    window.location.href = `mailto:?subject=${encodeURIComponent(caption)}&body=${encodeURIComponent(caption)}`;
+    toast("No se pudo crear el PDF; se abrió el correo solo con el título. Usa Imprimir / PDF.");
   }
-  toast("Abriendo el correo con el resumen. Adjunta el PDF si lo guardaste.");
 }
 
 function printQuoteProposal(dataIn) {
@@ -995,9 +1115,15 @@ function printQuoteProposal(dataIn) {
   const saved = persistQuote(data, calc);
   const model = QUOTE_MODELS.find((m) => m.id === saved.modelId);
   const body = buildQuoteBodyHtml(saved, calc);
+  const caption = quoteShareCaption(saved, calc);
   openPrintWindow("Propuesta de servicios de seguridad", body, {
     bodyClass: "quote-print",
     extraCss: quotePrintCss(),
+    share: {
+      text: caption,
+      subject: caption,
+      fileName: quotePdfFileName(saved),
+    },
   });
   if (typeof logActivity === "function") {
     logActivity(
@@ -1005,7 +1131,7 @@ function printQuoteProposal(dataIn) {
       `Cotización ${saved.modelId || model?.id || ""}: ${saved.clientName} · por ${saved.createdBy || "—"} · ${quoteShiftLabel(calc)} · ${calc.hoursPerDay}h/día · ${moneyRD(calc.total)}`
     );
   }
-  toast("Propuesta lista. Luego puedes compartirla por WhatsApp o correo.");
+  toast("Propuesta lista. Usa WhatsApp PDF o Correo PDF en la barra, o Imprimir.");
 }
 
 function renderQuotesModule() {
