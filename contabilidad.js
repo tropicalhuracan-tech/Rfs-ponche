@@ -434,11 +434,13 @@ function normalizePayroll(p = {}) {
     : p.group || "lavega";
   const office = group === "oficina";
   const lavega = payrollGroupUsesLvaParams(group);
+  const tanda = group === "monorriel" ? normalizeMonorrielTandaId(p.tanda) : "";
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
     half,
     group,
+    tanda,
     payDate,
     status,
     showFeriado: office ? false : p.showFeriado === true,
@@ -1318,14 +1320,86 @@ function getOfficeStaffForPayroll() {
     }));
 }
 
-function getMonorrielPayrollRoster() {
+/** Tandas de nómina dentro del cubículo Monorriel. */
+const MONORRIEL_PAYROLL_TANDA_FALLBACK = [
+  { id: "dia", label: "Empleados de día", short: "Día", roster: [] },
+  { id: "moto_dia", label: "Motorizados de día", short: "Moto día", roster: [] },
+  { id: "noche", label: "Empleados de noche", short: "Noche", roster: [] },
+  { id: "moto_noche", label: "Motorizados de noche", short: "Moto noche", roster: [] },
+];
+
+function getMonorrielDataRoot() {
   try {
-    const data =
-      typeof monoData === "function"
-        ? monoData()
-        : typeof window !== "undefined"
-          ? window.RFS_MONORRIEL
-          : null;
+    if (typeof monoData === "function") return monoData();
+    if (typeof window !== "undefined") return window.RFS_MONORRIEL || null;
+  } catch (_) {}
+  return null;
+}
+
+function getMonorrielPayrollTandas() {
+  try {
+    const data = getMonorrielDataRoot();
+    const list = Array.isArray(data && data.payrollTandas) ? data.payrollTandas : [];
+    if (list.length) {
+      return list.map((t, idx) => ({
+        id: String((t && t.id) || MONORRIEL_PAYROLL_TANDA_FALLBACK[idx]?.id || `tanda-${idx}`),
+        label: String((t && t.label) || t.id || "Tanda"),
+        short: String((t && t.short) || (t && t.label) || t.id || "Tanda"),
+        roster: Array.isArray(t && t.roster) ? t.roster : [],
+      }));
+    }
+  } catch (_) {}
+  return MONORRIEL_PAYROLL_TANDA_FALLBACK.map((t) => ({ ...t, roster: [] }));
+}
+
+function normalizeMonorrielTandaId(raw) {
+  const id = String(raw || "").trim();
+  const tandas = getMonorrielPayrollTandas();
+  if (tandas.some((t) => t.id === id)) return id;
+  return (tandas[0] && tandas[0].id) || "dia";
+}
+
+function monorrielTandaMeta(tandaId) {
+  const id = normalizeMonorrielTandaId(tandaId);
+  return (
+    getMonorrielPayrollTandas().find((t) => t.id === id) || {
+      id,
+      label: id,
+      short: id,
+      roster: [],
+    }
+  );
+}
+
+function getSelectedMonorrielTanda() {
+  const el = document.getElementById("contabPayrollMonoTanda");
+  return normalizeMonorrielTandaId(el && el.value);
+}
+
+function syncMonorrielTandaUi(group) {
+  const wrap = document.getElementById("contabPayrollMonoTandaWrap");
+  const sel = document.getElementById("contabPayrollMonoTanda");
+  const isMono = group === "monorriel";
+  if (wrap) wrap.hidden = !isMono;
+  if (!sel || !isMono) return;
+  const tandas = getMonorrielPayrollTandas();
+  const prev = sel.value;
+  sel.innerHTML = tandas
+    .map(
+      (t) =>
+        `<option value="${escapeHtml(t.id)}">${escapeHtml(t.label)} (${(t.roster || []).length})</option>`
+    )
+    .join("");
+  const keep = tandas.some((t) => t.id === prev) ? prev : tandas[0]?.id || "dia";
+  sel.value = keep;
+}
+
+function getMonorrielPayrollRoster(tandaId) {
+  try {
+    const tanda = monorrielTandaMeta(tandaId || getSelectedMonorrielTanda());
+    if (Array.isArray(tanda.roster) && tanda.roster.length) return tanda.roster;
+    // Compat: roster plano antiguo (si alguna vez vuelve a llenarse)
+    const data = getMonorrielDataRoot();
     return Array.isArray(data && data.payrollRoster) ? data.payrollRoster : [];
   } catch (_) {
     return [];
@@ -1365,9 +1439,11 @@ function getLotedomStaffForPayroll() {
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
 }
 
-function getMonorrielStaffForPayroll() {
+function getMonorrielStaffForPayroll(tandaId) {
   try {
-    const roster = getMonorrielPayrollRoster();
+    const tanda = normalizeMonorrielTandaId(tandaId || getSelectedMonorrielTanda());
+    const tandaMeta = monorrielTandaMeta(tanda);
+    const roster = getMonorrielPayrollRoster(tanda);
     if (roster.length) {
       // Emparejar con empleados Monorriel existentes (id/cédula) si ya están en la app
       const byKey = new Map();
@@ -1398,29 +1474,29 @@ function getMonorrielStaffForPayroll() {
             .trim();
           const emp = byKey.get(k);
           return {
-            id: (emp && emp.id) || `mono-pay-${idx}-${k.slice(0, 12)}`,
+            id: (emp && emp.id) || `mono-pay-${tanda}-${idx}-${k.slice(0, 12)}`,
             employeeId: (emp && emp.id) || "",
             name: raw,
-            cedula: (emp && emp.cedula) || "",
+            cedula: (emp && emp.cedula) || r.cedula || "",
             salaryMonthly: Math.max(0, Number(r.salaryMonthly) || Number(emp && emp.salary) || 0),
-            position: r.position || (emp && (emp.role || emp.position)) || "Monorriel",
+            position:
+              r.position || (emp && (emp.role || emp.position)) || tandaMeta.short || "Monorriel",
+            tanda,
+            daysWorked: r.daysWorked != null ? String(r.daysWorked) : undefined,
+            horasExtras: r.horasExtras,
+            feriado: r.feriado,
+            sfs: r.sfs,
+            adelantos: r.adelantos,
+            prestamos: r.prestamos,
+            volaos: r.volaos,
+            incentivos: r.incentivos,
+            almuerzo: r.almuerzo,
           };
         })
         .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
     }
-    if (typeof getMonorrielEmployees !== "function") return [];
-    return getMonorrielEmployees(false)
-      .filter((e) => e && String(e.name || "").trim())
-      .slice()
-      .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"))
-      .map((e) => ({
-        id: e.id,
-        employeeId: e.id,
-        name: e.name,
-        cedula: e.cedula || "",
-        salaryMonthly: e.salary || 0,
-        position: e.role || e.position || "Monorriel",
-      }));
+    // Sin Excel aún: no mezclar el personal operativo viejo en la nómina por tandas
+    return [];
   } catch (_) {
     return [];
   }
@@ -1472,9 +1548,9 @@ function getReactionEfectivoStaffForPayroll() {
   );
 }
 
-function getStaffForPayrollGroup(group) {
+function getStaffForPayrollGroup(group, tandaId) {
   if (group === "oficina") return getOfficeStaffForPayroll();
-  if (group === "monorriel") return getMonorrielStaffForPayroll();
+  if (group === "monorriel") return getMonorrielStaffForPayroll(tandaId);
   if (group === "lotedom") return getLotedomStaffForPayroll();
   if (group === "banco") return getReactionBancoStaffForPayroll();
   if (group === "efectivo") return getReactionEfectivoStaffForPayroll();
@@ -1651,16 +1727,22 @@ function payrollPeriodKey(period, half) {
   return `${period}-q${half === 2 ? 2 : 1}`;
 }
 
-function findPayrollByGroup(period, half, group) {
+function findPayrollByGroup(period, half, group, tandaId) {
   const h = half === 2 || half === "2" ? 2 : 1;
   const g = group || "lavega";
+  const tanda = g === "monorriel" ? normalizeMonorrielTandaId(tandaId || getSelectedMonorrielTanda()) : "";
   return (contabilidadData.payrolls || []).find((p) => {
     if (p.period !== period || p.status === "cancelled") return false;
     if (!(p.half === h || (!p.half && h === 1))) return false;
     if (g === "lavega") {
       return p.group === "lavega" || !p.group || String(p.note || "").toLowerCase().includes("vega");
     }
-    return p.group === g;
+    if (p.group !== g) return false;
+    if (g === "monorriel") {
+      const pt = normalizeMonorrielTandaId(p.tanda || "dia");
+      return pt === tanda;
+    }
+    return true;
   });
 }
 
@@ -1686,14 +1768,18 @@ function generateOfficePayroll() {
   const period = getSelectedMonth();
   const half = getSelectedPayrollHalf();
   const group = getSelectedPayrollGroup();
+  const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+  const tandaMeta = group === "monorriel" ? monorrielTandaMeta(tanda) : null;
   const meta = payrollGroupMeta(group);
-  const staff = getStaffForPayrollGroup(group);
+  const staff = getStaffForPayrollGroup(group, tanda);
+  const labelShort =
+    group === "monorriel" && tandaMeta ? `${meta.short} · ${tandaMeta.short}` : meta.short;
   if (group !== "general" && !staff.length) {
     toast(
       group === "oficina"
         ? "No hay empleados activos en Oficina. Agrégalos en la pestaña Oficina."
         : group === "monorriel"
-          ? "No hay personal activo de Monorriel."
+          ? `La tanda «${tandaMeta.label}» aún no tiene empleados. Pasa el Excel y lo cargamos.`
           : group === "lotedom"
             ? "No hay personal activo de LOTEDOM."
             : group === "banco"
@@ -1704,10 +1790,10 @@ function generateOfficePayroll() {
     );
     return;
   }
-  const existing = findPayrollByGroup(period, half, group);
+  const existing = findPayrollByGroup(period, half, group, tanda);
   if (
     existing &&
-    !confirm(`Ya hay nómina ${meta.short} de ${monthLabel(period)} (${halfLabel(half)}). ¿Actualizar?`)
+    !confirm(`Ya hay nómina ${labelShort} de ${monthLabel(period)} (${halfLabel(half)}). ¿Actualizar?`)
   ) {
     return;
   }
@@ -1748,6 +1834,7 @@ function generateOfficePayroll() {
     period,
     half,
     group,
+    tanda: group === "monorriel" ? tanda : "",
     payDate,
     status: "draft",
     // Oficina nunca usa feriado; La Vega/otros conservan preferencia previa
@@ -1755,7 +1842,9 @@ function generateOfficePayroll() {
     lines,
     note: isOffice
       ? `Nómina Oficina · ${halfLabel(half)} · ${monthLabel(period)} · SFS ${OFFICE_PAYROLL_SFS} · con rifa · sin días/unif/volao/comida/feriado/extras`
-      : `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
+      : group === "monorriel" && tandaMeta
+        ? `Nómina Monorriel · ${tandaMeta.label} · ${halfLabel(half)} · ${monthLabel(period)}`
+        : `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
     createdBy:
       typeof currentUser !== "undefined" && currentUser
         ? currentUser.displayName || currentUser.username
@@ -1772,7 +1861,7 @@ function generateOfficePayroll() {
   selectedPayrollId = payroll.id;
   saveContabilidadData(true);
   setContabTab("nomina");
-  toast(`Nómina ${meta.short} ${halfLabel(half)} · ${monthLabel(period)} · ${lines.length} fila(s).`);
+  toast(`Nómina ${labelShort} ${halfLabel(half)} · ${monthLabel(period)} · ${lines.length} fila(s).`);
 }
 
 function markPayrollPaid(id) {
@@ -2143,7 +2232,8 @@ function ensureOpenPayrollDraft() {
   const period = getSelectedMonth();
   const half = getSelectedPayrollHalf();
   const group = getSelectedPayrollGroup();
-  p = findPayrollByGroup(period, half, group);
+  const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+  p = findPayrollByGroup(period, half, group, tanda);
   if (p) {
     selectedPayrollId = p.id;
     return p;
@@ -2356,11 +2446,13 @@ function buildPayrollPrintHtml(p) {
       ? "lavega"
       : p.group || "general";
   const groupTitle = payrollGroupMeta(g).title;
+  const tandaTitle =
+    g === "monorriel" && p.tanda ? ` · ${monorrielTandaMeta(p.tanda).label.toUpperCase()}` : "";
   const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
   return `
     <h2 style="margin:0 0 4px;font-size:13px;font-weight:800;color:#111;text-align:center">
-      NOMINA REACTION · ${escapeHtml(groupTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
+      NOMINA REACTION · ${escapeHtml(groupTitle)}${escapeHtml(tandaTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
         monthLabel(p.period).toUpperCase()
       )}
     </h2>
@@ -2876,12 +2968,24 @@ function renderNominaTab() {
   const group = getSelectedPayrollGroup();
   const meta = payrollGroupMeta(group);
   syncPayrollPaperUiForGroup(group);
+  syncMonorrielTandaUi(group);
+  const monoTanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+  const monoTandaMeta = group === "monorriel" ? monorrielTandaMeta(monoTanda) : null;
   const titleEl = document.getElementById("contabNominaTitle");
-  if (titleEl) titleEl.textContent = `Nómina · ${meta.label}`;
+  if (titleEl) {
+    titleEl.textContent =
+      group === "monorriel" && monoTandaMeta
+        ? `Nómina · Monorriel · ${monoTandaMeta.label}`
+        : `Nómina · ${meta.label}`;
+  }
   const genBtn = document.getElementById("btnContabGenPayroll");
   if (genBtn) {
     genBtn.textContent =
-      group === "general" ? "Crear / abrir plantilla General" : `Generar / actualizar · ${meta.short}`;
+      group === "general"
+        ? "Crear / abrir plantilla General"
+        : group === "monorriel" && monoTandaMeta
+          ? `Generar / actualizar · ${monoTandaMeta.short}`
+          : `Generar / actualizar · ${meta.short}`;
   }
 
   const rows = (contabilidadData.payrolls || [])
@@ -2889,7 +2993,11 @@ function renderNominaTab() {
       if (group === "lavega") {
         return p.group === "lavega" || !p.group || String(p.note || "").toLowerCase().includes("vega");
       }
-      return p.group === group;
+      if (p.group !== group) return false;
+      if (group === "monorriel") {
+        return normalizeMonorrielTandaId(p.tanda || "dia") === monoTanda;
+      }
+      return true;
     })
     .slice()
     .sort((a, b) => {
@@ -2898,10 +3006,16 @@ function renderNominaTab() {
       return (b.half || 1) - (a.half || 1);
     });
   if (!rows.length) {
-    const nStaff = getStaffForPayrollGroup(group).length;
-    list.innerHTML = `<p class="empty">Aún no hay nómina ${escapeHtml(meta.short)}. Pulsa «Generar / actualizar»${
-      group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
-    }.</p>`;
+    const nStaff = getStaffForPayrollGroup(group, monoTanda).length;
+    const emptyLabel =
+      group === "monorriel" && monoTandaMeta ? `Monorriel · ${monoTandaMeta.short}` : meta.short;
+    list.innerHTML = `<p class="empty">Aún no hay nómina ${escapeHtml(emptyLabel)}. ${
+      group === "monorriel" && !nStaff
+        ? "Las tandas están listas; falta cargar el Excel de empleados."
+        : `Pulsa «Generar / actualizar»${
+            group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
+          }.`
+    }</p>`;
   } else {
     list.innerHTML = rows
       .map((p) => {
@@ -2912,8 +3026,10 @@ function renderNominaTab() {
             ? "lavega"
             : p.group || "general"
         );
+        const tMeta = p.group === "monorriel" ? monorrielTandaMeta(p.tanda) : null;
+        const headLabel = tMeta ? `${gMeta.short} · ${tMeta.short}` : gMeta.short;
         return `<article class="report-card">
-          <h3>${escapeHtml(gMeta.short)} · ${escapeHtml(monthLabel(p.period))} · ${escapeHtml(halfLabel(p.half || 1))}</h3>
+          <h3>${escapeHtml(headLabel)} · ${escapeHtml(monthLabel(p.period))} · ${escapeHtml(halfLabel(p.half || 1))}</h3>
           <p class="muted">Pago ${escapeHtml(p.payDate || "—")} · ${escapeHtml(st)} · ${
             payrollLinesForTotals(p.lines).length
           } empleado(s)</p>
@@ -2945,6 +3061,11 @@ function renderNominaTab() {
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
         if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
+        const tandaSel = document.getElementById("contabPayrollMonoTanda");
+        if (p && p.group === "monorriel" && tandaSel) {
+          syncMonorrielTandaUi("monorriel");
+          tandaSel.value = normalizeMonorrielTandaId(p.tanda);
+        }
         renderNominaTab();
       })
     );
@@ -2954,6 +3075,11 @@ function renderNominaTab() {
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
         if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
+        const tandaSel = document.getElementById("contabPayrollMonoTanda");
+        if (p && p.group === "monorriel" && tandaSel) {
+          syncMonorrielTandaUi("monorriel");
+          tandaSel.value = normalizeMonorrielTandaId(p.tanda);
+        }
         renderNominaTab();
         setTimeout(() => printOpenPayrollSheet(), 50);
       })
@@ -2971,11 +3097,15 @@ function renderNominaTab() {
   const half = getSelectedPayrollHalf();
   let p =
     contabilidadData.payrolls.find((x) => x.id === selectedPayrollId) ||
-    findPayrollByGroup(period, half, group) ||
+    findPayrollByGroup(period, half, group, monoTanda) ||
     rows[0];
   if (!p) {
     detail.innerHTML = payrollIsOffice({ group })
       ? `<p class="muted">Genera la nómina de Oficina (01–15 o 16–fin) para cargar los ${getOfficeStaffForPayroll().length} empleado(s): nombre, cédula, cargo y sueldo. Quincena = sueldo/2, SFS fijo RD$ ${OFFICE_PAYROLL_SFS}, con rifa. Sin días, unif, volao, comida, feriado ni horas extras.</p>`
+      : group === "monorriel" && monoTandaMeta
+        ? `<p class="muted">Tanda <strong>${escapeHtml(
+            monoTandaMeta.label
+          )}</strong> lista dentro de Monorriel. Aún no hay empleados cargados: cuando pases el Excel los colocamos aquí y luego aplicamos las fórmulas de esta tanda.</p>`
       : `<p class="muted">Genera la nómina ${escapeHtml(
           meta.short
         )} para ver la tabla (mismo formato: días, sueldo, SFS, Unif/Rifa, volaos, extras, descuentos, depósito y redondeo).</p>`;
@@ -3219,6 +3349,9 @@ function renderNominaTab() {
       ? "lavega"
       : p.group || getSelectedPayrollGroup()
   );
+  const openTandaMeta = p.group === "monorriel" ? monorrielTandaMeta(p.tanda) : null;
+  const openTitle =
+    openTandaMeta ? `${openMeta.title} · ${openTandaMeta.label.toUpperCase()}` : openMeta.title;
   const exportPaper = getPayrollPaperForExport(p);
   const paperLabel = exportPaper === "letter" ? "Carta" : "Legal";
   const isOfficeOpen = payrollIsOffice(p);
@@ -3234,7 +3367,7 @@ function renderNominaTab() {
           : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
-    <h2>NOMINA REACTION · ${escapeHtml(openMeta.title)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
+    <h2>NOMINA REACTION · ${escapeHtml(openTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
       monthLabel(p.period).toUpperCase()
     )}</h2>
     <p class="muted tight">${helpLine}</p>
@@ -3420,7 +3553,18 @@ function bindContabilidadUi() {
     const half = getSelectedPayrollHalf();
     const group = getSelectedPayrollGroup();
     syncPayrollPaperUiForGroup(group);
-    const found = findPayrollByGroup(period, half, group);
+    syncMonorrielTandaUi(group);
+    const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+    const found = findPayrollByGroup(period, half, group, tanda);
+    selectedPayrollId = found ? found.id : "";
+    renderNominaTab();
+  });
+  document.getElementById("contabPayrollMonoTanda")?.addEventListener("change", () => {
+    const period = getSelectedMonth();
+    const half = getSelectedPayrollHalf();
+    const group = getSelectedPayrollGroup();
+    const tanda = getSelectedMonorrielTanda();
+    const found = findPayrollByGroup(period, half, group, tanda);
     selectedPayrollId = found ? found.id : "";
     renderNominaTab();
   });
@@ -3428,7 +3572,8 @@ function bindContabilidadUi() {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
     const group = getSelectedPayrollGroup();
-    const found = findPayrollByGroup(period, half, group);
+    const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+    const found = findPayrollByGroup(period, half, group, tanda);
     selectedPayrollId = found ? found.id : selectedPayrollId;
     renderNominaTab();
   });
