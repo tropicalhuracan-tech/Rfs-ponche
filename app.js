@@ -1957,6 +1957,7 @@ function cloudContabilidadPayload() {
         officeEmployees: [],
         lotedomEmployees: [],
         payrolls: [],
+        payrollBackups: [],
         settings: { defaultBook: "EDWARD" },
       };
 }
@@ -1970,6 +1971,7 @@ function emptyContabilidadDataSafe() {
         officeEmployees: [],
         lotedomEmployees: [],
         payrolls: [],
+        payrollBackups: [],
         settings: { defaultBook: "EDWARD" },
       };
 }

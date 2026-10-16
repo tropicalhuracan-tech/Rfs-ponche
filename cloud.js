@@ -264,7 +264,9 @@
       expenses: [],
       itbisCollected: [],
       officeEmployees: [],
+      lotedomEmployees: [],
       payrolls: [],
+      payrollBackups: [],
       settings: { defaultBook: "EDWARD" },
     };
   }

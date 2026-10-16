@@ -16,9 +16,14 @@ function emptyContabilidadData() {
     /** Empleados nómina LOTEDOM (misma forma que oficina; lista se carga al recibir el Excel). */
     lotedomEmployees: [],
     payrolls: [],
+    /** Historial de seguridad: copias de nóminas al guardar / pagar / antes de borrar. */
+    payrollBackups: [],
     settings: { defaultBook: "EDWARD" },
   };
 }
+
+const PAYROLL_BACKUP_MAX = 36;
+const PAYROLL_BACKUP_MAX_PER_ID = 6;
 
 function moneyRd(n) {
   const v = Number(n) || 0;
@@ -406,6 +411,150 @@ function normalizePayroll(p = {}) {
   };
 }
 
+function normalizePayrollBackup(b = {}) {
+  const reason = ["save", "paid", "before_delete", "generate", "before_restore", "manual"].includes(b.reason)
+    ? b.reason
+    : "save";
+  const snap = b.snapshot && typeof b.snapshot === "object" ? normalizePayroll(b.snapshot) : null;
+  return {
+    id: b.id || `pb-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    payrollId: String(b.payrollId || (snap && snap.id) || "").trim(),
+    reason,
+    label: String(b.label || "").trim(),
+    createdAt: b.createdAt || new Date().toISOString(),
+    updatedAt: b.updatedAt || b.createdAt || new Date().toISOString(),
+    createdBy: String(b.createdBy || "").trim(),
+    snapshot: snap,
+    totals: {
+      redondeo: Number(b.totals && b.totals.redondeo) || 0,
+      lines: Number(b.totals && b.totals.lines) || 0,
+    },
+  };
+}
+
+function prunePayrollBackups(list) {
+  const rows = (Array.isArray(list) ? list : [])
+    .map(normalizePayrollBackup)
+    .filter((b) => b.snapshot && b.payrollId);
+  // Por nómina: priorizar paid / before_delete, luego los más recientes
+  const byPay = new Map();
+  rows.forEach((b) => {
+    if (!byPay.has(b.payrollId)) byPay.set(b.payrollId, []);
+    byPay.get(b.payrollId).push(b);
+  });
+  const kept = [];
+  byPay.forEach((arr) => {
+    arr.sort((a, b) => {
+      const rank = (r) => (r.reason === "paid" ? 3 : r.reason === "before_delete" ? 2 : 1);
+      const rk = rank(b) - rank(a);
+      if (rk) return rk;
+      return String(b.createdAt).localeCompare(String(a.createdAt));
+    });
+    kept.push(...arr.slice(0, PAYROLL_BACKUP_MAX_PER_ID));
+  });
+  kept.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return kept.slice(0, PAYROLL_BACKUP_MAX);
+}
+
+function payrollBackupReasonLabel(reason) {
+  if (reason === "paid") return "Al marcar pagada";
+  if (reason === "before_delete") return "Antes de eliminar";
+  if (reason === "generate") return "Antes de regenerar";
+  if (reason === "before_restore") return "Antes de restaurar";
+  if (reason === "manual") return "Manual";
+  return "Al guardar";
+}
+
+/** Crea una copia de seguridad de la nómina (nube + local). */
+function snapshotPayrollBackup(payroll, reason = "save") {
+  if (!payroll || !payroll.id) return null;
+  const snap = normalizePayroll(payroll);
+  const named = (snap.lines || []).filter((l) => String(l.fullName || "").trim());
+  const redondeo =
+    (typeof sumPayrollField === "function"
+      ? sumPayrollField(snap.lines, "redondeo") || sumPayrollField(snap.lines, "net")
+      : 0) || 0;
+  const gMeta =
+    typeof payrollGroupMeta === "function"
+      ? payrollGroupMeta(snap.group || "general")
+      : { short: snap.group || "Nómina" };
+  const entry = normalizePayrollBackup({
+    id: `pb-${snap.id}-${Date.now()}`,
+    payrollId: snap.id,
+    reason,
+    label: `${gMeta.short} · ${monthLabel(snap.period)} · ${halfLabel(snap.half || 1)} · ${
+      snap.status === "paid" ? "Pagada" : "Borrador"
+    }`,
+    createdBy:
+      typeof currentUser !== "undefined" && currentUser
+        ? currentUser.displayName || currentUser.username
+        : "",
+    snapshot: snap,
+    totals: { redondeo, lines: named.length },
+  });
+  if (!Array.isArray(contabilidadData.payrollBackups)) contabilidadData.payrollBackups = [];
+  // Evitar duplicar el mismo estado en menos de 3 s
+  const head = contabilidadData.payrollBackups[0];
+  if (
+    head &&
+    head.payrollId === entry.payrollId &&
+    head.reason === entry.reason &&
+    Math.abs(Date.parse(head.createdAt || 0) - Date.parse(entry.createdAt || 0)) < 3000 &&
+    String(head.snapshot && head.snapshot.updatedAt) === String(snap.updatedAt)
+  ) {
+    return head;
+  }
+  contabilidadData.payrollBackups.unshift(entry);
+  contabilidadData.payrollBackups = prunePayrollBackups(contabilidadData.payrollBackups);
+  return entry;
+}
+
+function listPayrollBackups(payrollId) {
+  const all = prunePayrollBackups(contabilidadData.payrollBackups || []);
+  if (!payrollId) return all;
+  return all.filter((b) => b.payrollId === payrollId);
+}
+
+function restorePayrollFromBackup(backupId) {
+  const b = (contabilidadData.payrollBackups || []).map(normalizePayrollBackup).find((x) => x.id === backupId);
+  if (!b || !b.snapshot) {
+    toast("Respaldo no encontrado.");
+    return;
+  }
+  const label = b.label || backupId;
+  if (
+    !confirm(
+      `¿Restaurar nómina desde el respaldo?\n\n${label}\n${payrollBackupReasonLabel(b.reason)} · ${new Date(
+        b.createdAt
+      ).toLocaleString("es")}\n\nLa versión actual se respaldará antes.`
+    )
+  ) {
+    return;
+  }
+  const current = (contabilidadData.payrolls || []).find((p) => p.id === b.payrollId);
+  if (current) snapshotPayrollBackup(current, "before_restore");
+  const restored = normalizePayroll({
+    ...b.snapshot,
+    id: b.payrollId || b.snapshot.id,
+    updatedAt: new Date().toISOString(),
+  });
+  const idx = (contabilidadData.payrolls || []).findIndex((p) => p.id === restored.id);
+  if (idx >= 0) contabilidadData.payrolls[idx] = restored;
+  else contabilidadData.payrolls.unshift(restored);
+  selectedPayrollId = restored.id;
+  saveContabilidadData(true);
+  if (typeof logActivity === "function") {
+    logActivity(
+      "payroll_restore",
+      `Nómina restaurada desde respaldo: ${label} · por ${
+        currentUser ? currentUser.displayName || currentUser.username : "—"
+      }`
+    );
+  }
+  renderContabilidadModule();
+  toast("Nómina restaurada desde el respaldo.");
+}
+
 function normalizeContabilidadData(raw = {}) {
   return {
     expenses: Array.isArray(raw.expenses) ? raw.expenses.map(normalizeFiscalExpense) : [],
@@ -419,6 +568,7 @@ function normalizeContabilidadData(raw = {}) {
       ? raw.lotedomEmployees.map(normalizeOfficeEmployee)
       : [],
     payrolls: Array.isArray(raw.payrolls) ? raw.payrolls.map(normalizePayroll) : [],
+    payrollBackups: prunePayrollBackups(Array.isArray(raw.payrollBackups) ? raw.payrollBackups : []),
     settings: {
       defaultBook: String((raw.settings && raw.settings.defaultBook) || "EDWARD").trim() || "EDWARD",
     },
@@ -451,6 +601,9 @@ function applyRemoteContabilidadData(remote) {
     officeEmployees: mergeById(local.officeEmployees, remoteNorm.officeEmployees),
     lotedomEmployees: mergeById(local.lotedomEmployees || [], remoteNorm.lotedomEmployees || []),
     payrolls: mergeById(local.payrolls, remoteNorm.payrolls),
+    payrollBackups: prunePayrollBackups(
+      mergeById(local.payrollBackups || [], remoteNorm.payrollBackups || [])
+    ),
     settings: {
       defaultBook: remoteNorm.settings.defaultBook || local.settings.defaultBook || "EDWARD",
     },
@@ -1549,6 +1702,7 @@ function generateOfficePayroll() {
       return buildPayrollLineFromPerson(s, prev, meta.label, { office: isOffice, lavega: isLavega });
     });
   }
+  if (existing) snapshotPayrollBackup(existing, "generate");
   const payroll = normalizePayroll({
     id: existing && existing.status === "draft" ? existing.id : undefined,
     period,
@@ -1584,22 +1738,62 @@ function generateOfficePayroll() {
 function markPayrollPaid(id) {
   const p = contabilidadData.payrolls.find((x) => x.id === id);
   if (!p) return;
+  const gMeta = payrollGroupMeta(p.group || "general");
+  const label = `${gMeta.short} · ${monthLabel(p.period)} · ${halfLabel(p.half || 1)}`;
+  if (
+    !confirm(
+      `¿Marcar como PAGADA?\n\n${label}\n\nSe creará un respaldo automático en la nube. Esta acción es importante para el historial de pagos.`
+    )
+  ) {
+    return;
+  }
   p.status = "paid";
   p.updatedAt = new Date().toISOString();
+  snapshotPayrollBackup(p, "paid");
   saveContabilidadData(true);
+  if (typeof logActivity === "function") {
+    logActivity(
+      "payroll_paid",
+      `Nómina pagada + respaldo: ${label} · por ${
+        currentUser ? currentUser.displayName || currentUser.username : "—"
+      }`
+    );
+  }
   renderContabilidadModule();
-  toast("Nómina marcada como pagada.");
+  toast("Nómina marcada como pagada (con respaldo).");
 }
 
 function deletePayroll(id) {
   const p = contabilidadData.payrolls.find((x) => x.id === id);
   if (!p) return;
-  if (!confirm(`¿Eliminar nómina de ${monthLabel(p.period)}?`)) return;
+  const gMeta = payrollGroupMeta(p.group || "general");
+  const label = `${gMeta.short} · ${monthLabel(p.period)} · ${halfLabel(p.half || 1)}`;
+  const paidWarn =
+    p.status === "paid"
+      ? "\n\n⚠ Esta nómina está PAGADA. Se guardará un respaldo antes de borrarla."
+      : "\n\nSe guardará un respaldo antes de borrarla.";
+  if (!confirm(`¿Eliminar nómina?\n\n${label}${paidWarn}`)) return;
+  if (p.status === "paid") {
+    const ok = prompt(`Para confirmar, escribe PAGADA y acepta:`);
+    if (String(ok || "").trim().toUpperCase() !== "PAGADA") {
+      toast("Eliminación cancelada.");
+      return;
+    }
+  }
+  snapshotPayrollBackup(p, "before_delete");
   contabilidadData.payrolls = contabilidadData.payrolls.filter((x) => x.id !== id);
   if (selectedPayrollId === id) selectedPayrollId = "";
   saveContabilidadData(true);
+  if (typeof logActivity === "function") {
+    logActivity(
+      "payroll_delete",
+      `Nómina eliminada (respaldada): ${label} · por ${
+        currentUser ? currentUser.displayName || currentUser.username : "—"
+      }`
+    );
+  }
   renderContabilidadModule();
-  toast("Nómina eliminada.");
+  toast("Nómina eliminada. Quedó un respaldo por si hay que recuperarla.");
 }
 
 function moneyCell(n) {
@@ -1695,11 +1889,13 @@ function saveOpenPayrollEdits() {
   }
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return;
+  // Respaldo del estado anterior antes de sobrescribir
+  snapshotPayrollBackup(p, "save");
   p.lines = lines.map((l) => computePayrollLineTotalsForPayroll(p, l));
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   renderNominaTab();
-  toast("Cambios de nómina guardados.");
+  toast("Cambios guardados (con respaldo automático).");
 }
 
 /**
@@ -2713,6 +2909,7 @@ function renderNominaTab() {
       : `<p class="muted">Genera la nómina ${escapeHtml(
           meta.short
         )} para ver la tabla (mismo formato: días, sueldo, SFS, Unif/Rifa, volaos, extras, descuentos, depósito y redondeo).</p>`;
+    renderPayrollBackupsPanel("");
     return;
   }
   selectedPayrollId = p.id;
@@ -3005,6 +3202,51 @@ function renderNominaTab() {
   const detailRoot = document.getElementById("contabPayrollDetail");
   if (detailRoot) detailRoot.dataset.liveBound = "";
   bindPayrollLiveTotals();
+  renderPayrollBackupsPanel(selectedPayrollId);
+}
+
+function renderPayrollBackupsPanel(payrollId) {
+  let box = document.getElementById("contabPayrollBackups");
+  if (!box) {
+    const host = document.getElementById("contabTabNomina");
+    if (!host) return;
+    box = document.createElement("div");
+    box.id = "contabPayrollBackups";
+    box.className = "form-card";
+    host.appendChild(box);
+  }
+  const focusId = payrollId || selectedPayrollId || "";
+  const related = focusId
+    ? listPayrollBackups(focusId)
+    : listPayrollBackups("").slice(0, 12);
+  const allCount = (contabilidadData.payrollBackups || []).length;
+  if (!related.length) {
+    box.innerHTML = `<h2>Respaldos de nómina</h2>
+      <p class="muted tight">Se crean solos al <strong>guardar</strong>, <strong>marcar pagada</strong>, <strong>regenerar</strong> o <strong>eliminar</strong>. Ahora hay ${allCount} en total.</p>
+      <p class="empty" style="margin:8px 0 0">Sin respaldos${focusId ? " de esta nómina" : ""} todavía.</p>`;
+    return;
+  }
+  box.innerHTML = `<h2>Respaldos de nómina</h2>
+    <p class="muted tight">Copias de seguridad en la nube (${allCount} en total). Puedes restaurar si algo se borró o se editó mal.</p>
+    <div class="card-list" style="margin-top:8px">${related
+      .map((b) => {
+        const when = b.createdAt ? new Date(b.createdAt).toLocaleString("es") : "—";
+        return `<article class="report-card">
+          <h3 style="font-size:14px">${escapeHtml(b.label || b.payrollId)}</h3>
+          <p class="muted">${escapeHtml(payrollBackupReasonLabel(b.reason))} · ${escapeHtml(when)}${
+            b.createdBy ? ` · ${escapeHtml(b.createdBy)}` : ""
+          }</p>
+          <p><strong>${escapeHtml(moneyRd(b.totals && b.totals.redondeo))}</strong>
+            <span class="muted"> · ${(b.totals && b.totals.lines) || 0} empleado(s)</span></p>
+          <button type="button" class="btn secondary btn-pay-restore" data-id="${escapeHtml(
+            b.id
+          )}" style="width:auto;margin-top:8px;padding:8px 10px;font-size:12px">Restaurar este respaldo</button>
+        </article>`;
+      })
+      .join("")}</div>`;
+  box.querySelectorAll(".btn-pay-restore").forEach((btn) => {
+    btn.addEventListener("click", () => restorePayrollFromBackup(btn.dataset.id));
+  });
 }
 
 function renderContabilidadModule() {
