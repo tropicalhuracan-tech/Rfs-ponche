@@ -212,11 +212,9 @@ const LVA_PAYROLL_SVDA = 90;
  * (entra en sueldo quincena y se refleja en Volaos).
  */
 const LVA_PAYROLL_VOLAO_PER_EXTRA_DAY = 800;
-/** Horas extras: cada 14 horas = RD$750 (independiente de los días). */
-const LVA_PAYROLL_EXTRA_HOURS_BLOCK = 14;
-const LVA_PAYROLL_EXTRA_HOURS_PAY = 750;
-/** Umbral: valores ≤ esto en "Horas extras" se interpretan como horas, no pesos. */
-const LVA_PAYROLL_EXTRA_HOURS_AS_HOURS_MAX = 168;
+/** Horas extras por días laborados: 13 días = RD$750 (prorrateo lineal). */
+const LVA_PAYROLL_EXTRAS_DAYS_BLOCK = 13;
+const LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY = 750;
 /** Nómina oficina: SFS fijo; quincena = sueldo mensual / 2 (días no influyen). */
 const OFFICE_PAYROLL_SFS = 800;
 const OFFICE_PAYROLL_RIFA = 85;
@@ -250,14 +248,11 @@ function parsePayrollDays(raw) {
   return { label: s, days: a + b, baseDays: a, extraDays: b, incidental: false };
 }
 
-/** Si el valor parece horas (≤168), convierte a pesos: cada 14 h = RD$750. */
-function normalizeHorasExtrasPay(raw) {
-  const n = Math.max(0, Number(String(raw == null ? "" : raw).replace(",", ".")) || 0);
-  if (!n) return 0;
-  if (n <= LVA_PAYROLL_EXTRA_HOURS_AS_HOURS_MAX) {
-    return roundMoney2((n / LVA_PAYROLL_EXTRA_HOURS_BLOCK) * LVA_PAYROLL_EXTRA_HOURS_PAY);
-  }
-  return roundMoney2(n);
+/** Horas extras según días base: 13 días → RD$750 (12 → prorrateo, etc.). */
+function extrasPayFromBaseDays(baseDays) {
+  const d = Math.max(0, Number(baseDays) || 0);
+  if (!d) return 0;
+  return roundMoney2((d / LVA_PAYROLL_EXTRAS_DAYS_BLOCK) * LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY);
 }
 
 function computePayrollLineTotals(line, opts = {}) {
@@ -298,8 +293,10 @@ function computePayrollLineTotals(line, opts = {}) {
     if (volaoBakedInQuincena) {
       volaos = volaoFromDays;
     }
-    // Horas: si el valor parece horas (p.ej. 14, 28), convertir a pesos (14 h = RD$750)
-    horasExtras = normalizeHorasExtrasPay(horasExtras);
+    // Si no hay extras manuales, aplicar 13 días = RD$750 (prorrateo por días base)
+    if (!horasExtras && baseDays > 0) {
+      horasExtras = extrasPayFromBaseDays(baseDays);
+    }
     if (!salaryQuincena && salaryMonthly && baseDays > 0) {
       // Prorrateo solo con días base; el +N suma RD$800 c/u a la quincena (y se ve en Volaos)
       salaryQuincena = roundMoney2(
@@ -1915,16 +1912,20 @@ function recalculateOpenPayroll(save = false) {
   // Recalcular: La Vega desde días+sueldo; Oficina = sueldo/2 + SFS fijo
   const office = payrollIsOffice(p);
   const lavega = payrollUsesLvaParams(p);
-  p.lines = lines.map((l) =>
-    computePayrollLineTotals(
+  p.lines = lines.map((l) => {
+    const daysInfo = parsePayrollDays(l.daysWorked);
+    return computePayrollLineTotals(
       {
         ...l,
         salaryQuincena: 0,
         sfs: office ? OFFICE_PAYROLL_SFS : 0,
+        // Recalcular: volao por +N y extras por días (13 días = RD$750)
+        volaos: 0,
+        horasExtras: office ? 0 : extrasPayFromBaseDays(daysInfo.baseDays),
       },
       { office, lavega }
-    )
-  );
+    );
+  });
   p.updatedAt = new Date().toISOString();
   if (save) saveContabilidadData(true);
   renderNominaTab();
@@ -2818,23 +2819,23 @@ function applyPayrollLiveUpdate(ev) {
   const office = payrollIsOffice(p);
   const lavega = payrollUsesLvaParams(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
-  const forceHoras = field === "horasExtras";
   p.lines = lines.map((l, i) => {
     if (forceBase && i === idx) {
-      // Al cambiar días/sueldo: recalcular quincena; volao del +N se vuelve a aplicar en compute
+      const daysInfo = parsePayrollDays(l.daysWorked);
+      // Al cambiar días: recalcular quincena, volao (+N) y horas extras (13 días = RD$750)
       return computePayrollLineTotals(
         {
           ...l,
           salaryQuincena: 0,
           sfs: office ? OFFICE_PAYROLL_SFS : 0,
           volaos: field === "daysWorked" ? 0 : l.volaos,
+          horasExtras:
+            field === "daysWorked" && !office
+              ? extrasPayFromBaseDays(daysInfo.baseDays)
+              : l.horasExtras,
         },
         { office, lavega }
       );
-    }
-    if (forceHoras && i === idx && !office) {
-      // Releer horas crudas del input (pueden ser 14, 28…) y convertir a pesos
-      return computePayrollLineTotals({ ...l, horasExtras: l.horasExtras }, { office, lavega });
     }
     return computePayrollLineTotals(l, { office, lavega });
   });
@@ -3133,7 +3134,7 @@ function renderNominaTab() {
             : key === "daysWorked"
               ? `${label} · Ej. 13+2: el +2 = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY}×2 en quincena y en Volaos`
               : key === "horasExtras"
-                ? `${label} · Escribe horas: cada ${LVA_PAYROLL_EXTRA_HOURS_BLOCK} h = RD$ ${LVA_PAYROLL_EXTRA_HOURS_PAY}`
+                ? `${label} · Auto: ${LVA_PAYROLL_EXTRAS_DAYS_BLOCK} días = RD$ ${LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY} (al cambiar días)`
                 : kind === "almuerzoSvda"
                   ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
                   : label;
@@ -3232,7 +3233,7 @@ function renderNominaTab() {
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": el +N = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY} c/u (suma a quincena y sale en Volaos). Horas extras: cada ${LVA_PAYROLL_EXTRA_HOURS_BLOCK} h = RD$ ${LVA_PAYROLL_EXTRA_HOURS_PAY} (escribe las horas). Unif/Rifa 115/85.${
+      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": el +N = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY} c/u (suma a quincena y sale en Volaos). Horas extras: ${LVA_PAYROLL_EXTRAS_DAYS_BLOCK} días = RD$ ${LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY} (prorrateo al cambiar días). Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
           ? ` Almuerzo/SVDA = comida + SVDA RD$ ${LVA_PAYROLL_SVDA}.`
           : ""
