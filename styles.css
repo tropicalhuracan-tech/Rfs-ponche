@@ -2590,6 +2590,43 @@ body.lightbox-open {
   background: #2a1212;
   font-size: 12px;
 }
+.nomina-table .nomina-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.nomina-table .nomina-name-cell .nomina-inp-wide {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.nomina-table .nomina-review-check {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  line-height: 0;
+}
+.nomina-table .nomina-review-check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #d41414;
+  cursor: pointer;
+}
+.nomina-table .nomina-review-th {
+  display: inline-block;
+  width: 1em;
+  margin-right: 2px;
+  opacity: 0.55;
+  font-size: 11px;
+}
+.nomina-table tr.nomina-row-reviewed td.sticky-name {
+  box-shadow: inset 3px 0 0 #25d366;
+}
 .nomina-table-office td.sticky-name,
 .nomina-table-office th.sticky-name {
   min-width: 14em;

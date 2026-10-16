@@ -346,6 +346,8 @@ function normalizePayrollLine(l = {}, opts = {}) {
     deductions: Math.max(0, Number(l.deductions) || 0),
     net: Math.max(0, Number(l.net) || 0),
     note: String(l.note || "").trim(),
+    /** Solo edición en pantalla: empleado ya revisado en la nómina (no se imprime). */
+    reviewed: !!l.reviewed,
   };
   // Si viene de nómina oficina antigua (solo salary/net), conservar
   if (!base.salaryMonthly && base.salary) base.salaryMonthly = base.salary;
@@ -1825,6 +1827,7 @@ function readPayrollLinesFromDom(payrollId) {
           ? prev.rifa
           : OFFICE_PAYROLL_RIFA
       : ur.rifa || LVA_PAYROLL_RIFA;
+    const reviewedEl = tr.querySelector('[data-f="reviewed"]');
     return normalizePayrollLine(
       {
         ...prev,
@@ -1847,6 +1850,7 @@ function readPayrollLinesFromDom(payrollId) {
             : g("almuerzo"),
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
+        reviewed: reviewedEl ? !!reviewedEl.checked : !!prev.reviewed,
       },
       { office: isOffice, lavega: isLavega }
     );
@@ -2071,6 +2075,7 @@ function emptyPayrollLine(overrides = {}) {
     rifa: 0,
     adelantos: 0,
     prestamos: 0,
+    reviewed: false,
     ...overrides,
   });
 }
@@ -2691,6 +2696,7 @@ function updatePayrollReadonlyDom(p) {
     const l = lines[idx];
     if (!l) return;
     tr.classList.toggle("nomina-row-empty", !payrollLineHasEmployeeName(l));
+    tr.classList.toggle("nomina-row-reviewed", !!(payrollLineHasEmployeeName(l) && l.reviewed));
     ["salaryQuincena", "sfs", "totalDescuentos", "totalCobrar", "salarioDepositar", "redondeo"].forEach((key) => {
       const td = [...tr.children].find((cell) => cell.dataset && cell.dataset.ro === key);
       if (td) td.textContent = moneyCell(l[key]);
@@ -2743,10 +2749,11 @@ function updatePayrollReadonlyDom(p) {
   const summary = root.querySelector("[data-nomina-total-summary]");
   if (summary) {
     const named = payrollLinesForTotals(lines).length;
+    const reviewed = payrollLinesForTotals(lines).filter((l) => !!l.reviewed).length;
     summary.innerHTML = `<strong>Total redondeo: ${escapeHtml(moneyRd(totals.redondeo))}</strong>
       <span class="muted"> · A depositar ${escapeHtml(moneyRd(totals.salarioDepositar))} · A cobrar ${escapeHtml(
         moneyRd(totals.totalCobrar)
-      )} · ${named} con nombre (auto)</span>`;
+      )} · ${named} con nombre · ${reviewed} revisado(s) (auto)</span>`;
   }
 }
 
@@ -2791,7 +2798,13 @@ function bindPayrollLiveTotals() {
     }
   });
   root.addEventListener("change", (ev) => {
-    if (ev.target && ev.target.classList && ev.target.classList.contains("nomina-inp")) {
+    const t = ev.target;
+    if (!t) return;
+    if (t.matches && t.matches('input[data-f="reviewed"]')) {
+      schedulePayrollLiveUpdate(ev);
+      return;
+    }
+    if (t.classList && t.classList.contains("nomina-inp")) {
       schedulePayrollLiveUpdate(ev);
     }
   });
@@ -3023,6 +3036,7 @@ function renderNominaTab() {
   const cols = getPayrollEditorCols(p);
   const lines = p.lines || [];
   const namedCount = payrollLinesForTotals(lines).length;
+  const reviewedCount = payrollLinesForTotals(lines).filter((l) => !!l.reviewed).length;
   const totals = {
     salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
     salaryQuincena: sumPayrollField(lines, "salaryQuincena"),
@@ -3053,10 +3067,16 @@ function renderNominaTab() {
         else if (key === "redondeo") cls = "nomina-col-fit nomina-col-redondeo";
         else if (kind === "days") cls = "nomina-col-fit nomina-col-days";
         const tip =
-          kind === "almuerzoSvda"
-            ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
-            : label;
-        return `<th class="${cls}" title="${escapeHtml(tip)}">${escapeHtml(label)}</th>`;
+          key === "fullName"
+            ? `${label} · casilla = revisado (solo edición, no sale en impresión)`
+            : kind === "almuerzoSvda"
+              ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
+              : label;
+        const headLabel =
+          key === "fullName"
+            ? `<span class="nomina-review-th" title="Revisado (no se imprime)" aria-hidden="true">☐</span> ${escapeHtml(label)}`
+            : escapeHtml(label);
+        return `<th class="${cls}" title="${escapeHtml(tip)}">${headLabel}</th>`;
       })
       .join("") +
     `<th class="nomina-col-del" title="Eliminar fila (no se imprime)">−</th>`;
@@ -3066,9 +3086,15 @@ function renderNominaTab() {
       const tds = cols
         .map(([key, , kind]) => {
           if (key === "fullName") {
-            return `<td class="sticky-name"><input class="nomina-inp nomina-inp-wide" data-f="fullName" type="text" value="${escapeHtml(
-              String(l.fullName || "")
-            )}" /></td>`;
+            const checked = l.reviewed ? " checked" : "";
+            return `<td class="sticky-name"><div class="nomina-name-cell">
+              <label class="nomina-review-check" title="Marcar como revisado en esta nómina (no se imprime)">
+                <input type="checkbox" data-f="reviewed"${checked} />
+              </label>
+              <input class="nomina-inp nomina-inp-wide" data-f="fullName" type="text" value="${escapeHtml(
+                String(l.fullName || "")
+              )}" />
+            </div></td>`;
           }
           let fit = "nomina-col-fit";
           if (key === "sfs") fit += " nomina-col-sfs";
@@ -3095,7 +3121,13 @@ function renderNominaTab() {
           )}" /></td>`;
         })
         .join("");
-      return `<tr data-line-idx="${idx}" class="${empty ? "nomina-row-empty" : ""}">${tds}<td class="nomina-col-del"><button type="button" class="btn-row-del" data-idx="${idx}" title="Eliminar fila" aria-label="Eliminar fila">−</button></td></tr>`;
+      const rowCls = [
+        empty ? "nomina-row-empty" : "",
+        !empty && l.reviewed ? "nomina-row-reviewed" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `<tr data-line-idx="${idx}" class="${rowCls}">${tds}<td class="nomina-col-del"><button type="button" class="btn-row-del" data-idx="${idx}" title="Eliminar fila" aria-label="Eliminar fila">−</button></td></tr>`;
     })
     .join("");
   const totalRow =
@@ -3132,10 +3164,10 @@ function renderNominaTab() {
   const helpLine = isOfficeOpen
     ? `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre. Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
+      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre. Nombre = nombre + 1 apellido. Unif/Rifa 115/85.${
+      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = nombre + 1 apellido. Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
           ? ` Unif/Rifa · Almuerzo/SVDA = comida (editable) + SVDA fijo RD$ ${LVA_PAYROLL_SVDA}; nombre corto.`
           : ""
