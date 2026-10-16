@@ -2276,6 +2276,8 @@ function addBlankPayrollRows() {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
     const group = getSelectedPayrollGroup();
+    const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+    const tandaMeta = group === "monorriel" ? monorrielTandaMeta(tanda) : null;
     const meta = payrollGroupMeta(group);
     const [y, m] = period.split("-").map(Number);
     const last = new Date(y, m, 0).getDate();
@@ -2284,10 +2286,14 @@ function addBlankPayrollRows() {
       period,
       half,
       group,
+      tanda,
       payDate: `${period}-${String(payDay).padStart(2, "0")}`,
       status: "draft",
       lines: [],
-      note: `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
+      note:
+        group === "monorriel" && tandaMeta
+          ? `Nómina Monorriel · ${tandaMeta.label} · ${halfLabel(half)} · ${monthLabel(period)}`
+          : `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
       createdBy:
         typeof currentUser !== "undefined" && currentUser
           ? currentUser.displayName || currentUser.username
