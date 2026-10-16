@@ -207,6 +207,16 @@ const LVA_PAYROLL_SFS_RATE = 0.0591; // ~SFS/SVDS observado en nómina Excel
 const LVA_PAYROLL_DAY_BASE = 26;
 /** Seguro de vida (SVDA): fijo RD$ 90 La Vega. Columna Almuerzo/SVDA = comida (editable) + SVDA. */
 const LVA_PAYROLL_SVDA = 90;
+/**
+ * Días tipo "13+2": el +N no suma días al prorrateo; cada +1 = RD$800
+ * (entra en sueldo quincena y se refleja en Volaos).
+ */
+const LVA_PAYROLL_VOLAO_PER_EXTRA_DAY = 800;
+/** Horas extras: cada 14 horas = RD$750 (independiente de los días). */
+const LVA_PAYROLL_EXTRA_HOURS_BLOCK = 14;
+const LVA_PAYROLL_EXTRA_HOURS_PAY = 750;
+/** Umbral: valores ≤ esto en "Horas extras" se interpretan como horas, no pesos. */
+const LVA_PAYROLL_EXTRA_HOURS_AS_HOURS_MAX = 168;
 /** Nómina oficina: SFS fijo; quincena = sueldo mensual / 2 (días no influyen). */
 const OFFICE_PAYROLL_SFS = 800;
 const OFFICE_PAYROLL_RIFA = 85;
@@ -221,13 +231,33 @@ function roundTo50(n) {
 
 function parsePayrollDays(raw) {
   const s = String(raw == null ? "" : raw).trim();
-  if (!s) return { label: "", days: 0, incidental: false };
-  if (/^inc/i.test(s)) return { label: s || "INC", days: 0, incidental: true };
+  if (!s) return { label: "", days: 0, baseDays: 0, extraDays: 0, incidental: false };
+  if (/^inc/i.test(s)) return { label: s || "INC", days: 0, baseDays: 0, extraDays: 0, incidental: true };
+  // Ej. "2+9INC": solo cuentan los días base; INC no genera volao
+  const incMix = s.match(/^(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)\s*inc\b/i);
+  if (incMix) {
+    const a = Number(incMix[1]) || 0;
+    return { label: s, days: a, baseDays: a, extraDays: 0, incidental: true };
+  }
   const m = s.match(/^(\d+(?:\.\d+)?)\s*(?:\+\s*(\d+(?:\.\d+)?))?$/);
-  if (!m) return { label: s, days: Math.max(0, Number(s) || 0), incidental: false };
+  if (!m) {
+    const d = Math.max(0, Number(String(s).replace(",", ".")) || 0);
+    return { label: s, days: d, baseDays: d, extraDays: 0, incidental: false };
+  }
   const a = Number(m[1]) || 0;
   const b = Number(m[2]) || 0;
-  return { label: s, days: a + b, incidental: false };
+  // baseDays = primer número (prorrateo); extraDays = +N (volao a RD$800 c/u)
+  return { label: s, days: a + b, baseDays: a, extraDays: b, incidental: false };
+}
+
+/** Si el valor parece horas (≤168), convierte a pesos: cada 14 h = RD$750. */
+function normalizeHorasExtrasPay(raw) {
+  const n = Math.max(0, Number(String(raw == null ? "" : raw).replace(",", ".")) || 0);
+  if (!n) return 0;
+  if (n <= LVA_PAYROLL_EXTRA_HOURS_AS_HOURS_MAX) {
+    return roundMoney2((n / LVA_PAYROLL_EXTRA_HOURS_BLOCK) * LVA_PAYROLL_EXTRA_HOURS_PAY);
+  }
+  return roundMoney2(n);
 }
 
 function computePayrollLineTotals(line, opts = {}) {
@@ -248,6 +278,12 @@ function computePayrollLineTotals(line, opts = {}) {
   const prestamos = Math.max(0, Number(line.prestamos) || 0);
   const hasName = !!String(line.fullName || "").trim();
 
+  const baseDays = Math.max(0, Number(daysInfo.baseDays != null ? daysInfo.baseDays : daysInfo.days) || 0);
+  const extraDays = Math.max(0, Number(daysInfo.extraDays) || 0);
+  const volaoFromDays = roundMoney2(extraDays * LVA_PAYROLL_VOLAO_PER_EXTRA_DAY);
+  // Si hay +N en días, el volao queda fijado por fórmula (800 × N)
+  const volaoBakedInQuincena = !office && extraDays > 0;
+
   if (office) {
     // Oficina: quincena = mitad del sueldo; días no influyen. SFS fijo. Sin unif/volao/comida/feriado/extras.
     salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
@@ -259,8 +295,16 @@ function computePayrollLineTotals(line, opts = {}) {
     almuerzo = 0;
     if (!hasName) rifa = 0;
   } else {
-    if (!salaryQuincena && salaryMonthly && daysInfo.days > 0) {
-      salaryQuincena = roundMoney2((salaryMonthly * daysInfo.days) / LVA_PAYROLL_DAY_BASE);
+    if (volaoBakedInQuincena) {
+      volaos = volaoFromDays;
+    }
+    // Horas: si el valor parece horas (p.ej. 14, 28), convertir a pesos (14 h = RD$750)
+    horasExtras = normalizeHorasExtrasPay(horasExtras);
+    if (!salaryQuincena && salaryMonthly && baseDays > 0) {
+      // Prorrateo solo con días base; el +N suma RD$800 c/u a la quincena (y se ve en Volaos)
+      salaryQuincena = roundMoney2(
+        (salaryMonthly * baseDays) / LVA_PAYROLL_DAY_BASE + volaoFromDays
+      );
     }
     if (!sfs && salaryQuincena) sfs = roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE);
   }
@@ -271,12 +315,14 @@ function computePayrollLineTotals(line, opts = {}) {
 
   // Restan: SFS/SVDS, uniformes, almuerzo+SVDA, rifa, adelantos, descuento préstamos
   const totalDescuentos = roundMoney2(sfs + uniformes + almuerzo + svda + rifa + adelantos + prestamos);
-  // Suman al quincenal: volaos, incentivos, horas extras, feriado
-  const totalCobrar = roundMoney2(salaryQuincena + volaos + incentivos + horasExtras + feriado);
+  // Suman al quincenal: volaos (si no vino del +N, ya va en quincena), incentivos, horas extras, feriado
+  const totalCobrar = roundMoney2(
+    salaryQuincena + (volaoBakedInQuincena ? 0 : volaos) + incentivos + horasExtras + feriado
+  );
   const salarioDepositar = roundMoney2(Math.max(0, totalCobrar - totalDescuentos));
   const redondeo = roundTo50(salarioDepositar);
   const salary = salaryMonthly;
-  const other = roundMoney2(volaos + incentivos + horasExtras + feriado);
+  const other = roundMoney2((volaoBakedInQuincena ? 0 : volaos) + incentivos + horasExtras + feriado);
   const deductions = totalDescuentos;
   const net = redondeo;
   return {
@@ -2705,9 +2751,13 @@ function updatePayrollReadonlyDom(p) {
     const q = tr.querySelector('[data-f="salaryQuincena"]');
     const s = tr.querySelector('[data-f="sfs"]');
     const asv = tr.querySelector('[data-f="almuerzoSvda"]');
+    const vol = tr.querySelector('[data-f="volaos"]');
+    const hex = tr.querySelector('[data-f="horasExtras"]');
     if (q && document.activeElement !== q) q.value = l.salaryQuincena || "";
     if (s && document.activeElement !== s) s.value = l.sfs || "";
     if (asv && document.activeElement !== asv) asv.value = formatAlmuerzoSvda(l);
+    if (vol && document.activeElement !== vol) vol.value = l.volaos || "";
+    if (hex && document.activeElement !== hex) hex.value = l.horasExtras || "";
   });
   const totals = {
     salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
@@ -2768,12 +2818,23 @@ function applyPayrollLiveUpdate(ev) {
   const office = payrollIsOffice(p);
   const lavega = payrollUsesLvaParams(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
+  const forceHoras = field === "horasExtras";
   p.lines = lines.map((l, i) => {
     if (forceBase && i === idx) {
+      // Al cambiar días/sueldo: recalcular quincena; volao del +N se vuelve a aplicar en compute
       return computePayrollLineTotals(
-        { ...l, salaryQuincena: 0, sfs: office ? OFFICE_PAYROLL_SFS : 0 },
+        {
+          ...l,
+          salaryQuincena: 0,
+          sfs: office ? OFFICE_PAYROLL_SFS : 0,
+          volaos: field === "daysWorked" ? 0 : l.volaos,
+        },
         { office, lavega }
       );
+    }
+    if (forceHoras && i === idx && !office) {
+      // Releer horas crudas del input (pueden ser 14, 28…) y convertir a pesos
+      return computePayrollLineTotals({ ...l, horasExtras: l.horasExtras }, { office, lavega });
     }
     return computePayrollLineTotals(l, { office, lavega });
   });
@@ -3069,9 +3130,13 @@ function renderNominaTab() {
         const tip =
           key === "fullName"
             ? `${label} · casilla = revisado (solo edición, no sale en impresión)`
-            : kind === "almuerzoSvda"
-              ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
-              : label;
+            : key === "daysWorked"
+              ? `${label} · Ej. 13+2: el +2 = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY}×2 en quincena y en Volaos`
+              : key === "horasExtras"
+                ? `${label} · Escribe horas: cada ${LVA_PAYROLL_EXTRA_HOURS_BLOCK} h = RD$ ${LVA_PAYROLL_EXTRA_HOURS_PAY}`
+                : kind === "almuerzoSvda"
+                  ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
+                  : label;
         const headLabel =
           key === "fullName"
             ? `<span class="nomina-review-th" title="Revisado (no se imprime)" aria-hidden="true">☐</span> ${escapeHtml(label)}`
@@ -3167,9 +3232,9 @@ function renderNominaTab() {
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = nombre + 1 apellido. Unif/Rifa 115/85.${
+      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": el +N = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY} c/u (suma a quincena y sale en Volaos). Horas extras: cada ${LVA_PAYROLL_EXTRA_HOURS_BLOCK} h = RD$ ${LVA_PAYROLL_EXTRA_HOURS_PAY} (escribe las horas). Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
-          ? ` Unif/Rifa · Almuerzo/SVDA = comida (editable) + SVDA fijo RD$ ${LVA_PAYROLL_SVDA}; nombre corto.`
+          ? ` Almuerzo/SVDA = comida + SVDA RD$ ${LVA_PAYROLL_SVDA}.`
           : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
