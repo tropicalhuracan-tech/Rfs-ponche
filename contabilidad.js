@@ -209,12 +209,20 @@ const LVA_PAYROLL_DAY_BASE = 26;
 const LVA_PAYROLL_SVDA = 90;
 /**
  * Días tipo "13+2": la quincena solo usa el primer número (12/13/15…).
- * El +N no entra en quincena: cada +1 = RD$800 solo en Volaos.
+ * El +N no entra en quincena: cada +1 = volao (tasa según grupo/tanda).
  */
 const LVA_PAYROLL_VOLAO_PER_EXTRA_DAY = 800;
-/** Horas extras por días laborados: 13 días = RD$750 (prorrateo lineal). */
+/** Horas extras por días laborados (La Vega / default): 13 días = RD$750. */
 const LVA_PAYROLL_EXTRAS_DAYS_BLOCK = 13;
 const LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY = 750;
+/** Monorriel por tanda: volao (+N) y horas extras (13 días base). */
+const MONO_TANDA_FORMULA = {
+  // Ejemplos: 12+1 → 850 · 12+3 → 2550; horas: 13 días → 1000
+  dia: { volaoPerExtraDay: 850, extrasFromDaysPay: 1000, autoExtrasFromDays: true },
+  noche: { volaoPerExtraDay: 900, extrasFromDaysPay: 1500, autoExtrasFromDays: true },
+  moto_dia: { volaoPerExtraDay: 1000, extrasFromDaysPay: 0, autoExtrasFromDays: false },
+  moto_noche: { volaoPerExtraDay: 1000, extrasFromDaysPay: 0, autoExtrasFromDays: false },
+};
 /** Nómina oficina: SFS fijo; quincena = sueldo mensual / 2 (días no influyen). */
 const OFFICE_PAYROLL_SFS = 800;
 const OFFICE_PAYROLL_RIFA = 85;
@@ -244,20 +252,67 @@ function parsePayrollDays(raw) {
   }
   const a = Number(m[1]) || 0;
   const b = Number(m[2]) || 0;
-  // baseDays = primer número (prorrateo); extraDays = +N (volao a RD$800 c/u)
+  // baseDays = primer número (prorrateo); extraDays = +N (volao a tasa del grupo/tanda)
   return { label: s, days: a + b, baseDays: a, extraDays: b, incidental: false };
 }
 
-/** Horas extras según días base: 13 días → RD$750 (12 → prorrateo, etc.). */
-function extrasPayFromBaseDays(baseDays) {
+/** Horas extras según días base (prorrateo lineal sobre el bloque de días). */
+function extrasPayFromBaseDays(baseDays, extrasFromDaysPay, extrasDaysBlock) {
   const d = Math.max(0, Number(baseDays) || 0);
-  if (!d) return 0;
-  return roundMoney2((d / LVA_PAYROLL_EXTRAS_DAYS_BLOCK) * LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY);
+  const pay = Math.max(0, Number(extrasFromDaysPay) || 0);
+  const block = Math.max(1, Number(extrasDaysBlock) || LVA_PAYROLL_EXTRAS_DAYS_BLOCK);
+  if (!d || !pay) return 0;
+  return roundMoney2((d / block) * pay);
+}
+
+/** Perfil de fórmula según nómina (Monorriel por tanda; resto LVA default). */
+function getPayrollFormulaProfile(p) {
+  const office = payrollIsOffice(p);
+  const lavega = payrollUsesLvaParams(p);
+  const rawTanda = p && p.group === "monorriel" ? String(p.tanda || "").trim() : "";
+  const tanda = rawTanda && MONO_TANDA_FORMULA[rawTanda] ? rawTanda : "";
+  const mono = tanda ? MONO_TANDA_FORMULA[tanda] : null;
+  return {
+    office,
+    lavega,
+    tanda,
+    volaoPerExtraDay: mono
+      ? mono.volaoPerExtraDay
+      : LVA_PAYROLL_VOLAO_PER_EXTRA_DAY,
+    extrasDaysBlock: LVA_PAYROLL_EXTRAS_DAYS_BLOCK,
+    extrasFromDaysPay: mono ? mono.extrasFromDaysPay : LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY,
+    autoExtrasFromDays: mono ? !!mono.autoExtrasFromDays : !office && lavega,
+  };
+}
+
+function payrollComputeOpts(p, extra = {}) {
+  const profile = getPayrollFormulaProfile(p);
+  return { ...profile, ...extra };
 }
 
 function computePayrollLineTotals(line, opts = {}) {
   const office = !!(opts && opts.office);
   const lavega = !!(opts && opts.lavega);
+  const volaoPerExtraDay = Math.max(
+    0,
+    Number(opts && opts.volaoPerExtraDay != null ? opts.volaoPerExtraDay : LVA_PAYROLL_VOLAO_PER_EXTRA_DAY) || 0
+  );
+  const extrasDaysBlock = Math.max(
+    1,
+    Number(opts && opts.extrasDaysBlock != null ? opts.extrasDaysBlock : LVA_PAYROLL_EXTRAS_DAYS_BLOCK) ||
+      LVA_PAYROLL_EXTRAS_DAYS_BLOCK
+  );
+  const extrasFromDaysPay = Math.max(
+    0,
+    Number(
+      opts && opts.extrasFromDaysPay != null ? opts.extrasFromDaysPay : LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY
+    ) || 0
+  );
+  const autoExtrasFromDays =
+    opts && Object.prototype.hasOwnProperty.call(opts, "autoExtrasFromDays")
+      ? !!opts.autoExtrasFromDays
+      : !office && lavega;
+
   const salaryMonthly = Math.max(0, Number(line.salaryMonthly) || 0);
   const daysInfo = parsePayrollDays(line.daysWorked);
   let salaryQuincena = Math.max(0, Number(line.salaryQuincena) || 0);
@@ -275,7 +330,7 @@ function computePayrollLineTotals(line, opts = {}) {
 
   const baseDays = Math.max(0, Number(daysInfo.baseDays != null ? daysInfo.baseDays : daysInfo.days) || 0);
   const extraDays = Math.max(0, Number(daysInfo.extraDays) || 0);
-  const volaoFromDays = roundMoney2(extraDays * LVA_PAYROLL_VOLAO_PER_EXTRA_DAY);
+  const volaoFromDays = roundMoney2(extraDays * volaoPerExtraDay);
 
   if (office) {
     // Oficina: quincena = mitad del sueldo; días no influyen. SFS fijo. Sin unif/volao/comida/feriado/extras.
@@ -288,13 +343,13 @@ function computePayrollLineTotals(line, opts = {}) {
     almuerzo = 0;
     if (!hasName) rifa = 0;
   } else {
-    // +N en días → solo Volaos (800 × N); no se mezcla con la quincena
+    // +N en días → solo Volaos (tasa × N); no se mezcla con la quincena
     if (extraDays > 0) {
       volaos = volaoFromDays;
     }
-    // Si no hay extras manuales, aplicar 13 días = RD$750 (prorrateo por días base)
-    if (!horasExtras && baseDays > 0) {
-      horasExtras = extrasPayFromBaseDays(baseDays);
+    // Horas extras auto (si la tanda lo permite): 13 días → monto base, prorrateo
+    if (autoExtrasFromDays && !horasExtras && baseDays > 0) {
+      horasExtras = extrasPayFromBaseDays(baseDays, extrasFromDaysPay, extrasDaysBlock);
     }
     if (!salaryQuincena && salaryMonthly && baseDays > 0) {
       // Quincena = solo primera cifra de días (12/13/15…); el +N no suma aquí
@@ -346,10 +401,7 @@ function computePayrollLineTotals(line, opts = {}) {
 }
 
 function computePayrollLineTotalsForPayroll(p, line) {
-  return computePayrollLineTotals(line, {
-    office: payrollIsOffice(p),
-    lavega: payrollUsesLvaParams(p),
-  });
+  return computePayrollLineTotals(line, payrollComputeOpts(p));
 }
 
 function normalizePayrollLine(l = {}, opts = {}) {
@@ -401,7 +453,7 @@ function normalizePayrollLine(l = {}, opts = {}) {
     (base.daysWorked && base.salaryMonthly) ||
     (office && base.salaryMonthly);
   if (hasExcelShape || base.salaryMonthly) {
-    return computePayrollLineTotals(base, { office, lavega });
+    return computePayrollLineTotals(base, opts);
   }
   const salary = base.salary || base.salaryMonthly;
   const other = base.other;
@@ -441,6 +493,7 @@ function normalizePayroll(p = {}) {
         ? normalizeMonorrielTandaId(p.tanda)
         : ""
       : "";
+  const formulaOpts = payrollComputeOpts({ group, tanda });
   return {
     id: p.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     period: period || currentMonthKey(),
@@ -451,7 +504,7 @@ function normalizePayroll(p = {}) {
     status,
     showFeriado: office ? false : p.showFeriado === true,
     svdaMealSplit: p.svdaMealSplit === true,
-    lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, { office, lavega })) : [],
+    lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, formulaOpts)) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
     createdAt: p.createdAt || new Date().toISOString(),
@@ -1718,7 +1771,12 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
           : LVA_PAYROLL_UNIFORMES,
       volaos: isOffice ? 0 : pickSeedNum(prevLine.volaos, person.volaos, 0),
       incentivos: pickSeedNum(prevLine.incentivos, person.incentivos, 0),
-      horasExtras: isOffice ? 0 : pickSeedNum(prevLine.horasExtras, person.horasExtras, 0),
+      // Si la tanda auto-calcula extras, dejar 0 para que compute aplique la tasa actual
+      horasExtras: isOffice
+        ? 0
+        : opts.autoExtrasFromDays
+          ? 0
+          : pickSeedNum(prevLine.horasExtras, person.horasExtras, 0),
       feriado: isOffice ? 0 : pickSeedNum(prevLine.feriado, person.feriado, 0),
       almuerzo: isOffice ? 0 : pickSeedNum(prevLine.almuerzo, person.almuerzo, 0),
       rifa: isOffice
@@ -1730,7 +1788,7 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
       prestamos: pickSeedNum(prevLine.prestamos, person.prestamos, 0),
       note: prevLine.note || "",
     },
-    { office: isOffice, lavega: isLavega }
+    opts
   );
 }
 
@@ -1833,6 +1891,10 @@ function generatePayrollForSelection(opts = {}) {
   });
   const isOffice = group === "oficina";
   const isLavega = payrollGroupUsesLvaParams(group);
+  const formulaOpts = getPayrollFormulaProfile({
+    group,
+    tanda: group === "monorriel" ? tanda : "",
+  });
   let lines;
   if (group === "general") {
     const kept = (existing && existing.lines ? existing.lines : []).map((l) =>
@@ -1845,7 +1907,7 @@ function generatePayrollForSelection(opts = {}) {
         prevById.get(s.employeeId) ||
         prevById.get(s.id) ||
         prevByName.get(String(s.name || "").trim().toLowerCase());
-      return buildPayrollLineFromPerson(s, prev, meta.label, { office: isOffice, lavega: isLavega });
+      return buildPayrollLineFromPerson(s, prev, meta.label, formulaOpts);
     });
   }
   if (existing) snapshotPayrollBackup(existing, "generate");
@@ -2052,6 +2114,7 @@ function readPayrollLinesFromDom(payrollId) {
     };
     const isOffice = payrollIsOffice(p);
     const isLavega = payrollUsesLvaParams(p);
+    const formulaOpts = payrollComputeOpts(p);
     const ur = isOffice ? { uniformes: 0, rifa: 0 } : parseUnifRifa(g("unifRifa"), prev);
     const showFer = !isOffice && payrollShowsFeriado(p);
     const rifaVal = isOffice
@@ -2086,7 +2149,7 @@ function readPayrollLinesFromDom(payrollId) {
         prestamos: g("prestamos"),
         reviewed: reviewedEl ? !!reviewedEl.checked : !!prev.reviewed,
       },
-      { office: isOffice, lavega: isLavega }
+      formulaOpts
     );
   });
   return lines;
@@ -2100,21 +2163,29 @@ function recalculateOpenPayroll(save = false) {
   }
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return;
-  // Recalcular: La Vega desde días+sueldo; Oficina = sueldo/2 + SFS fijo
-  const office = payrollIsOffice(p);
-  const lavega = payrollUsesLvaParams(p);
+  // Recalcular: La Vega / Monorriel desde días+sueldo; Oficina = sueldo/2 + SFS fijo
+  const profile = getPayrollFormulaProfile(p);
+  const opts = payrollComputeOpts(p);
   p.lines = lines.map((l) => {
     const daysInfo = parsePayrollDays(l.daysWorked);
     return computePayrollLineTotals(
       {
         ...l,
         salaryQuincena: 0,
-        sfs: office ? OFFICE_PAYROLL_SFS : 0,
-        // Recalcular: volao por +N y extras por días (13 días = RD$750)
+        sfs: profile.office ? OFFICE_PAYROLL_SFS : 0,
+        // Volaos por +N; horas extras auto solo si la tanda lo permite (moto = manual)
         volaos: 0,
-        horasExtras: office ? 0 : extrasPayFromBaseDays(daysInfo.baseDays),
+        horasExtras: profile.office
+          ? 0
+          : profile.autoExtrasFromDays
+            ? extrasPayFromBaseDays(
+                daysInfo.baseDays,
+                profile.extrasFromDaysPay,
+                profile.extrasDaysBlock
+              )
+            : Math.max(0, Number(l.horasExtras) || 0),
       },
-      { office, lavega }
+      opts
     );
   });
   p.updatedAt = new Date().toISOString();
@@ -2353,18 +2424,18 @@ function syncOpenPayrollFromDom(recalc = false) {
   if (!p) return null;
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return p;
-  const office = payrollIsOffice(p);
-  const lavega = payrollUsesLvaParams(p);
+  const profile = getPayrollFormulaProfile(p);
+  const opts = payrollComputeOpts(p);
   p.lines = lines.map((l) =>
     computePayrollLineTotals(
       recalc
         ? {
             ...l,
             salaryQuincena: 0,
-            sfs: office ? OFFICE_PAYROLL_SFS : 0,
+            sfs: profile.office ? OFFICE_PAYROLL_SFS : 0,
           }
         : l,
-      { office, lavega }
+      opts
     )
   );
   p.updatedAt = new Date().toISOString();
@@ -2424,13 +2495,9 @@ function addBlankPayrollRows() {
         sfs: 0,
       }
     : {};
+  const blankFormulaOpts = payrollComputeOpts(p);
   for (let i = 0; i < n; i += 1) {
-    p.lines.push(
-      normalizePayrollLine(emptyPayrollLine(blankOpts), {
-        office: payrollIsOffice(p),
-        lavega: payrollUsesLvaParams(p),
-      })
-    );
+    p.lines.push(normalizePayrollLine(emptyPayrollLine(blankOpts), blankFormulaOpts));
   }
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
@@ -2470,9 +2537,10 @@ function buildPayrollPrintHtml(p) {
       salaryQuincena: isOffice ? 0 : l.salaryQuincena,
       sfs: isOffice ? OFFICE_PAYROLL_SFS : l.sfs,
     };
-    const computed = computePayrollLineTotals(named, { office: isOffice, lavega: isLavega });
+    const printOpts = payrollComputeOpts(p);
+    const computed = computePayrollLineTotals(named, printOpts);
     if (!payrollShowsFeriado(p) && Number(computed.feriado)) {
-      return computePayrollLineTotals({ ...computed, feriado: 0 }, { office: isOffice, lavega: isLavega });
+      return computePayrollLineTotals({ ...computed, feriado: 0 }, printOpts);
     }
     return computed;
   });
@@ -2676,10 +2744,7 @@ function togglePayrollFeriado() {
   p.showFeriado = !p.showFeriado;
   if (!p.showFeriado) {
     p.lines = (p.lines || []).map((l) =>
-      computePayrollLineTotals(
-        { ...l, feriado: 0 },
-        { office: payrollIsOffice(p), lavega: payrollUsesLvaParams(p) }
-      )
+      computePayrollLineTotals({ ...l, feriado: 0 }, payrollComputeOpts(p))
     );
   }
   p.updatedAt = new Date().toISOString();
@@ -3016,28 +3081,35 @@ function applyPayrollLiveUpdate(ev) {
   if (!p) return;
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return;
-  const office = payrollIsOffice(p);
-  const lavega = payrollUsesLvaParams(p);
+  const profile = getPayrollFormulaProfile(p);
+  const opts = payrollComputeOpts(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
   p.lines = lines.map((l, i) => {
     if (forceBase && i === idx) {
       const daysInfo = parsePayrollDays(l.daysWorked);
-      // Al cambiar días: recalcular quincena, volao (+N) y horas extras (13 días = RD$750)
+      // Al cambiar días: quincena, volao (+N) y extras auto según tanda
+      let nextHoras = l.horasExtras;
+      if (field === "daysWorked" && !profile.office) {
+        nextHoras = profile.autoExtrasFromDays
+          ? extrasPayFromBaseDays(
+              daysInfo.baseDays,
+              profile.extrasFromDaysPay,
+              profile.extrasDaysBlock
+            )
+          : Math.max(0, Number(l.horasExtras) || 0);
+      }
       return computePayrollLineTotals(
         {
           ...l,
           salaryQuincena: 0,
-          sfs: office ? OFFICE_PAYROLL_SFS : 0,
+          sfs: profile.office ? OFFICE_PAYROLL_SFS : 0,
           volaos: field === "daysWorked" ? 0 : l.volaos,
-          horasExtras:
-            field === "daysWorked" && !office
-              ? extrasPayFromBaseDays(daysInfo.baseDays)
-              : l.horasExtras,
+          horasExtras: nextHoras,
         },
-        { office, lavega }
+        opts
       );
     }
-    return computePayrollLineTotals(l, { office, lavega });
+    return computePayrollLineTotals(l, opts);
   });
   p.updatedAt = new Date().toISOString();
   updatePayrollReadonlyDom(p);
@@ -3231,7 +3303,7 @@ function renderNominaTab() {
       : group === "monorriel" && monoTandaMeta
         ? `<p class="muted">Tanda <strong>${escapeHtml(monoTandaMeta.label)}</strong> · ${
             getStaffForPayrollGroup("monorriel", monoTanda).length
-          } persona(s) en el Excel. Pulsa <strong>Generar las 4 tandas</strong> para cargar Día, Moto día, Noche y Moto noche con la fórmula actual.</p>`
+          } persona(s) en el Excel. Pulsa <strong>Generar las 4 tandas</strong> (Día volao 850 / extras 1000·13d · Noche volao 900 / extras 1500·13d · Moto volao 1000 / extras manual).</p>`
       : `<p class="muted">Genera la nómina ${escapeHtml(
           meta.short
         )} para ver la tabla (mismo formato: días, sueldo, SFS, Unif/Rifa, volaos, extras, descuentos, depósito y redondeo).</p>`;
@@ -3296,6 +3368,7 @@ function renderNominaTab() {
   }
   // La Vega / Monorriel: nombre corto + uniforme 215→115; comida editable + SVDA 90
   if (payrollUsesLvaParams(p)) {
+    const openFormulaOpts = payrollComputeOpts(p);
     const staffById = new Map();
     try {
       getLvaStaffForPayroll().forEach((s) => {
@@ -3334,10 +3407,10 @@ function renderNominaTab() {
             uniformes: LVA_PAYROLL_UNIFORMES,
             rifa: Number(next.rifa) || LVA_PAYROLL_RIFA,
           },
-          { lavega: true }
+          openFormulaOpts
         );
       } else {
-        next = computePayrollLineTotals(next, { lavega: true });
+        next = computePayrollLineTotals(next, openFormulaOpts);
       }
       return next;
     });
@@ -3347,6 +3420,7 @@ function renderNominaTab() {
     }
   }
   const cols = getPayrollEditorCols(p);
+  const formulaProfile = getPayrollFormulaProfile(p);
   const lines = p.lines || [];
   const namedCount = payrollLinesForTotals(lines).length;
   const reviewedCount = payrollLinesForTotals(lines).filter((l) => !!l.reviewed).length;
@@ -3383,9 +3457,11 @@ function renderNominaTab() {
           key === "fullName"
             ? `${label} · casilla = revisado (solo edición, no sale en impresión)`
             : key === "daysWorked"
-              ? `${label} · Ej. 13+2: quincena con 13 días; el +2 = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY}×2 solo en Volaos`
+              ? `${label} · Ej. 13+2: quincena con 13 días; el +2 = RD$ ${formulaProfile.volaoPerExtraDay}×2 solo en Volaos`
               : key === "horasExtras"
-                ? `${label} · Auto: ${LVA_PAYROLL_EXTRAS_DAYS_BLOCK} días = RD$ ${LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY} (al cambiar días)`
+                ? formulaProfile.autoExtrasFromDays
+                  ? `${label} · Auto: ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay} (al cambiar días)`
+                  : `${label} · Manual (sin auto por días)`
                 : kind === "almuerzoSvda"
                   ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
                   : label;
@@ -3481,13 +3557,16 @@ function renderNominaTab() {
   const exportPaper = getPayrollPaperForExport(p);
   const paperLabel = exportPaper === "letter" ? "Carta" : "Legal";
   const isOfficeOpen = payrollIsOffice(p);
+  const extrasHelp = formulaProfile.autoExtrasFromDays
+    ? `Horas extras: ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay} (prorrateo).`
+    : `Horas extras: manual.`;
   const helpLine = isOfficeOpen
     ? `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": quincena solo con 13; el +N = RD$ ${LVA_PAYROLL_VOLAO_PER_EXTRA_DAY} c/u solo en Volaos. Horas extras: ${LVA_PAYROLL_EXTRAS_DAYS_BLOCK} días = RD$ ${LVA_PAYROLL_EXTRAS_FROM_DAYS_PAY}. Unif/Rifa 115/85.${
+      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": quincena solo con 13; el +N = RD$ ${formulaProfile.volaoPerExtraDay} c/u solo en Volaos. ${extrasHelp} Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
           ? ` Almuerzo/SVDA = comida + SVDA RD$ ${LVA_PAYROLL_SVDA}.`
           : ""

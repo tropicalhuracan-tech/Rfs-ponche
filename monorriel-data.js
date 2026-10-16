@@ -32,7 +32,7 @@ window.RFS_MONORRIEL = {
   ],
   /**
    * Nómina Monorriel por tandas (Excel EMPLEADO).
-   * Día / Moto día / Noche / Moto noche. Fórmulas distintas por tanda: pendientes.
+   * Día / Moto día / Noche / Moto noche. Fórmulas: Día volao 850 / extras 1000·13d; Noche volao 900 / extras 1500·13d; Moto volao 1000 / extras manual.
    * Sueldo base provisional RD$ 24,000 (ajustar si el Excel trae otro).
    */
   payrollTandas: [
