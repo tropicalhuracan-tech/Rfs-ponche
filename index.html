@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=127" />
+  <link rel="stylesheet" href="styles.css?v=128" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v127 · Respaldo automático de nóminas</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v128 · Reportes: galería o cámara</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -144,7 +144,14 @@
           <div id="reportVoiceList" class="report-voice-list"></div>
         </div>
         <p class="muted tight">Escribe o dicta con tus palabras (qué, cuándo, acciones y resultado). El sistema lo convierte en informe formal para el cliente: <strong>no se pega el narrado tal cual</strong>. La foto es opcional.</p>
-        <label class="photo-label">Foto (opcional — no es obligatoria)<input id="reportPhoto" type="file" accept="image/*" capture="environment" /></label>
+        <div class="cam-upload-row">
+          <label class="photo-label">Elegir de galería / archivos
+            <input id="reportPhoto" type="file" accept="image/*" />
+          </label>
+          <button id="btnReportPhotoCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+        </div>
+        <!-- Acceso nativo a cámara en móvil (sin abrir galería) -->
+        <input id="reportPhotoCameraNative" type="file" accept="image/*" capture="environment" hidden />
         <div id="photoPreviewWrap" class="photo-preview" hidden>
           <img id="photoPreview" alt="Vista previa" />
           <button id="btnClearPhoto" class="btn ghost" type="button">Quitar foto</button>
@@ -1813,14 +1820,14 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
-  <script src="cloud-config.js?v=127"></script>
-  <script src="monorriel-data.js?v=127"></script>
-  <script src="reaction-payroll-data.js?v=127"></script>
-  <script src="cloud.js?v=127"></script>
-  <script src="hr.js?v=127"></script>
-  <script src="depuracion.js?v=127"></script>
-  <script src="contabilidad.js?v=127"></script>
-  <script src="quotes.js?v=127"></script>
-  <script src="app.js?v=127"></script>
+  <script src="cloud-config.js?v=128"></script>
+  <script src="monorriel-data.js?v=128"></script>
+  <script src="reaction-payroll-data.js?v=128"></script>
+  <script src="cloud.js?v=128"></script>
+  <script src="hr.js?v=128"></script>
+  <script src="depuracion.js?v=128"></script>
+  <script src="contabilidad.js?v=128"></script>
+  <script src="quotes.js?v=128"></script>
+  <script src="app.js?v=128"></script>
 </body>
 </html>

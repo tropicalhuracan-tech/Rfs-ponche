@@ -9764,7 +9764,10 @@ function updateSelectedStatus(status, noteExtra) {
 
 function clearPhoto() {
   pendingPhotoDataUrl = null;
-  document.getElementById("reportPhoto").value = "";
+  const gallery = document.getElementById("reportPhoto");
+  if (gallery) gallery.value = "";
+  const nativeCam = document.getElementById("reportPhotoCameraNative");
+  if (nativeCam) nativeCam.value = "";
   document.getElementById("photoPreviewWrap").hidden = true;
   document.getElementById("photoPreview").removeAttribute("src");
 }
@@ -10310,6 +10313,37 @@ function bindPcCameraUi() {
         pendingCajaCheckPhoto = dataUrl;
         if (typeof renderCajaCheckPreview === "function") renderCajaCheckPreview();
         toast("Foto del cheque lista.");
+      },
+    });
+  });
+
+  // Reportes: galería (sin capture) + cámara (nativa en móvil / modal en PC)
+  document.getElementById("reportPhotoCameraNative")?.addEventListener("change", onPhotoSelected);
+  document.getElementById("btnReportPhotoCamera")?.addEventListener("click", () => {
+    const isTouch =
+      "ontouchstart" in window ||
+      (typeof navigator !== "undefined" && Number(navigator.maxTouchPoints || 0) > 0) ||
+      /Mobi|Android|iPhone|iPad|iPod/i.test(String((typeof navigator !== "undefined" && navigator.userAgent) || ""));
+    if (isTouch) {
+      const native = document.getElementById("reportPhotoCameraNative");
+      if (native) {
+        native.value = "";
+        native.click();
+        return;
+      }
+    }
+    openPcCameraCapture({
+      title: "Foto del reporte",
+      facingMode: "environment",
+      maxSide: 1100,
+      quality: 0.7,
+      onCapture: (dataUrl) => {
+        pendingPhotoDataUrl = dataUrl;
+        const img = document.getElementById("photoPreview");
+        const wrap = document.getElementById("photoPreviewWrap");
+        if (img) img.src = dataUrl;
+        if (wrap) wrap.hidden = false;
+        toast("Foto lista. Pulsa Generar informe ejecutivo.");
       },
     });
   });
@@ -10996,7 +11030,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=117").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=128").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
