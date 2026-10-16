@@ -10081,32 +10081,75 @@ async function toggleReportVoiceRecording() {
   }, REPORT_VOICE_MAX_MS);
 }
 
-function compressImage(file, maxSide = 1280, quality = 0.72) {
+/** Tope de peso para fotos de reportes (~100 KB JPEG). */
+const REPORT_PHOTO_MAX_SIDE = 900;
+const REPORT_PHOTO_QUALITY = 0.55;
+const REPORT_PHOTO_MAX_BYTES = 100 * 1024;
+
+function dataUrlBinaryBytes(dataUrl) {
+  const s = String(dataUrl || "");
+  const i = s.indexOf(",");
+  const b64 = i >= 0 ? s.slice(i + 1) : s;
+  if (!b64) return 0;
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((b64.length * 3) / 4) - pad);
+}
+
+function compressImage(file, maxSide = 1280, quality = 0.72, maxBytes = 0) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("No se pudo leer la foto"));
     reader.onload = () => {
-      compressDataUrl(String(reader.result || ""), maxSide, quality).then(resolve).catch(reject);
+      compressDataUrl(String(reader.result || ""), maxSide, quality, maxBytes).then(resolve).catch(reject);
     };
     reader.readAsDataURL(file);
   });
 }
 
-function compressDataUrl(dataUrl, maxSide = 1280, quality = 0.72) {
+function compressDataUrl(dataUrl, maxSide = 1280, quality = 0.72, maxBytes = 0) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      let { width, height } = img;
-      if (width > maxSide || height > maxSide) {
-        const ratio = Math.min(maxSide / width, maxSide / height);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
+      const srcW = img.naturalWidth || img.width || 0;
+      const srcH = img.naturalHeight || img.height || 0;
+      if (!srcW || !srcH) {
+        reject(new Error("Foto inválida"));
+        return;
       }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+
+      const encodeAt = (side, q) => {
+        let width = srcW;
+        let height = srcH;
+        if (width > side || height > side) {
+          const ratio = Math.min(side / width, side / height);
+          width = Math.max(1, Math.round(width * ratio));
+          height = Math.max(1, Math.round(height * ratio));
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        return canvas.toDataURL("image/jpeg", q);
+      };
+
+      let side = Math.max(1, Number(maxSide) || 1280);
+      let q = Math.min(0.92, Math.max(0.35, Number(quality) || 0.72));
+      let out = encodeAt(side, q);
+      const target = Number(maxBytes) > 0 ? Number(maxBytes) : 0;
+
+      // Si hay tope de peso: bajar calidad y luego resolución hasta caber
+      if (target > 0) {
+        const qualitySteps = [q, 0.5, 0.42, 0.35];
+        const sideSteps = [side, Math.min(side, 720), 560, 420];
+        outer: for (const nextSide of sideSteps) {
+          for (const nextQ of qualitySteps) {
+            out = encodeAt(nextSide, nextQ);
+            if (dataUrlBinaryBytes(out) <= target) break outer;
+          }
+        }
+      }
+
+      resolve(out);
     };
     img.onerror = () => reject(new Error("Foto inválida"));
     img.src = dataUrl;
@@ -10156,6 +10199,7 @@ async function openPcCameraCapture(opts) {
   const facingMode = options.facingMode === "user" ? "user" : "environment";
   const maxSide = Number(options.maxSide) || 1100;
   const quality = Number(options.quality) || 0.7;
+  const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : 0;
   const onCapture = typeof options.onCapture === "function" ? options.onCapture : null;
   if (!onCapture) return;
 
@@ -10181,7 +10225,7 @@ async function openPcCameraCapture(opts) {
   }
   if (shot) shot.disabled = true;
   pcCameraOnCapture = async (rawDataUrl) => {
-    const dataUrl = await compressDataUrl(rawDataUrl, maxSide, quality);
+    const dataUrl = await compressDataUrl(rawDataUrl, maxSide, quality, maxBytes);
     onCapture(dataUrl);
   };
   modal.hidden = false;
@@ -10335,8 +10379,9 @@ function bindPcCameraUi() {
     openPcCameraCapture({
       title: "Foto del reporte",
       facingMode: "environment",
-      maxSide: 1100,
-      quality: 0.7,
+      maxSide: REPORT_PHOTO_MAX_SIDE,
+      quality: REPORT_PHOTO_QUALITY,
+      maxBytes: REPORT_PHOTO_MAX_BYTES,
       onCapture: (dataUrl) => {
         pendingPhotoDataUrl = dataUrl;
         const img = document.getElementById("photoPreview");
@@ -10353,7 +10398,12 @@ async function onPhotoSelected(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
   try {
-    pendingPhotoDataUrl = await compressImage(file);
+    pendingPhotoDataUrl = await compressImage(
+      file,
+      REPORT_PHOTO_MAX_SIDE,
+      REPORT_PHOTO_QUALITY,
+      REPORT_PHOTO_MAX_BYTES
+    );
     document.getElementById("photoPreview").src = pendingPhotoDataUrl;
     document.getElementById("photoPreviewWrap").hidden = false;
   } catch (_) {
@@ -11030,7 +11080,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=128").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=129").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
