@@ -4981,9 +4981,27 @@ function isMonorrielEmployee(emp) {
   return sites.includes("monorriel") || roles.includes("monorriel") || !!emp.monorriel;
 }
 
+/** Nombres con los que comparar un préstamo ↔ nómina (alias + hint del Excel). */
+function loanMatchNameCandidates(loan) {
+  if (!loan) return [];
+  const out = [];
+  const push = (n) => {
+    const s = String(n || "").trim();
+    if (!s) return;
+    if (!out.some((x) => normalizePersonKey(x) === normalizePersonKey(s))) out.push(s);
+  };
+  push(loan.employeeName);
+  push(loan.matchHint);
+  const alias = LOAN_NAME_ALIASES[normalizePersonKey(loan.employeeName)];
+  push(alias);
+  if (loan.matchHint) push(LOAN_NAME_ALIASES[normalizePersonKey(loan.matchHint)]);
+  return out;
+}
+
 /**
  * Cuota(s) de préstamo a descontar en una fecha de pago de nómina (día 5 o 20).
  * Suma todas las cuotas pendientes con dueDate = payDate (o misma quincena).
+ * Usa alias/hint para cuadrar con nombres cortos de nómina Monorriel (1+1).
  */
 function loanPayrollDeductionForName(employeeName, payDate, employeeId) {
   const pay = String(payDate || "").slice(0, 10);
@@ -4993,7 +5011,12 @@ function loanPayrollDeductionForName(employeeName, payDate, employeeId) {
   (loans || []).forEach((loan) => {
     if (!loan || loan.status === "paid") return;
     const idOk = employeeId && loan.employeeId && loan.employeeId === employeeId;
-    const score = idOk ? 1 : loanNameMatchScore(loan.employeeName, name);
+    let score = idOk ? 1 : 0;
+    if (!idOk) {
+      loanMatchNameCandidates(loan).forEach((cand) => {
+        score = Math.max(score, loanNameMatchScore(cand, name));
+      });
+    }
     if (!idOk && score < 0.9) return;
     (loan.schedule || []).forEach((inst) => {
       if (!inst || inst.paid) return;
@@ -5015,7 +5038,7 @@ function importLoansSeedFromExcel(opts) {
     toast("No hay data de préstamos para importar.");
     return { imported: 0 };
   }
-  const ver = Number(meta.version) || 146;
+  const ver = Number(meta.version) || 147;
   const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
   if (!force && prev >= ver) return { imported: 0, skipped: true };
 
@@ -5064,7 +5087,15 @@ function importLoansSeedFromExcel(opts) {
 
 function ensureLoansSeedImported() {
   try {
-    return importLoansSeedFromExcel({ force: false });
+    const r = importLoansSeedFromExcel({ force: false });
+    // Aunque el seed ya esté importado, reaplicar cuotas en nóminas Monorriel
+    try {
+      if (typeof refreshMonorrielPayrollLoanDeductions === "function") {
+        const pay = refreshMonorrielPayrollLoanDeductions(true) || {};
+        if (r && typeof r === "object") r.payrollUpdated = pay.updated || 0;
+      }
+    } catch (_) {}
+    return r;
   } catch (err) {
     console.error(err);
     return { imported: 0, error: true };
@@ -11772,7 +11803,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=146").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=147").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

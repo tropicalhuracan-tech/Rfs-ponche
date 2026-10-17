@@ -1,6 +1,6 @@
 /** Préstamos reales importados desde AMORTIZACIONES_ACTUAL (Excel). Generado automáticamente. */
 window.RFS_LOANS_SEED_META = {
-  version: 146,
+  version: 147,
   source: "AMORTIZACIONES_ACTUAL_400e.xlsx",
   importedAt: "2026-10-17",
   payrollPayDays: [5, 20],

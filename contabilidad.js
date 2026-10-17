@@ -1818,41 +1818,52 @@ function applyMonorrielLoanDeductionsToLines(lines, payDate, opts = {}) {
   });
 }
 
+/** Aplica cuotas de préstamo a una nómina Monorriel (borrador) y recalcula totales. */
+function syncMonorrielPayrollLoanDeductions(p, forceClear = true) {
+  if (!p || p.group !== "monorriel") return { changed: false, applied: 0 };
+  if (p.status === "cancelled" || p.status === "paid") return { changed: false, applied: 0 };
+  const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+  const opts = typeof payrollComputeOpts === "function" ? payrollComputeOpts(p) : {};
+  const prev = JSON.stringify((p.lines || []).map((l) => [l.fullName, Number(l.prestamos) || 0]));
+  const nextLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
+    forceClear: !!forceClear,
+  }).map((l) => computePayrollLineTotals(l, opts));
+  const applied = nextLines.filter((l) => (Number(l.prestamos) || 0) > 0).length;
+  const next = JSON.stringify(nextLines.map((l) => [l.fullName, Number(l.prestamos) || 0]));
+  if (prev === next) return { changed: false, applied };
+  p.lines = nextLines;
+  p.updatedAt = new Date().toISOString();
+  return { changed: true, applied };
+}
+
 /**
- * Tras importar préstamos: limpia Préstamos en nóminas Monorriel borrador
+ * Tras importar préstamos / al abrir nómina: limpia Préstamos en nóminas Monorriel borrador
  * y reaplica cuotas reales según fecha de pago (5/20).
  */
 function refreshMonorrielPayrollLoanDeductions(forceClear = true) {
-  if (typeof contabilidadData === "undefined" || !contabilidadData) return { updated: 0 };
+  if (typeof contabilidadData === "undefined" || !contabilidadData) return { updated: 0, applied: 0 };
   const list = Array.isArray(contabilidadData.payrolls) ? contabilidadData.payrolls : [];
   let updated = 0;
-  list.forEach((p, idx) => {
-    if (!p || p.group !== "monorriel") return;
-    if (p.status === "cancelled") return;
-    // Solo borradores / no pagadas: no tocar historial ya pagado
-    if (p.status === "paid") return;
-    const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
-    const opts = typeof payrollComputeOpts === "function" ? payrollComputeOpts(p) : {};
-    const nextLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
-      forceClear: !!forceClear,
-    }).map((l) => computePayrollLineTotals(l, opts));
-    list[idx] = {
-      ...p,
-      lines: nextLines,
-      updatedAt: new Date().toISOString(),
-    };
-    updated += 1;
+  let applied = 0;
+  list.forEach((p) => {
+    const r = syncMonorrielPayrollLoanDeductions(p, forceClear);
+    if (r.changed) updated += 1;
+    applied += r.applied || 0;
   });
   if (updated) {
     try {
       saveContabilidadData(true);
     } catch (_) {}
     try {
-      if (typeof renderNominaTab === "function") renderNominaTab();
-      else if (typeof renderContabilidadModule === "function") renderContabilidadModule();
+      if (typeof renderNominaTab === "function" && typeof contabTab !== "undefined" && contabTab === "nomina") {
+        // Evitar bucle: el caller puede estar dentro de renderNominaTab
+        if (!refreshMonorrielPayrollLoanDeductions._inRender) renderNominaTab();
+      } else if (typeof renderContabilidadModule === "function") {
+        renderContabilidadModule();
+      }
     } catch (_) {}
   }
-  return { updated };
+  return { updated, applied };
 }
 
 function buildLvaPayrollLineFromStaff(staff, prev) {
@@ -2297,7 +2308,15 @@ function saveOpenPayrollEdits() {
   if (!lines) return;
   // Respaldo del estado anterior antes de sobrescribir
   snapshotPayrollBackup(p, "save");
-  p.lines = lines.map((l) => computePayrollLineTotalsForPayroll(p, l));
+  const opts = payrollComputeOpts(p);
+  let workLines = lines.map((l) => computePayrollLineTotalsForPayroll(p, l));
+  if (p.group === "monorriel") {
+    const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, { forceClear: true }).map((l) =>
+      computePayrollLineTotals(l, opts)
+    );
+  }
+  p.lines = workLines;
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   renderNominaTab();
@@ -2358,11 +2377,14 @@ function payrollShowsFeriado(p) {
 function getPayrollEditorCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_TABLE_COLS;
   const lavega = payrollUsesLvaParams(p);
+  const mono = payrollIsMonorriel(p);
   return PAYROLL_TABLE_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
     if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "almuerzoSvda"];
+    // Monorriel: Préstamos = cuota automática del libro (solo lectura)
+    if (mono && key === "prestamos") return ["prestamos", "Préstamos", "ro"];
     return [key, label, kind];
   });
 }
@@ -3159,6 +3181,10 @@ function updatePayrollReadonlyDom(p) {
     if (asv && document.activeElement !== asv) asv.value = formatAlmuerzoSvda(l);
     if (vol && document.activeElement !== vol) vol.value = l.volaos || "";
     if (hex && document.activeElement !== hex) hex.value = l.horasExtras || "";
+    const prest = tr.querySelector('[data-f="prestamos"]');
+    if (prest && document.activeElement !== prest) prest.value = l.prestamos || "";
+    const prestRo = [...tr.children].find((cell) => cell.dataset && cell.dataset.ro === "prestamos");
+    if (prestRo) prestRo.textContent = moneyCell(l.prestamos);
   });
   const totals = {
     salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
@@ -3219,7 +3245,7 @@ function applyPayrollLiveUpdate(ev) {
   const profile = getPayrollFormulaProfile(p);
   const opts = payrollComputeOpts(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
-  p.lines = lines.map((l, i) => {
+  let workLines = lines.map((l, i) => {
     if (forceBase && i === idx) {
       const daysInfo = parsePayrollDays(l.daysWorked);
       // Al cambiar días: quincena, volao (+N) y extras auto según tanda
@@ -3246,6 +3272,13 @@ function applyPayrollLiveUpdate(ev) {
     }
     return computePayrollLineTotals(l, opts);
   });
+  if (p.group === "monorriel") {
+    const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, { forceClear: true }).map((l) =>
+      computePayrollLineTotals(l, opts)
+    );
+  }
+  p.lines = workLines;
   p.updatedAt = new Date().toISOString();
   updatePayrollReadonlyDom(p);
   schedulePayrollAutosave();
@@ -3554,6 +3587,20 @@ function renderNominaTab() {
       saveContabilidadData(true);
     }
   }
+  // Monorriel: al abrir la tabla, pasar cuotas de préstamo a la columna Préstamos
+  if (payrollIsMonorriel(p) && p.status !== "paid") {
+    refreshMonorrielPayrollLoanDeductions._inRender = true;
+    try {
+      const loanSync = syncMonorrielPayrollLoanDeductions(p, true);
+      if (loanSync.changed) {
+        try {
+          saveContabilidadData(true);
+        } catch (_) {}
+      }
+    } finally {
+      refreshMonorrielPayrollLoanDeductions._inRender = false;
+    }
+  }
   const cols = getPayrollEditorCols(p);
   const formulaProfile = getPayrollFormulaProfile(p);
   const lines = p.lines || [];
@@ -3695,6 +3742,9 @@ function renderNominaTab() {
   const extrasHelp = formulaProfile.autoExtrasFromDays
     ? `Horas extras: ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay} (prorrateo).`
     : `Horas extras: manual.`;
+  const loanAutoN = payrollIsMonorriel(p)
+    ? payrollLinesForTotals(lines).filter((l) => (Number(l.prestamos) || 0) > 0).length
+    : 0;
   const helpLine = isOfficeOpen
     ? `Pago ${escapeHtml(p.payDate || "—")} · ${
         p.status === "paid" ? "Pagada" : "Borrador"
@@ -3704,6 +3754,10 @@ function renderNominaTab() {
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": quincena solo con 13; el +N = RD$ ${formulaProfile.volaoPerExtraDay} c/u solo en Volaos. ${extrasHelp} Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
           ? ` Almuerzo/SVDA = comida + SVDA RD$ ${LVA_PAYROLL_SVDA}.`
+          : ""
+      }${
+        payrollIsMonorriel(p)
+          ? ` Préstamos auto (${loanAutoN} cuota${loanAutoN === 1 ? "" : "s"} esta quincena).`
           : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
