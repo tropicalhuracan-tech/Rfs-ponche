@@ -4626,6 +4626,34 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Próximas fechas de cobro por nómina: días 5 y 20 de cada mes. */
+function nextPayrollPayDateAfter(isoDate, countFrom = 1) {
+  const base = String(isoDate || todayIso()).slice(0, 10);
+  let y = Number(base.slice(0, 4)) || new Date().getFullYear();
+  let m = Number(base.slice(5, 7)) || new Date().getMonth() + 1;
+  let d = Number(base.slice(8, 10)) || 1;
+  const out = [];
+  // Arranca en el siguiente 5 o 20 estricto después de la fecha base
+  let guard = 0;
+  while (out.length < Math.max(1, countFrom) && guard < 80) {
+    guard += 1;
+    const candidates = [
+      `${y}-${String(m).padStart(2, "0")}-05`,
+      `${y}-${String(m).padStart(2, "0")}-20`,
+    ];
+    for (const c of candidates) {
+      if (c > base && !out.includes(c)) out.push(c);
+      if (out.length >= countFrom) break;
+    }
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
 function buildAmortizationSchedule(principal, rate, periods, startDate) {
   const P = roundMoney(principal);
   const r = Number(rate) || 0;
@@ -4638,21 +4666,23 @@ function buildAmortizationSchedule(principal, rate, periods, startDate) {
     payment = roundMoney((P * r * factor) / (factor - 1));
   }
   let balance = P;
+  const dueDates = nextPayrollPayDateAfter(startDate || todayIso(), n);
   const schedule = [];
   for (let i = 1; i <= n; i += 1) {
     const interest = roundMoney(balance * r);
     let principalPart = roundMoney(payment - interest);
+    let pay = payment;
     if (i === n) {
       principalPart = roundMoney(balance);
-      payment = roundMoney(principalPart + interest);
+      pay = roundMoney(principalPart + interest);
     }
     balance = roundMoney(Math.max(0, balance - principalPart));
     schedule.push({
       n: i,
-      dueDate: addDaysIso(startDate, 15 * i),
+      dueDate: dueDates[i - 1] || addDaysIso(startDate, 15 * i),
       principal: principalPart,
       interest,
-      payment,
+      payment: pay,
       balance,
       paid: false,
       paidAt: "",
@@ -4664,10 +4694,11 @@ function buildAmortizationSchedule(principal, rate, periods, startDate) {
 
 function buildAdvanceSchedule(collectAmount, startDate) {
   const payment = roundMoney(collectAmount);
+  const due = (nextPayrollPayDateAfter(startDate || todayIso(), 1)[0] || addDaysIso(startDate, 15));
   return [
     {
       n: 1,
-      dueDate: addDaysIso(startDate, 15),
+      dueDate: due,
       principal: payment,
       interest: 0,
       payment,
@@ -4747,6 +4778,170 @@ function saveLoans() {
   persistLoanTrashLocal();
   queueCloudSave();
 }
+
+const LOANS_SEED_FLAG_KEY = "rfs-loans-seed-version";
+
+function normalizePersonKey(name) {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\b(tv|oficina|ofic|isa|lot|tamboril|mediterraneo|unificado|Wanda)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function personNameTokens(name) {
+  const stop = new Set(["de", "del", "la", "el", "los", "las", "y", "da", "do"]);
+  return normalizePersonKey(name)
+    .split(" ")
+    .filter((t) => t && !stop.has(t) && t.length > 1);
+}
+
+/** Coincidencia estricta préstamo ↔ empleado (evita falsos positivos). */
+function loanNameMatchScore(loanName, empName) {
+  const a = normalizePersonKey(loanName);
+  const b = normalizePersonKey(empName);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const ta = personNameTokens(loanName);
+  const tb = personNameTokens(empName);
+  if (!ta.length || !tb.length) return 0;
+  // todos los tokens del más corto están en el más largo
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  const longSet = new Set(long);
+  if (short.every((t) => longSet.has(t))) {
+    return short.length >= 2 ? 0.95 : short.length === 1 && long.length === 1 ? 0.9 : 0.55;
+  }
+  const inter = short.filter((t) => longSet.has(t)).length;
+  return inter / Math.max(short.length, long.length);
+}
+
+const LOAN_NAME_ALIASES = {
+  "hector lopez": "HECTOR MANUEL LOPEZ",
+  "feliz maria estevez": "FELIX MARIA ESTEVEZ",
+  "felix maria estevez": "FELIX MARIA ESTEVEZ",
+  "francisco cerda": "FRANCISCO ANT CERDA",
+  "jose tineo": "JOSE DEL CARMEN TINEO",
+  "lucio contreras": "LUCIO CONTRERA ALCANTARA",
+  "jose luis aquino": "JOSE LUIS AQUINO",
+  "jose manuel minaya": "JOSE MANUEL MINAYA",
+  "juan carlos tavares": "JUAN CARLOS TAVARES",
+};
+
+function resolveLoanEmployee(loan) {
+  if (!loan) return { employeeId: "", employeeName: loan && loan.employeeName, score: 0 };
+  const alias = LOAN_NAME_ALIASES[normalizePersonKey(loan.employeeName)];
+  const targetName = alias || loan.employeeName;
+  const pool = typeof employees !== "undefined" ? employees : [];
+  let best = null;
+  let bestScore = 0;
+  pool.forEach((e) => {
+    if (!e || !isEmployeeActive(e)) return;
+    let s = loanNameMatchScore(targetName, e.name);
+    if (alias && normalizePersonKey(e.name) === normalizePersonKey(alias)) s = 1;
+    // Preferir Monorriel en empates
+    if (s > bestScore || (s === bestScore && s >= 0.9 && isMonorrielEmployee(e) && best && !isMonorrielEmployee(best))) {
+      bestScore = s;
+      best = e;
+    }
+  });
+  if (bestScore >= 0.9 && best) {
+    return {
+      employeeId: best.id,
+      employeeName: best.name,
+      score: bestScore,
+      monorriel: isMonorrielEmployee(best),
+    };
+  }
+  return { employeeId: "", employeeName: loan.employeeName, score: bestScore };
+}
+
+function isMonorrielEmployee(emp) {
+  if (!emp) return false;
+  const sites = (emp.sites || []).join(" ").toLowerCase();
+  const roles = (emp.roles || []).join(" ").toLowerCase();
+  return sites.includes("monorriel") || roles.includes("monorriel") || !!emp.monorriel;
+}
+
+/**
+ * Cuota(s) de préstamo a descontar en una fecha de pago de nómina (día 5 o 20).
+ * Suma todas las cuotas pendientes con dueDate = payDate (o misma quincena).
+ */
+function loanPayrollDeductionForName(employeeName, payDate, employeeId) {
+  const pay = String(payDate || "").slice(0, 10);
+  if (!pay) return 0;
+  let total = 0;
+  const name = employeeName || "";
+  (loans || []).forEach((loan) => {
+    if (!loan || loan.status === "paid") return;
+    const idOk = employeeId && loan.employeeId && loan.employeeId === employeeId;
+    const score = idOk ? 1 : loanNameMatchScore(loan.employeeName, name);
+    if (!idOk && score < 0.9) return;
+    (loan.schedule || []).forEach((inst) => {
+      if (!inst || inst.paid) return;
+      if (String(inst.dueDate || "").slice(0, 10) === pay) {
+        total += Number(inst.payment) || 0;
+      }
+    });
+  });
+  return roundMoney(total);
+}
+
+/** Importa el Excel de amortizaciones: borra pruebas y carga préstamos reales. */
+function importLoansSeedFromExcel(opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const force = !!options.force;
+  const meta = window.RFS_LOANS_SEED_META || {};
+  const seed = Array.isArray(window.RFS_LOANS_SEED) ? window.RFS_LOANS_SEED : [];
+  if (!seed.length) {
+    toast("No hay data de préstamos para importar.");
+    return { imported: 0 };
+  }
+  const ver = Number(meta.version) || 140;
+  const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
+  if (!force && prev >= ver) return { imported: 0, skipped: true };
+
+  // Enviar préstamos de prueba / anteriores a papelera
+  (loans || []).forEach((l) => {
+    if (l && l.id) loanTrashIds.push(l.id);
+  });
+  loanTrashIds = normalizeLoanTrash(loanTrashIds);
+
+  const next = seed.map((raw) => {
+    const linked = resolveLoanEmployee(raw);
+    return normalizeLoan({
+      ...raw,
+      employeeId: linked.employeeId || raw.employeeId || "",
+      employeeName: linked.employeeName || raw.employeeName,
+      note: raw.note || "",
+      rateUnlocked: true,
+    });
+  });
+  loans = next;
+  saveLoans();
+  localStorage.setItem(LOANS_SEED_FLAG_KEY, String(ver));
+  try {
+    renderLoans();
+  } catch (_) {}
+  const linkedN = next.filter((l) => l.employeeId).length;
+  const notesN = next.filter((l) => /distinta al 10%/i.test(l.note || "")).length;
+  toast(
+    `Préstamos importados: ${next.length} · vinculados a empleados: ${linkedN} · con nota (tasa ≠ 10%): ${notesN}`
+  );
+  return { imported: next.length, linked: linkedN, notes: notesN };
+}
+
+function ensureLoansSeedImported() {
+  try {
+    return importLoansSeedFromExcel({ force: false });
+  } catch (err) {
+    console.error(err);
+    return { imported: 0, error: true };
+  }
+}
+
 
 function getLoan(id) {
   return loans.find((l) => l.id === id);
@@ -5863,6 +6058,19 @@ function bindPrintUi() {
 
 function bindLoansUi() {
   const btnNew = document.getElementById("btnNewLoan");
+  const btnImportLoans = document.getElementById("btnImportLoansExcel");
+  if (btnImportLoans && !btnImportLoans.dataset.bound) {
+    btnImportLoans.dataset.bound = "1";
+    btnImportLoans.addEventListener("click", () => {
+      const ok = window.confirm(
+        "Esto BORRA los préstamos actuales (pruebas) y carga el Excel de amortizaciones reales.\n¿Continuar?"
+      );
+      if (!ok) return;
+      localStorage.removeItem(LOANS_SEED_FLAG_KEY);
+      const r = importLoansSeedFromExcel({ force: true });
+      if (r && r.imported) pushToCloud().catch(() => {});
+    });
+  }
   if (!btnNew) return;
   btnNew.addEventListener("click", openNewLoan);
   document.getElementById("btnBackLoansFromNew").addEventListener("click", () => switchView("loansView"));
@@ -9752,7 +9960,12 @@ function switchView(viewId) {
   }
   if (viewId === "employeesView") renderEmployees();
   if (viewId === "employeeNewView") {}
-  if (viewId === "loansView") renderLoans();
+  if (viewId === "loansView") {
+    try {
+      ensureLoansSeedImported();
+    } catch (_) {}
+    renderLoans();
+  }
   if (viewId === "loanNewView") {
     renderLoanEmployeePicker();
     renderLoanPreview();
@@ -11273,6 +11486,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   loanTrashIds = normalizeLoanTrash(loadJson(LOAN_TRASH_KEY, []));
   loans = loadJson(LOANS_KEY, [])
     .map(normalizeLoan)
+  // Semilla Excel (solo una vez por versión)
+  // se aplica tras sync de nube más abajo / al abrir Préstamos
+
     .filter((l) => l && l.id && !loanTrashIds.includes(l.id));
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
@@ -11343,7 +11559,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=139").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=140").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -11405,6 +11621,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (cloud.usedCloud && !added && currentUser) {
         toast("Datos sincronizados desde la nube.");
       }
+      // Tras sync: reemplazar préstamos de prueba por Excel real (una vez)
+      try {
+        const seeded = ensureLoansSeedImported();
+        if (seeded && seeded.imported) {
+          await pushToCloud();
+        }
+      } catch (_) {}
       startLiveCloudSync();
     } catch (err) {
       console.error(err);

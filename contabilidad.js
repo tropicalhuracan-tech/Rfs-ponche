@@ -467,10 +467,7 @@ function normalizePayroll(p = {}) {
   let payDate = String(p.payDate || "").slice(0, 10);
   const half = p.half === 2 || p.half === "2" ? 2 : 1;
   if (!payDate && /^\d{4}-\d{2}$/.test(period)) {
-    const [y, m] = period.split("-").map(Number);
-    const last = new Date(y, m, 0).getDate();
-    const day = half === 1 ? 15 : Math.min(30, last);
-    payDate = `${period}-${String(day).padStart(2, "0")}`;
+    payDate = payrollPayDateFor(period, half) || payDate;
   }
   const status = ["draft", "paid", "cancelled"].includes(p.status) ? p.status : "draft";
   const group = [
@@ -1796,6 +1793,28 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
   );
 }
 
+/** Descuento automático de cuota de préstamo (Monorriel) según fecha de pago 5/20. */
+function autoLoanDeductionForPayrollLine(person, fullName, payDate) {
+  if (typeof loanPayrollDeductionForName !== "function") return 0;
+  const name = fullName || (person && (person.name || person.fullName)) || "";
+  const id = (person && (person.employeeId || person.id)) || "";
+  return loanPayrollDeductionForName(name, payDate, id);
+}
+
+function applyMonorrielLoanDeductionsToLines(lines, payDate) {
+  if (!payDate || typeof loanPayrollDeductionForName !== "function") return lines || [];
+  return (lines || []).map((l) => {
+    const name = String(l.fullName || "").trim();
+    if (!name) return l;
+    const amt = loanPayrollDeductionForName(name, payDate, l.employeeId);
+    if (!amt) {
+      // No forzar 0 si el usuario puso un monto manual sin préstamo vinculado
+      return l;
+    }
+    return { ...l, prestamos: amt };
+  });
+}
+
 function buildLvaPayrollLineFromStaff(staff, prev) {
   return buildPayrollLineFromPerson(staff, prev, "La Vega Autopista");
 }
@@ -1834,7 +1853,25 @@ function getSelectedPayrollHalf() {
 }
 
 function halfLabel(half) {
-  return half === 2 ? "16 al fin de mes" : "01 al 15";
+  // Periodo de trabajo; el pago de nómina es día 20 (1ª) y día 5 (2ª → mes siguiente)
+  return half === 2 ? "16 al fin (pago día 5)" : "01 al 15 (pago día 20)";
+}
+
+/** Fecha de depósito/pago de la nómina: días 5 y 20. */
+function payrollPayDateFor(period, half) {
+  const h = half === 2 || half === "2" ? 2 : 1;
+  const [y0, m0] = String(period || "").split("-").map(Number);
+  if (!y0 || !m0) return "";
+  if (h === 1) {
+    return `${period}-20`;
+  }
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  return `${y}-${String(m).padStart(2, "0")}-05`;
 }
 
 /**
@@ -1879,10 +1916,7 @@ function generatePayrollForSelection(opts = {}) {
   ) {
     return null;
   }
-  const [y, m] = period.split("-").map(Number);
-  const last = new Date(y, m, 0).getDate();
-  const payDay = half === 1 ? 15 : Math.min(30, last);
-  const payDate = `${period}-${String(payDay).padStart(2, "0")}`;
+  const payDate = payrollPayDateFor(period, half);
   const prevById = new Map();
   const prevByName = new Map();
   (existing && existing.lines ? existing.lines : []).forEach((l) => {
@@ -1911,8 +1945,18 @@ function generatePayrollForSelection(opts = {}) {
         prevById.get(s.employeeId) ||
         prevById.get(s.id) ||
         prevByName.get(String(s.name || "").trim().toLowerCase());
-      return buildPayrollLineFromPerson(s, prev, meta.label, formulaOpts);
+      const line = buildPayrollLineFromPerson(s, prev, meta.label, formulaOpts);
+      if (group === "monorriel" && typeof autoLoanDeductionForPayrollLine === "function") {
+        const ded = autoLoanDeductionForPayrollLine(s, line.fullName, payDate);
+        if (ded > 0) line.prestamos = ded;
+      }
+      return line;
     });
+    if (group === "monorriel") {
+      lines = applyMonorrielLoanDeductionsToLines(lines, payDate).map((l) =>
+        computePayrollLineTotals(l, formulaOpts)
+      );
+    }
   }
   if (existing) snapshotPayrollBackup(existing, "generate");
   const payroll = normalizePayroll({
@@ -2170,7 +2214,12 @@ function recalculateOpenPayroll(save = false) {
   // Recalcular: La Vega / Monorriel desde días+sueldo; Oficina = sueldo/2 + SFS fijo
   const profile = getPayrollFormulaProfile(p);
   const opts = payrollComputeOpts(p);
-  p.lines = lines.map((l) => {
+  const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+  let workLines = lines;
+  if (p.group === "monorriel") {
+    workLines = applyMonorrielLoanDeductionsToLines(lines, payDate);
+  }
+  p.lines = workLines.map((l) => {
     const daysInfo = parsePayrollDays(l.daysWorked);
     return computePayrollLineTotals(
       {
