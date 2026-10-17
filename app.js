@@ -4622,7 +4622,8 @@ function buildNormalizedSeedLoans() {
     return normalizeLoan({
       ...raw,
       employeeId: (linked && linked.employeeId) || raw.employeeId || "",
-      employeeName: (linked && linked.employeeName) || raw.employeeName,
+      // Conservar el nombre del libro/seed; el vínculo solo aporta employeeId
+      employeeName: raw.employeeName || (linked && linked.employeeName) || "",
       note: raw.note || "",
       rateUnlocked: true,
       // paid flags del Excel (verde) ya vienen en schedule
@@ -4940,6 +4941,9 @@ const LOAN_NAME_ALIASES = {
   "jose luis aquino": "JOSE LUIS AQUINO",
   "jose manuel minaya": "JOSE MANUEL MINAYA",
   "juan carlos tavares": "JUAN CARLOS TAVARES",
+  "carlos polanco": "CARLOS POLANCO DOMINGUEZ",
+  "carlos polanco dominguez": "CARLOS POLANCO DOMINGUEZ",
+  "juan carlos polanco garcia": "CARLOS POLANCO DOMINGUEZ",
 };
 
 function resolveLoanEmployee(loan) {
@@ -5011,7 +5015,7 @@ function importLoansSeedFromExcel(opts) {
     toast("No hay data de préstamos para importar.");
     return { imported: 0 };
   }
-  const ver = Number(meta.version) || 145;
+  const ver = Number(meta.version) || 146;
   const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
   if (!force && prev >= ver) return { imported: 0, skipped: true };
 
@@ -11768,7 +11772,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=145").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=146").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

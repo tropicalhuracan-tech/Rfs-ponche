@@ -1,6 +1,6 @@
 /** Préstamos reales importados desde AMORTIZACIONES_ACTUAL (Excel). Generado automáticamente. */
 window.RFS_LOANS_SEED_META = {
-  version: 145,
+  version: 146,
   source: "AMORTIZACIONES_ACTUAL_400e.xlsx",
   importedAt: "2026-10-17",
   payrollPayDays: [5, 20],
@@ -6153,14 +6153,14 @@ window.RFS_LOANS_SEED = [
     "id": "loan-xlsx-carlos-polanco-lot-tamboril-10000-10",
     "type": "amortized",
     "employeeId": "",
-    "employeeName": "Carlos Polanco LOT Tamboril",
+    "employeeName": "CARLOS POLANCO DOMÍNGUEZ",
     "principal": 10000.0,
     "collectAmount": 0,
     "rate": 0.1,
     "rateUnlocked": true,
     "periods": 10,
     "startDate": "2026-08-20",
-    "note": "Forma de entrega: efectivo VINO A OFICINA · Importado desde AMORTIZACIONES_ACTUAL (Excel).",
+    "note": "Nombre corregido (antes Carlos Polanco LOT Tamboril / mal vinculado a Juan Carlos Polanco García). · Forma de entrega: efectivo VINO A OFICINA · Importado desde AMORTIZACIONES_ACTUAL (Excel).",
     "schedule": [
       {
         "n": 1,
