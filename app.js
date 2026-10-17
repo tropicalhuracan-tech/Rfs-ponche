@@ -4594,10 +4594,119 @@ function persistLoanTrashLocal() {
   localStorage.setItem(LOAN_TRASH_KEY, JSON.stringify(loanTrashIds));
 }
 
+function isExcelSeedLoanId(id) {
+  return String(id || "").startsWith("loan-xlsx-");
+}
+
+function getExcelSeedLoanIdSet() {
+  const seed = Array.isArray(window.RFS_LOANS_SEED) ? window.RFS_LOANS_SEED : [];
+  return new Set(seed.map((l) => l && l.id).filter(Boolean));
+}
+
+/** La nube llegó a guardar IDs del Excel en papelera; nunca deben borrarse. */
+function purgeExcelSeedIdsFromTrash(ids) {
+  return normalizeLoanTrash(ids).filter((id) => !isExcelSeedLoanId(id));
+}
+
+function loanDedupeKey(l) {
+  if (!l) return "";
+  const name = String(l.employeeName || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${name}|${Number(l.principal) || 0}|${String(l.startDate || "").slice(0, 10)}|${Number(l.periods) || 0}`;
+}
+
+function buildNormalizedSeedLoans() {
+  const seed = Array.isArray(window.RFS_LOANS_SEED) ? window.RFS_LOANS_SEED : [];
+  return seed.map((raw) => {
+    const linked = typeof resolveLoanEmployee === "function" ? resolveLoanEmployee(raw) : {};
+    return normalizeLoan({
+      ...raw,
+      employeeId: (linked && linked.employeeId) || raw.employeeId || "",
+      employeeName: (linked && linked.employeeName) || raw.employeeName,
+      note: raw.note || "",
+      rateUnlocked: true,
+      // paid flags del Excel (verde) ya vienen en schedule
+      schedule: raw.schedule,
+    });
+  });
+}
+
+/** Quita duplicados: mismo id, o mismo nombre+capital+fecha si uno es del Excel. */
+function dedupeLoansPreferSeed(list) {
+  const byId = new Map();
+  (list || []).forEach((l) => {
+    if (!l || !l.id) return;
+    const prev = byId.get(l.id);
+    if (!prev || String(l.updatedAt || "") >= String(prev.updatedAt || "")) byId.set(l.id, l);
+  });
+  const keyMap = new Map();
+  [...byId.values()].forEach((l) => {
+    const k = loanDedupeKey(l);
+    if (!k) {
+      keyMap.set(`id:${l.id}`, l);
+      return;
+    }
+    const prev = keyMap.get(k);
+    if (!prev) {
+      keyMap.set(k, l);
+      return;
+    }
+    if (isExcelSeedLoanId(l.id) && !isExcelSeedLoanId(prev.id)) {
+      keyMap.set(k, l);
+      return;
+    }
+    if (isExcelSeedLoanId(prev.id) && !isExcelSeedLoanId(l.id)) return;
+    if (String(l.updatedAt || "") >= String(prev.updatedAt || "")) keyMap.set(k, l);
+  });
+  return [...keyMap.values()].sort((a, b) =>
+    String(a.employeeName || "").localeCompare(String(b.employeeName || ""), "es")
+  );
+}
+
+function isLoansSeedAuthoritative() {
+  const meta = window.RFS_LOANS_SEED_META || {};
+  const ver = Number(meta.version) || 0;
+  const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
+  return ver > 0 && prev >= ver && Array.isArray(window.RFS_LOANS_SEED) && window.RFS_LOANS_SEED.length > 0;
+}
+
+/**
+ * Tras sync/merge: quitar seed de papelera, reponer préstamos del Excel si faltan,
+ * y eliminar duplicados de prueba.
+ */
+function protectExcelSeedLoans() {
+  loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
+  if (!isLoansSeedAuthoritative()) {
+    loans = dedupeLoansPreferSeed(loans);
+    return false;
+  }
+  const seedLoans = buildNormalizedSeedLoans();
+  const seedIds = new Set(seedLoans.map((l) => l.id));
+  const seedKeys = new Set(seedLoans.map(loanDedupeKey));
+  // Conservar préstamos nuevos manuales (no Excel) que no dupliquen al seed
+  const extras = (loans || []).filter((l) => {
+    if (!l || !l.id) return false;
+    if (seedIds.has(l.id) || isExcelSeedLoanId(l.id)) return false;
+    if (loanTrashIds.includes(l.id)) return false;
+    if (seedKeys.has(loanDedupeKey(l))) return false;
+    return true;
+  });
+  loans = dedupeLoansPreferSeed([...seedLoans, ...extras]);
+  localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+  persistLoanTrashLocal();
+  return true;
+}
+
 function applyRemoteLoans(remoteLoans, remoteTrash) {
-  loanTrashIds = mergeLoanTrash(loanTrashIds, remoteTrash);
+  // Nunca aceptar IDs del Excel en la papelera remota (bug v141)
+  loanTrashIds = purgeExcelSeedIdsFromTrash(mergeLoanTrash(loanTrashIds, remoteTrash));
   const remoteNorm = Array.isArray(remoteLoans) ? remoteLoans.map(normalizeLoan) : [];
   loans = mergeLoansById(loans, remoteNorm).filter((l) => !loanTrashIds.includes(l.id));
+  protectExcelSeedLoans();
   localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
   persistLoanTrashLocal();
   return true;
@@ -4773,7 +4882,14 @@ function refreshLoanDerived(loan) {
 }
 
 function saveLoans() {
-  loans = loans.filter((l) => l && l.id && !loanTrashIds.includes(l.id));
+  loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
+  loans = dedupeLoansPreferSeed(
+    (loans || []).filter((l) => l && l.id && !loanTrashIds.includes(l.id))
+  );
+  // Si el Excel es la fuente, no permitir que queden en 0
+  if (isLoansSeedAuthoritative() && !(loans || []).some((l) => isExcelSeedLoanId(l.id))) {
+    protectExcelSeedLoans();
+  }
   localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
   persistLoanTrashLocal();
   queueCloudSave();
@@ -4899,35 +5015,28 @@ function importLoansSeedFromExcel(opts) {
     toast("No hay data de préstamos para importar.");
     return { imported: 0 };
   }
-  const ver = Number(meta.version) || 142;
+  const ver = Number(meta.version) || 143;
   const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
   if (!force && prev >= ver) return { imported: 0, skipped: true };
 
-  const next = seed.map((raw) => {
-    const linked = resolveLoanEmployee(raw);
-    return normalizeLoan({
-      ...raw,
-      employeeId: linked.employeeId || raw.employeeId || "",
-      employeeName: linked.employeeName || raw.employeeName,
-      note: raw.note || "",
-      rateUnlocked: true,
-    });
-  });
+  // Marcar versión ANTES de merge/sync para que protectExcelSeedLoans sea autoritativo
+  localStorage.setItem(LOANS_SEED_FLAG_KEY, String(ver));
+
+  const next = dedupeLoansPreferSeed(buildNormalizedSeedLoans());
   const seedIds = new Set(next.map((l) => l.id).filter(Boolean));
 
-  // Papelera: solo lo que NO viene en el Excel (pruebas / viejos).
-  // Nunca mandar a papelera los IDs del seed: si se reimporta, saveLoans los borraba todos.
+  // Papelera: pruebas y cualquier cosa que no sea el Excel. Limpiar seed de trash (nube contaminada).
   (loans || []).forEach((l) => {
     if (l && l.id && !seedIds.has(l.id)) loanTrashIds.push(l.id);
   });
-  loanTrashIds = normalizeLoanTrash(loanTrashIds).filter((id) => !seedIds.has(id));
+  loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
 
+  // Lista = solo Excel (sin duplicados de prueba)
   loans = next;
-  // Guardar sin filtrar el seed (por si trash quedó sucia de un reimport anterior)
   localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
   persistLoanTrashLocal();
+  protectExcelSeedLoans();
   queueCloudSave();
-  localStorage.setItem(LOANS_SEED_FLAG_KEY, String(ver));
   // Limpiar Préstamos ya cargados en nóminas Monorriel (pruebas) y reaplicar cuotas reales
   let payrollUpdated = 0;
   try {
@@ -5352,6 +5461,9 @@ function renderLoansList() {
 }
 
 function renderLoans() {
+  try {
+    protectExcelSeedLoans();
+  } catch (_) {}
   loans = loans.map(refreshLoanDerived);
   renderLoansStats();
   renderLoansPayrollBox();
@@ -11520,6 +11632,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // se aplica tras sync de nube más abajo / al abrir Préstamos
 
     .filter((l) => l && l.id && !loanTrashIds.includes(l.id));
+  loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
+  protectExcelSeedLoans();
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
@@ -11589,7 +11703,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=142").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=143").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
