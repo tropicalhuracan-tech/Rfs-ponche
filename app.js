@@ -2004,6 +2004,16 @@ async function mergeRemoteBundleBeforeSave() {
       employees = mergeEmployeeListsForCloud(employees, remote.employees);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     }
+    // No pisar reportes Monorriel de otra PC (Ashley / supervisión)
+    if (Array.isArray(remote.monorrielReports) || (monorrielReports && monorrielReports.length)) {
+      monorrielReports = mergeMonorrielReportsForCloud(
+        monorrielReports,
+        remote.monorrielReports || []
+      );
+      restoreMonorrielReportsFromSafetyNet();
+      localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+      persistMonorrielReportsSafetyNet(monorrielReports);
+    }
     if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
     if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
@@ -2211,24 +2221,10 @@ async function syncFromCloud() {
       const remoteLoans = Array.isArray(remote.loans) ? remote.loans.map(normalizeLoan) : [];
       loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
     }
-    // Monorriel reportes: fusionar por id (updatedAt gana); no pisar lista local vacía
-    const remoteMono = Array.isArray(remote.monorrielReports)
-      ? remote.monorrielReports.map(normalizeMonoReport)
-      : [];
-    {
-      const map = new Map();
-      [...localMono.map(normalizeMonoReport), ...remoteMono].forEach((r) => {
-        if (!r || !r.id) return;
-        const prev = map.get(r.id);
-        if (!prev || String(r.updatedAt || "") >= String(prev.updatedAt || "")) map.set(r.id, r);
-      });
-      const merged = [...map.values()];
-      monorrielReports = merged.length ? merged : localMono.map(normalizeMonoReport);
-      monorrielReports.sort(
-        (a, b) =>
-          String(b.date).localeCompare(String(a.date)) || String(a.shift).localeCompare(String(b.shift))
-      );
-    }
+    // Monorriel reportes: fusionar (id + fecha/turno) y recuperar red de seguridad local
+    monorrielReports = mergeMonorrielReportsForCloud(localMono, remote.monorrielReports || []);
+    restoreMonorrielReportsFromSafetyNet();
+    persistMonorrielReportsSafetyNet(monorrielReports);
     const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
     if (remoteUsers.length) {
       appUsers = remoteUsers;
@@ -6370,8 +6366,69 @@ function normalizeMonoReport(raw = {}) {
   };
 }
 
+const MONORRIEL_REPORTS_SAFETY_KEY = "rfs-ops-monorriel-reports-safety";
+
+/** Fusiona reportes Monorriel por id (updatedAt gana) y por fecha+turno. */
+function mergeMonorrielReportsForCloud(localList, remoteList) {
+  const byId = new Map();
+  const put = (raw) => {
+    if (!raw) return;
+    const next = normalizeMonoReport(raw);
+    if (!next.id) return;
+    const prev = byId.get(next.id);
+    if (!prev || String(next.updatedAt || "") >= String(prev.updatedAt || "")) {
+      byId.set(next.id, next);
+    }
+  };
+  (remoteList || []).forEach(put);
+  (localList || []).forEach(put);
+
+  // Misma fecha+turno: quedarse con el más reciente (evita perder el de Ashley si hubo otro id)
+  const byDayShift = new Map();
+  [...byId.values()].forEach((r) => {
+    const k = `${String(r.date || "").slice(0, 10)}|${r.shift === "pm" ? "pm" : "am"}`;
+    const prev = byDayShift.get(k);
+    if (!prev) {
+      byDayShift.set(k, r);
+      return;
+    }
+    const ta = Date.parse(prev.updatedAt || "") || 0;
+    const tb = Date.parse(r.updatedAt || "") || 0;
+    const ca = Date.parse(prev.createdAt || "") || 0;
+    const cb = Date.parse(r.createdAt || "") || 0;
+    if (tb > ta || (tb === ta && cb >= ca)) byDayShift.set(k, r);
+  });
+
+  return [...byDayShift.values()].sort(
+    (a, b) =>
+      String(b.date).localeCompare(String(a.date)) || String(a.shift).localeCompare(String(b.shift))
+  );
+}
+
+function persistMonorrielReportsSafetyNet(list) {
+  try {
+    const prev = loadJson(MONORRIEL_REPORTS_SAFETY_KEY, []);
+    const merged = mergeMonorrielReportsForCloud(prev, list || monorrielReports || []);
+    localStorage.setItem(MONORRIEL_REPORTS_SAFETY_KEY, JSON.stringify(merged.slice(0, 240)));
+  } catch (_) {}
+}
+
+function restoreMonorrielReportsFromSafetyNet() {
+  try {
+    const safety = loadJson(MONORRIEL_REPORTS_SAFETY_KEY, []);
+    if (!safety.length) return 0;
+    const before = (monorrielReports || []).length;
+    monorrielReports = mergeMonorrielReportsForCloud(monorrielReports, safety);
+    persistMonorrielReportsSafetyNet(monorrielReports);
+    return Math.max(0, monorrielReports.length - before);
+  } catch (_) {
+    return 0;
+  }
+}
+
 function saveMonorrielReports() {
   localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+  persistMonorrielReportsSafetyNet(monorrielReports);
   queueCloudSave();
 }
 
@@ -6762,11 +6819,22 @@ function saveMonoReport() {
   saveMonorrielReports();
   clearMonoReportDraftSession();
   lastMonoReportEditAt = 0;
+  // Subir ya a la nube para que otra PC no pise este reporte
+  try {
+    flushCloudSave();
+  } catch (_) {}
   toast("Reporte Monorriel guardado.");
   openMonoReportDetail(normalized.id);
 }
 
 function renderMonorrielHome() {
+  try {
+    const added = restoreMonorrielReportsFromSafetyNet();
+    if (added > 0) {
+      localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+      queueCloudSave();
+    }
+  } catch (_) {}
   const summary = document.getElementById("monorrielSummary");
   if (summary) {
     const staff = getMonorrielEmployees().length;
@@ -11213,13 +11281,8 @@ function restoreBackupMerge() {
         applyRemoteLoans(data.loans, data.loanTrash || []);
       }
       if (Array.isArray(data.monorrielReports)) {
-        const byId = new Map(monorrielReports.map((r) => [r.id, r]));
-        data.monorrielReports.map(normalizeMonoReport).forEach((incoming) => {
-          if (!byId.has(incoming.id)) {
-            monorrielReports.push(incoming);
-            byId.set(incoming.id, incoming);
-          }
-        });
+        monorrielReports = mergeMonorrielReportsForCloud(monorrielReports, data.monorrielReports);
+        persistMonorrielReportsSafetyNet(monorrielReports);
       }
       if (Array.isArray(data.users)) {
         const byUser = new Map(appUsers.map((u) => [u.username, u]));
@@ -11635,6 +11698,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
   protectExcelSeedLoans();
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
+  persistMonorrielReportsSafetyNet(monorrielReports);
+  restoreMonorrielReportsFromSafetyNet();
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
   activityLog = pruneActivity(loadJson(ACTIVITY_KEY, []));
@@ -11703,7 +11768,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=143").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=144").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
