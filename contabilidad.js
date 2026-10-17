@@ -683,6 +683,10 @@ function saveContabilidadData(push = true) {
 }
 
 function applyRemoteContabilidadData(remote) {
+  // Conservar tecleo local de nómina antes de fusionar con la nube
+  try {
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
+  } catch (_) {}
   const remoteNorm = normalizeContabilidadData(remote || {});
   const local = normalizeContabilidadData(contabilidadData);
 
@@ -2989,14 +2993,56 @@ function emailOpenPayrollPdf() {
 
 let payrollLiveTimer = null;
 let payrollSaveTimer = null;
+let payrollCloudPushTimer = null;
+let lastPayrollEditAt = 0;
+
+/** True si hay teclado/foco en la tabla de nómina (otra PC no debe pisar la UI). */
+function isPayrollBeingEdited() {
+  const active = document.querySelector(".view.active");
+  if (!active || active.id !== "contabilidadView") return false;
+  if (typeof contabTab !== "undefined" && contabTab !== "nomina") return false;
+  const root = document.getElementById("contabPayrollDetail");
+  if (root && document.activeElement && root.contains(document.activeElement)) return true;
+  return Date.now() - lastPayrollEditAt < 25000;
+}
+
+function markPayrollEdited() {
+  lastPayrollEditAt = Date.now();
+  if (typeof lastLocalEditAt !== "undefined") lastLocalEditAt = Date.now();
+}
+
+/** Copia DOM → memoria local (sin subir a la nube). */
+function flushOpenPayrollDraft(push = false) {
+  try {
+    const p = typeof ensureOpenPayrollDraft === "function" ? ensureOpenPayrollDraft() : null;
+    if (!p) return false;
+    const lines = typeof readPayrollLinesFromDom === "function" ? readPayrollLinesFromDom(p.id) : null;
+    if (!lines) return false;
+    p.lines = lines;
+    p.updatedAt = new Date().toISOString();
+    saveContabilidadData(!!push);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 function schedulePayrollAutosave() {
+  markPayrollEdited();
   clearTimeout(payrollSaveTimer);
+  // Local inmediato: no perder tecleo si hay sync
   payrollSaveTimer = setTimeout(() => {
     try {
-      saveContabilidadData(true);
+      flushOpenPayrollDraft(false);
     } catch (_) {}
-  }, 900);
+  }, 500);
+  // Nube más lento: evita que cada tecla dispare sync en la otra PC
+  clearTimeout(payrollCloudPushTimer);
+  payrollCloudPushTimer = setTimeout(() => {
+    try {
+      flushOpenPayrollDraft(true);
+    } catch (_) {}
+  }, 12000);
 }
 
 function updatePayrollReadonlyDom(p) {

@@ -1700,34 +1700,100 @@ function flushCloudSave() {
   pushToCloud().catch(() => {});
 }
 
+
+/** Formulario de reporte de incidente/novedad a medio escribir. */
+function isIncidentReportBeingEdited() {
+  const active = document.querySelector(".view.active");
+  if (!active || active.id !== "reportsView") return false;
+  const form = document.getElementById("reportForm") || document.getElementById("reportsView");
+  if (form && document.activeElement && form.contains(document.activeElement)) {
+    const tag = (document.activeElement.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  }
+  return false;
+}
+
 function refreshUiAfterCloudSync() {
   try {
-    renderShifts();
-    fillReportPostSelect();
-    renderReports();
-    renderFinance();
-    renderEmployees();
-    renderLoans();
-    renderMonorrielHome();
-    if (typeof renderLvaModule === "function") renderLvaModule();
-    if (typeof renderCajaModule === "function") renderCajaModule();
-    if (typeof renderHrModule === "function") renderHrModule();
-    if (typeof renderDepuracionModule === "function") renderDepuracionModule();
-    if (typeof renderContabilidadModule === "function") renderContabilidadModule();
-    if (typeof renderQuotesModule === "function") renderQuotesModule();
+    const active = document.querySelector(".view.active");
+    const activeId = active ? active.id : "";
+
+    // Preservar borrador Monorriel: no reconstruir el editor ni cambiar de pantalla
+    if (typeof isMonoReportBeingEdited === "function" && isMonoReportBeingEdited()) {
+      flushOpenMonoReportDraft();
+      applyMonoReportMetaToDom(monoDraftMeta);
+      // Actualizar opciones de lista sin recrear filas (conserva lo escrito)
+      try {
+        refreshMonoStaffSelectOptions();
+        updateMonoCoverageHint();
+      } catch (_) {}
+      applyAccessControl();
+      if (typeof updateMessagesTabBadge === "function") updateMessagesTabBadge();
+      return;
+    }
+
+    // Nómina abierta: no re-renderizar la tabla (pisa teclas a medias)
+    if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) {
+      applyAccessControl();
+      if (typeof updateMessagesTabBadge === "function") updateMessagesTabBadge();
+      return;
+    }
+
+    // RRHH / Depuración: ya evitan refill; igual no tocar otras vistas pesadas en exceso
+    if (
+      (typeof isHrFormBeingEdited === "function" && isHrFormBeingEdited()) ||
+      (typeof isDepFormBeingEdited === "function" && isDepFormBeingEdited())
+    ) {
+      if (typeof renderHrModule === "function" && activeId === "hrView") renderHrModule();
+      if (typeof renderDepuracionModule === "function" && activeId === "depuracionView") {
+        renderDepuracionModule();
+      }
+      applyAccessControl();
+      if (typeof updateMessagesTabBadge === "function") updateMessagesTabBadge();
+      return;
+    }
+
+    // Re-render selectivo: solo la vista activa + listados livianos de inicio
+    if (activeId === "shiftsView" || activeId === "homeView") renderShifts();
+    if (activeId === "reportsView") {
+      fillReportPostSelect();
+      renderReports();
+    }
+    if (activeId === "financeView") renderFinance();
+    if (activeId === "employeesView" || activeId === "employeeDetailView" || activeId === "employeeNewView") {
+      renderEmployees();
+    }
+    if (activeId === "loansView" || activeId === "loanDetailView" || activeId === "loanNewView") renderLoans();
+    if (activeId === "monorrielView" || activeId === "monoReportDetailView" || activeId === "monoStaffView") {
+      renderMonorrielHome();
+      if (activeId === "monoStaffView") renderMonoStaffList();
+    }
+    if (activeId === "monoReportEditView") {
+      // Vista de edición abierta pero sin foco reciente: conservar filas, solo refrescar listas
+      flushOpenMonoReportDraft();
+      applyMonoReportMetaToDom(monoDraftMeta);
+      try {
+        refreshMonoStaffSelectOptions();
+        updateMonoCoverageHint();
+      } catch (_) {}
+    }
+    // Nunca llamar renderMonoPostsEditor aquí: borraría lo que se escribe
+    if (activeId === "lvaView" && typeof renderLvaModule === "function") renderLvaModule();
+    if (activeId === "cajaView" && typeof renderCajaModule === "function") renderCajaModule();
+    if (activeId === "hrView" && typeof renderHrModule === "function") renderHrModule();
+    if (activeId === "depuracionView" && typeof renderDepuracionModule === "function") {
+      renderDepuracionModule();
+    }
+    if (activeId === "contabilidadView" && typeof renderContabilidadModule === "function") {
+      renderContabilidadModule();
+    }
+    if (activeId === "quotesView" && typeof renderQuotesModule === "function") renderQuotesModule();
     if (typeof renderMessagesModule === "function") {
-      const active = document.querySelector(".view.active");
-      if (active && active.id === "messagesView") renderMessagesModule();
+      if (activeId === "messagesView") renderMessagesModule();
       else updateMessagesTabBadge();
     }
-    if (typeof renderRadioModule === "function") {
-      const active = document.querySelector(".view.active");
-      if (active && active.id === "radioView") renderRadioModule();
-    }
-    if (typeof renderMarkers === "function") {
-      const active = document.querySelector(".view.active");
-      if (active && active.id === "mapView") renderMarkers();
-    }
+    if (typeof renderRadioModule === "function" && activeId === "radioView") renderRadioModule();
+    if (typeof renderMarkers === "function" && activeId === "mapView") renderMarkers();
     applyAccessControl();
   } catch (err) {
     console.error(err);
@@ -1741,18 +1807,31 @@ function refreshUiAfterCloudSync() {
 async function livePullFromCloud(reason, opts) {
   const options = opts && typeof opts === "object" ? opts : {};
   const force = !!options.force;
+  // Solo el botón Actualizar puede forzar sync encima de alguien escribiendo
+  const bypassEditing = force && reason === "manual";
   if (!window.RFSCloudApi || !navigator.onLine) return { pulled: false };
   if (cloudSaving || livePullInFlight) return { pulled: false, busy: true };
   const now = Date.now();
   if (!force && now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) {
     return { pulled: false, skipped: "local-edit" };
   }
-  // No bajar nube mientras se escribe en RRHH / Depuración (evita borrar el formulario)
-  if (!force && typeof isHrFormBeingEdited === "function" && isHrFormBeingEdited()) {
-    return { pulled: false, skipped: "hr-editing" };
-  }
-  if (!force && typeof isDepFormBeingEdited === "function" && isDepFormBeingEdited()) {
-    return { pulled: false, skipped: "dep-editing" };
+  // No bajar nube mientras alguien escribe (evita borrar formularios / mandar al inicio)
+  if (!bypassEditing) {
+    if (typeof isHrFormBeingEdited === "function" && isHrFormBeingEdited()) {
+      return { pulled: false, skipped: "hr-editing" };
+    }
+    if (typeof isDepFormBeingEdited === "function" && isDepFormBeingEdited()) {
+      return { pulled: false, skipped: "dep-editing" };
+    }
+    if (typeof isMonoReportBeingEdited === "function" && isMonoReportBeingEdited()) {
+      return { pulled: false, skipped: "mono-editing" };
+    }
+    if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) {
+      return { pulled: false, skipped: "payroll-editing" };
+    }
+    if (typeof isIncidentReportBeingEdited === "function" && isIncidentReportBeingEdited()) {
+      return { pulled: false, skipped: "report-editing" };
+    }
   }
   if (!force && now - lastLivePullAt < LIVE_PULL_MIN_GAP_MS) {
     return { pulled: false, skipped: "throttle" };
@@ -1781,6 +1860,8 @@ async function livePullFromCloud(reason, opts) {
     }
 
     const before = lastKnownCloudUpdatedAt;
+    if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     const cloud = await syncFromCloud();
     lastLivePullAt = Date.now();
     if (cloud && cloud.usedCloud) {
@@ -1923,6 +2004,8 @@ async function mergeRemoteBundleBeforeSave() {
       employees = mergeEmployeeListsForCloud(employees, remote.employees);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     }
+    if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
     if (typeof flushOpenDepDraft === "function") flushOpenDepDraft(false);
     if (remote.hr && typeof remote.hr === "object" && typeof applyRemoteHrData === "function") {
@@ -2112,7 +2195,15 @@ async function syncFromCloud() {
 
     posts = remote.posts.map(normalizePost);
     reports = Array.isArray(remote.reports) ? remote.reports : [];
-    employees = Array.isArray(remote.employees) ? remote.employees.map(normalizeEmployee) : [];
+    // Fusionar empleados: no borrar altas locales (p.ej. nombres nuevos en reporte Monorriel)
+    if (Array.isArray(remote.employees) && remote.employees.length) {
+      employees = mergeEmployeeListsForCloud(
+        localEmployees.map(normalizeEmployee),
+        remote.employees.map(normalizeEmployee)
+      );
+    } else {
+      employees = localEmployees.map(normalizeEmployee);
+    }
     // Préstamos: fusionar por id + papelera de borrados (evita que reaparezcan)
     if (typeof applyRemoteLoans === "function") {
       applyRemoteLoans(remote.loans, remote.loanTrash);
@@ -2120,8 +2211,24 @@ async function syncFromCloud() {
       const remoteLoans = Array.isArray(remote.loans) ? remote.loans.map(normalizeLoan) : [];
       loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
     }
-    const remoteMono = Array.isArray(remote.monorrielReports) ? remote.monorrielReports.map(normalizeMonoReport) : [];
-    monorrielReports = remoteMono.length ? remoteMono : localMono.map(normalizeMonoReport);
+    // Monorriel reportes: fusionar por id (updatedAt gana); no pisar lista local vacía
+    const remoteMono = Array.isArray(remote.monorrielReports)
+      ? remote.monorrielReports.map(normalizeMonoReport)
+      : [];
+    {
+      const map = new Map();
+      [...localMono.map(normalizeMonoReport), ...remoteMono].forEach((r) => {
+        if (!r || !r.id) return;
+        const prev = map.get(r.id);
+        if (!prev || String(r.updatedAt || "") >= String(prev.updatedAt || "")) map.set(r.id, r);
+      });
+      const merged = [...map.values()];
+      monorrielReports = merged.length ? merged : localMono.map(normalizeMonoReport);
+      monorrielReports.sort(
+        (a, b) =>
+          String(b.date).localeCompare(String(a.date)) || String(a.shift).localeCompare(String(b.shift))
+      );
+    }
     const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
     if (remoteUsers.length) {
       appUsers = remoteUsers;
@@ -2149,6 +2256,8 @@ async function syncFromCloud() {
         savePettyCash(true);
       }
     }
+    if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
     if (typeof flushOpenDepDraft === "function") flushOpenDepDraft(false);
     if (remote.hr && typeof remote.hr === "object") {
@@ -5783,6 +5892,9 @@ let monorrielReports = [];
 let selectedMonoReportId = null;
 let editingMonoReportId = null;
 let monoDraftAssignments = {}; // postId -> employeeId or ""
+let lastMonoReportEditAt = 0;
+let monoDraftMeta = { date: "", shift: "am", supervisor: "", novedades: "" };
+const MONO_DRAFT_SESSION_KEY = "rfs-ops-mono-report-draft";
 
 function monoData() {
   return window.RFS_MONORRIEL || { posts: [], staffAm: [], staffPm: [] };
@@ -6000,24 +6112,28 @@ function renderMonoPostsEditor() {
     const slot = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
     sel.value = slot.employeeId || "";
     sel.addEventListener("change", () => {
+      markMonoReportEdited();
       const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
       monoDraftAssignments[postId] = { employeeId: sel.value, customName: sel.value ? "" : current.customName };
       const nameInput = box.querySelector(`input[data-mono-name="${postId}"]`);
       if (sel.value && nameInput) nameInput.value = "";
       refreshMonoStaffSelectOptions();
       updateMonoCoverageHint();
+      flushOpenMonoReportDraft();
     });
   });
 
   box.querySelectorAll("input[data-mono-name]").forEach((inp) => {
     const postId = inp.dataset.monoName;
     const commit = () => {
+      markMonoReportEdited();
       const typed = inp.value.trim();
       if (!typed) {
         const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
         monoDraftAssignments[postId] = { employeeId: current.employeeId || "", customName: "" };
         refreshMonoStaffSelectOptions();
         updateMonoCoverageHint();
+        flushOpenMonoReportDraft();
         return;
       }
       const taken = assignedMonoEmployeeIds(postId);
@@ -6033,7 +6149,17 @@ function renderMonoPostsEditor() {
       renderMonoPostsEditor();
       const sel = document.querySelector(`#monoPostsEditor select[data-mono-post="${postId}"]`);
       if (sel) sel.value = emp.id;
+      flushOpenMonoReportDraft();
     };
+    inp.addEventListener("input", () => {
+      markMonoReportEdited();
+      const typed = String(inp.value || "").trim();
+      const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
+      if (!current.employeeId) {
+        monoDraftAssignments[postId] = { employeeId: "", customName: typed };
+      }
+      flushOpenMonoReportDraft();
+    });
     inp.addEventListener("change", commit);
     inp.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
@@ -6053,16 +6179,131 @@ function updateMonoCoverageHint() {
   hint.textContent = `Cubiertos: ${covered} · Vacantes: ${total - covered} · Plazas: ${total}`;
 }
 
+
+function isMonoReportEditViewActive() {
+  const active = document.querySelector(".view.active");
+  return !!(active && active.id === "monoReportEditView");
+}
+
+/** True si Ashley (u otro) está armando el reporte Monorriel. */
+function isMonoReportBeingEdited() {
+  if (!isMonoReportEditViewActive()) return false;
+  const view = document.getElementById("monoReportEditView");
+  if (view && document.activeElement && view.contains(document.activeElement)) return true;
+  return Date.now() - lastMonoReportEditAt < 45000;
+}
+
+function markMonoReportEdited() {
+  lastMonoReportEditAt = Date.now();
+  if (typeof lastLocalEditAt !== "undefined") lastLocalEditAt = Date.now();
+}
+
+function readMonoReportMetaFromDom() {
+  const dateEl = document.getElementById("monoReportDate");
+  const shiftEl = document.getElementById("monoReportShift");
+  const supEl = document.getElementById("monoReportSupervisor");
+  const novEl = document.getElementById("monoReportNovedades");
+  return {
+    date: dateEl ? dateEl.value || "" : monoDraftMeta.date || "",
+    shift: shiftEl && shiftEl.value === "pm" ? "pm" : "am",
+    supervisor: supEl ? String(supEl.value || "").trim() : monoDraftMeta.supervisor || "",
+    novedades: novEl ? String(novEl.value || "") : monoDraftMeta.novedades || "",
+  };
+}
+
+function applyMonoReportMetaToDom(meta) {
+  if (!meta) return;
+  const dateEl = document.getElementById("monoReportDate");
+  const shiftEl = document.getElementById("monoReportShift");
+  const supEl = document.getElementById("monoReportSupervisor");
+  const novEl = document.getElementById("monoReportNovedades");
+  if (dateEl && meta.date && document.activeElement !== dateEl) dateEl.value = meta.date;
+  if (shiftEl && meta.shift && document.activeElement !== shiftEl) shiftEl.value = meta.shift === "pm" ? "pm" : "am";
+  if (supEl && document.activeElement !== supEl) supEl.value = meta.supervisor || "";
+  if (novEl && document.activeElement !== novEl) novEl.value = meta.novedades || "";
+}
+
+/** Copia inputs del editor (incl. nombres a medio escribir) a memoria + sessionStorage. */
+function flushOpenMonoReportDraft() {
+  if (!isMonoReportEditViewActive() && !(Date.now() - lastMonoReportEditAt < 45000)) return false;
+  try {
+    monoDraftMeta = readMonoReportMetaFromDom();
+    const box = document.getElementById("monoPostsEditor");
+    if (box) {
+      box.querySelectorAll("select[data-mono-post]").forEach((sel) => {
+        const postId = sel.dataset.monoPost;
+        const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
+        const nameInput = box.querySelector(`input[data-mono-name="${postId}"]`);
+        const typed = nameInput ? String(nameInput.value || "").trim() : "";
+        monoDraftAssignments[postId] = {
+          employeeId: sel.value || "",
+          customName: sel.value ? "" : typed || current.customName || "",
+        };
+      });
+      // Nombres escritos aún sin blur/Enter
+      box.querySelectorAll("input[data-mono-name]").forEach((inp) => {
+        const postId = inp.dataset.monoName;
+        const typed = String(inp.value || "").trim();
+        if (!typed) return;
+        const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
+        if (!current.employeeId) {
+          monoDraftAssignments[postId] = { employeeId: "", customName: typed };
+        }
+      });
+    }
+    try {
+      sessionStorage.setItem(
+        MONO_DRAFT_SESSION_KEY,
+        JSON.stringify({
+          editingId: editingMonoReportId || null,
+          meta: monoDraftMeta,
+          assignments: monoDraftAssignments,
+          savedAt: new Date().toISOString(),
+        })
+      );
+    } catch (_) {}
+    return true;
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+}
+
+function restoreMonoReportDraftFromSession() {
+  try {
+    const raw = sessionStorage.getItem(MONO_DRAFT_SESSION_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.assignments) return false;
+    editingMonoReportId = parsed.editingId || null;
+    monoDraftMeta = parsed.meta || monoDraftMeta;
+    monoDraftAssignments = parsed.assignments || emptyMonoDraft();
+    lastMonoReportEditAt = Date.now();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function clearMonoReportDraftSession() {
+  try {
+    sessionStorage.removeItem(MONO_DRAFT_SESSION_KEY);
+  } catch (_) {}
+}
+
 function openMonoReportNew() {
   editingMonoReportId = null;
   monoDraftAssignments = emptyMonoDraft();
+  monoDraftMeta = { date: todayIso(), shift: "am", supervisor: "", novedades: "" };
   document.getElementById("monoReportEditTitle").textContent = "Nuevo reporte Monorriel";
-  document.getElementById("monoReportDate").value = todayIso();
+  document.getElementById("monoReportDate").value = monoDraftMeta.date;
   document.getElementById("monoReportShift").value = "am";
   document.getElementById("monoReportSupervisor").value = "";
   document.getElementById("monoReportNovedades").value = "";
+  markMonoReportEdited();
   renderMonoPostsEditor();
   switchView("monoReportEditView");
+  flushOpenMonoReportDraft();
 }
 
 function openMonoReportEdit(id) {
@@ -6073,13 +6314,21 @@ function openMonoReportEdit(id) {
   }
   editingMonoReportId = id;
   monoDraftAssignments = draftFromReport(report);
+  monoDraftMeta = {
+    date: report.date || todayIso(),
+    shift: report.shift === "pm" ? "pm" : "am",
+    supervisor: report.supervisor || "",
+    novedades: report.novedades || "",
+  };
   document.getElementById("monoReportEditTitle").textContent = "Editar reporte Monorriel";
-  document.getElementById("monoReportDate").value = report.date || todayIso();
-  document.getElementById("monoReportShift").value = report.shift || "am";
-  document.getElementById("monoReportSupervisor").value = report.supervisor || "";
-  document.getElementById("monoReportNovedades").value = report.novedades || "";
+  document.getElementById("monoReportDate").value = monoDraftMeta.date;
+  document.getElementById("monoReportShift").value = monoDraftMeta.shift;
+  document.getElementById("monoReportSupervisor").value = monoDraftMeta.supervisor;
+  document.getElementById("monoReportNovedades").value = monoDraftMeta.novedades;
+  markMonoReportEdited();
   renderMonoPostsEditor();
   switchView("monoReportEditView");
+  flushOpenMonoReportDraft();
 }
 
 function copyLastMonoReport() {
@@ -6161,6 +6410,8 @@ function saveMonoReport() {
 
   monorrielReports.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.shift).localeCompare(String(b.shift)));
   saveMonorrielReports();
+  clearMonoReportDraftSession();
+  lastMonoReportEditAt = 0;
   toast("Reporte Monorriel guardado.");
   openMonoReportDetail(normalized.id);
 }
@@ -6410,6 +6661,18 @@ function renderMonoStaffList() {
 
 function bindMonorrielUi() {
   if (!document.getElementById("btnOpenMonoReportNew")) return;
+  ["monoReportDate", "monoReportShift", "monoReportSupervisor", "monoReportNovedades"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.monoDraftBound === "1") return;
+    el.dataset.monoDraftBound = "1";
+    const bump = () => {
+      markMonoReportEdited();
+      monoDraftMeta = readMonoReportMetaFromDom();
+      flushOpenMonoReportDraft();
+    };
+    el.addEventListener("input", bump);
+    el.addEventListener("change", bump);
+  });
   document.getElementById("btnOpenMonoReportNew").addEventListener("click", openMonoReportNew);
   document.getElementById("btnMonoStaffInfo").addEventListener("click", () => {
     renderMonoStaffList();
@@ -11080,7 +11343,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=138").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=139").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
