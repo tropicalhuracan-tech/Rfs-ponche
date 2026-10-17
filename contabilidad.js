@@ -1801,18 +1801,58 @@ function autoLoanDeductionForPayrollLine(person, fullName, payDate) {
   return loanPayrollDeductionForName(name, payDate, id);
 }
 
-function applyMonorrielLoanDeductionsToLines(lines, payDate) {
-  if (!payDate || typeof loanPayrollDeductionForName !== "function") return lines || [];
+function applyMonorrielLoanDeductionsToLines(lines, payDate, opts = {}) {
+  const force = !!(opts && opts.forceClear);
+  if (!payDate || typeof loanPayrollDeductionForName !== "function") {
+    if (!force) return lines || [];
+    // Sin fecha/función: al forzar, limpiar montos viejos de prueba
+    return (lines || []).map((l) => ({ ...l, prestamos: 0 }));
+  }
   return (lines || []).map((l) => {
     const name = String(l.fullName || "").trim();
-    if (!name) return l;
-    const amt = loanPayrollDeductionForName(name, payDate, l.employeeId);
-    if (!amt) {
-      // No forzar 0 si el usuario puso un monto manual sin préstamo vinculado
-      return l;
-    }
+    if (!name) return force ? { ...l, prestamos: 0 } : l;
+    const amt = loanPayrollDeductionForName(name, payDate, l.employeeId) || 0;
+    // forceClear=true: borra lo cargado antes y deja solo la cuota real (o 0)
+    if (!force && !amt) return l;
     return { ...l, prestamos: amt };
   });
+}
+
+/**
+ * Tras importar préstamos: limpia Préstamos en nóminas Monorriel borrador
+ * y reaplica cuotas reales según fecha de pago (5/20).
+ */
+function refreshMonorrielPayrollLoanDeductions(forceClear = true) {
+  if (typeof contabilidadData === "undefined" || !contabilidadData) return { updated: 0 };
+  const list = Array.isArray(contabilidadData.payrolls) ? contabilidadData.payrolls : [];
+  let updated = 0;
+  list.forEach((p, idx) => {
+    if (!p || p.group !== "monorriel") return;
+    if (p.status === "cancelled") return;
+    // Solo borradores / no pagadas: no tocar historial ya pagado
+    if (p.status === "paid") return;
+    const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+    const opts = typeof payrollComputeOpts === "function" ? payrollComputeOpts(p) : {};
+    const nextLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
+      forceClear: !!forceClear,
+    }).map((l) => computePayrollLineTotals(l, opts));
+    list[idx] = {
+      ...p,
+      lines: nextLines,
+      updatedAt: new Date().toISOString(),
+    };
+    updated += 1;
+  });
+  if (updated) {
+    try {
+      saveContabilidadData(true);
+    } catch (_) {}
+    try {
+      if (typeof renderNominaTab === "function") renderNominaTab();
+      else if (typeof renderContabilidadModule === "function") renderContabilidadModule();
+    } catch (_) {}
+  }
+  return { updated };
 }
 
 function buildLvaPayrollLineFromStaff(staff, prev) {
@@ -1953,7 +1993,7 @@ function generatePayrollForSelection(opts = {}) {
       return line;
     });
     if (group === "monorriel") {
-      lines = applyMonorrielLoanDeductionsToLines(lines, payDate).map((l) =>
+      lines = applyMonorrielLoanDeductionsToLines(lines, payDate, { forceClear: true }).map((l) =>
         computePayrollLineTotals(l, formulaOpts)
       );
     }
@@ -2217,7 +2257,7 @@ function recalculateOpenPayroll(save = false) {
   const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
   let workLines = lines;
   if (p.group === "monorriel") {
-    workLines = applyMonorrielLoanDeductionsToLines(lines, payDate);
+    workLines = applyMonorrielLoanDeductionsToLines(lines, payDate, { forceClear: true });
   }
   p.lines = workLines.map((l) => {
     const daysInfo = parsePayrollDays(l.daysWorked);

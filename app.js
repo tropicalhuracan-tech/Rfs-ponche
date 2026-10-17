@@ -4899,7 +4899,7 @@ function importLoansSeedFromExcel(opts) {
     toast("No hay data de préstamos para importar.");
     return { imported: 0 };
   }
-  const ver = Number(meta.version) || 140;
+  const ver = Number(meta.version) || 141;
   const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
   if (!force && prev >= ver) return { imported: 0, skipped: true };
 
@@ -4922,15 +4922,25 @@ function importLoansSeedFromExcel(opts) {
   loans = next;
   saveLoans();
   localStorage.setItem(LOANS_SEED_FLAG_KEY, String(ver));
+  // Limpiar Préstamos ya cargados en nóminas Monorriel (pruebas) y reaplicar cuotas reales
+  let payrollUpdated = 0;
+  try {
+    if (typeof refreshMonorrielPayrollLoanDeductions === "function") {
+      payrollUpdated = (refreshMonorrielPayrollLoanDeductions(true) || {}).updated || 0;
+    }
+  } catch (err) {
+    console.error(err);
+  }
   try {
     renderLoans();
   } catch (_) {}
   const linkedN = next.filter((l) => l.employeeId).length;
   const notesN = next.filter((l) => /distinta al 10%/i.test(l.note || "")).length;
   toast(
-    `Préstamos importados: ${next.length} · vinculados a empleados: ${linkedN} · con nota (tasa ≠ 10%): ${notesN}`
+    `Préstamos importados: ${next.length} · vinculados: ${linkedN} · nota ≠10%: ${notesN}` +
+      (payrollUpdated ? ` · nóminas Monorriel actualizadas: ${payrollUpdated}` : "")
   );
-  return { imported: next.length, linked: linkedN, notes: notesN };
+  return { imported: next.length, linked: linkedN, notes: notesN, payrollUpdated };
 }
 
 function ensureLoansSeedImported() {
@@ -11559,7 +11569,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=140").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=141").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
