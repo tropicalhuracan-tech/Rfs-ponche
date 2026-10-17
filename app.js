@@ -4899,15 +4899,9 @@ function importLoansSeedFromExcel(opts) {
     toast("No hay data de préstamos para importar.");
     return { imported: 0 };
   }
-  const ver = Number(meta.version) || 141;
+  const ver = Number(meta.version) || 142;
   const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
   if (!force && prev >= ver) return { imported: 0, skipped: true };
-
-  // Enviar préstamos de prueba / anteriores a papelera
-  (loans || []).forEach((l) => {
-    if (l && l.id) loanTrashIds.push(l.id);
-  });
-  loanTrashIds = normalizeLoanTrash(loanTrashIds);
 
   const next = seed.map((raw) => {
     const linked = resolveLoanEmployee(raw);
@@ -4919,8 +4913,20 @@ function importLoansSeedFromExcel(opts) {
       rateUnlocked: true,
     });
   });
+  const seedIds = new Set(next.map((l) => l.id).filter(Boolean));
+
+  // Papelera: solo lo que NO viene en el Excel (pruebas / viejos).
+  // Nunca mandar a papelera los IDs del seed: si se reimporta, saveLoans los borraba todos.
+  (loans || []).forEach((l) => {
+    if (l && l.id && !seedIds.has(l.id)) loanTrashIds.push(l.id);
+  });
+  loanTrashIds = normalizeLoanTrash(loanTrashIds).filter((id) => !seedIds.has(id));
+
   loans = next;
-  saveLoans();
+  // Guardar sin filtrar el seed (por si trash quedó sucia de un reimport anterior)
+  localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+  persistLoanTrashLocal();
+  queueCloudSave();
   localStorage.setItem(LOANS_SEED_FLAG_KEY, String(ver));
   // Limpiar Préstamos ya cargados en nóminas Monorriel (pruebas) y reaplicar cuotas reales
   let payrollUpdated = 0;
@@ -4936,11 +4942,15 @@ function importLoansSeedFromExcel(opts) {
   } catch (_) {}
   const linkedN = next.filter((l) => l.employeeId).length;
   const notesN = next.filter((l) => /distinta al 10%/i.test(l.note || "")).length;
+  const visible = (loans || []).length;
   toast(
-    `Préstamos importados: ${next.length} · vinculados: ${linkedN} · nota ≠10%: ${notesN}` +
+    `Préstamos importados: ${visible} · vinculados: ${linkedN} · nota ≠10%: ${notesN}` +
       (payrollUpdated ? ` · nóminas Monorriel actualizadas: ${payrollUpdated}` : "")
   );
-  return { imported: next.length, linked: linkedN, notes: notesN, payrollUpdated };
+  if (!visible && next.length) {
+    console.error("Import seed produjo 0 visibles; trash:", loanTrashIds.length);
+  }
+  return { imported: visible, linked: linkedN, notes: notesN, payrollUpdated };
 }
 
 function ensureLoansSeedImported() {
@@ -6078,7 +6088,17 @@ function bindLoansUi() {
       if (!ok) return;
       localStorage.removeItem(LOANS_SEED_FLAG_KEY);
       const r = importLoansSeedFromExcel({ force: true });
-      if (r && r.imported) pushToCloud().catch(() => {});
+      if (r && r.imported) {
+        // Forzar subida con la lista real (no vacía)
+        pushToCloud()
+          .then(() => {
+            toast(`Listos en nube: ${(loans || []).length} préstamo(s) visibles.`);
+            try {
+              renderLoans();
+            } catch (_) {}
+          })
+          .catch(() => {});
+      }
     });
   }
   if (!btnNew) return;
@@ -11569,7 +11589,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=141").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=142").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
