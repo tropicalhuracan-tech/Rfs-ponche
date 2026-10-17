@@ -1,6 +1,6 @@
 /** Préstamos reales importados desde AMORTIZACIONES_ACTUAL (Excel). Generado automáticamente. */
 window.RFS_LOANS_SEED_META = {
-  version: 143,
+  version: 145,
   source: "AMORTIZACIONES_ACTUAL_400e.xlsx",
   importedAt: "2026-10-17",
   payrollPayDays: [5, 20],
@@ -4956,14 +4956,14 @@ window.RFS_LOANS_SEED = [
     "id": "loan-xlsx-rafel-rodriguez-71000-26",
     "type": "amortized",
     "employeeId": "",
-    "employeeName": "Rafel Rodriguez",
+    "employeeName": "Rafael Rodriguez",
     "principal": 71000.0,
     "collectAmount": 0,
     "rate": 0.05,
     "rateUnlocked": true,
-    "periods": 26,
+    "periods": 24,
     "startDate": "2026-07-10",
-    "note": "Amortización distinta al 10% quincenal (tasa Excel 5% por período). Se respetó el cuadro del libro. · Forma de entrega: efectivo · Importado desde AMORTIZACIONES_ACTUAL (Excel).",
+    "note": "Amortización distinta al 10% quincenal (tasa Excel 5% por período). Se respetó el cuadro del libro. · Forma de entrega: efectivo · Cuotas 25 y 26 del Excel eran totales/errores y se eliminaron (quedan 24). · Importado desde AMORTIZACIONES_ACTUAL (Excel).",
     "schedule": [
       {
         "n": 1,
@@ -5228,34 +5228,12 @@ window.RFS_LOANS_SEED = [
         "paid": false,
         "paidAt": "",
         "paidAmount": 0
-      },
-      {
-        "n": 25,
-        "dueDate": "",
-        "principal": 71233.33,
-        "interest": 52490.39,
-        "payment": 123490.36,
-        "balance": 978808.18,
-        "paid": false,
-        "paidAt": "",
-        "paidAmount": 0
-      },
-      {
-        "n": 26,
-        "dueDate": "",
-        "principal": -43794.98,
-        "interest": 48940.41,
-        "payment": 5145.43,
-        "balance": 1022603.16,
-        "paid": false,
-        "paidAt": "",
-        "paidAmount": 0
       }
     ],
     "nonstandardRate": true,
     "matchHint": "",
     "createdAt": "2026-10-17T16:10:00.000Z",
-    "updatedAt": "2026-10-17T16:10:00.000Z"
+    "updatedAt": "2026-10-17T17:40:00.000Z"
   },
   {
     "id": "loan-xlsx-felipe-yimel-15000-10",
