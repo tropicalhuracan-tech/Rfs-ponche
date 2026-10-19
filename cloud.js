@@ -267,6 +267,7 @@
       lotedomEmployees: [],
       payrolls: [],
       payrollBackups: [],
+      payrollBackupDeletedIds: [],
       settings: { defaultBook: "EDWARD" },
     };
   }
@@ -558,9 +559,17 @@
     const payrolls = [...map.values()].sort((a, b) =>
       String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
     );
+    const deletedIds = [];
+    const deletedSeen = new Set();
+    [...(local.payrollBackupDeletedIds || []), ...(remote.payrollBackupDeletedIds || [])].forEach((id) => {
+      const s = String(id || "").trim();
+      if (!s || deletedSeen.has(s)) return;
+      deletedSeen.add(s);
+      deletedIds.push(s);
+    });
     const backupMap = new Map();
     function considerBackup(row) {
-      if (!row || !row.id) return;
+      if (!row || !row.id || deletedSeen.has(row.id)) return;
       const prev = backupMap.get(row.id);
       if (!prev) {
         backupMap.set(row.id, row);
@@ -582,6 +591,7 @@
       ...local,
       payrolls,
       payrollBackups: [...backupMap.values()],
+      payrollBackupDeletedIds: deletedIds.slice(0, 300),
     };
   }
 

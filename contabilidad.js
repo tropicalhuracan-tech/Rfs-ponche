@@ -18,12 +18,27 @@ function emptyContabilidadData() {
     payrolls: [],
     /** Historial de seguridad: copias de nóminas al guardar / pagar / antes de borrar. */
     payrollBackups: [],
+    /** Ids borrados a mano (evita que el sync los vuelva a traer desde la nube). */
+    payrollBackupDeletedIds: [],
     settings: { defaultBook: "EDWARD" },
   };
 }
 
 const PAYROLL_BACKUP_MAX = 80;
 const PAYROLL_BACKUP_MAX_PER_ID = 10;
+const PAYROLL_BACKUP_DELETED_MAX = 300;
+
+function normalizePayrollBackupDeletedIds(list) {
+  const out = [];
+  const seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((id) => {
+    const s = String(id || "").trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  });
+  return out.slice(0, PAYROLL_BACKUP_DELETED_MAX);
+}
 
 /** Cuántos empleados con nombre tiene una nómina (0 = vacía). */
 function payrollNamedLineCount(p) {
@@ -569,10 +584,11 @@ function normalizePayrollBackup(b = {}) {
   };
 }
 
-function prunePayrollBackups(list) {
+function prunePayrollBackups(list, deletedIds) {
+  const banned = new Set(normalizePayrollBackupDeletedIds(deletedIds));
   const rows = (Array.isArray(list) ? list : [])
     .map(normalizePayrollBackup)
-    .filter((b) => b.snapshot && b.payrollId);
+    .filter((b) => b.snapshot && b.payrollId && !banned.has(b.id));
   // Por nómina: priorizar con empleados, luego paid / before_delete, luego recientes
   const byPay = new Map();
   rows.forEach((b) => {
@@ -655,14 +671,66 @@ function snapshotPayrollBackup(payroll, reason = "save") {
     return head;
   }
   contabilidadData.payrollBackups.unshift(entry);
-  contabilidadData.payrollBackups = prunePayrollBackups(contabilidadData.payrollBackups);
+  contabilidadData.payrollBackups = prunePayrollBackups(
+    contabilidadData.payrollBackups,
+    contabilidadData.payrollBackupDeletedIds
+  );
   return entry;
 }
 
 function listPayrollBackups(payrollId) {
-  const all = prunePayrollBackups(contabilidadData.payrollBackups || []);
+  const all = prunePayrollBackups(
+    contabilidadData.payrollBackups || [],
+    contabilidadData.payrollBackupDeletedIds
+  );
   if (!payrollId) return all;
   return all.filter((b) => b.payrollId === payrollId);
+}
+
+/** Elimina un respaldo de nómina (local + nube). No toca la nómina activa. */
+function deletePayrollBackup(backupId) {
+  const id = String(backupId || "").trim();
+  if (!id) return;
+  const b = (contabilidadData.payrollBackups || [])
+    .map(normalizePayrollBackup)
+    .find((x) => x.id === id);
+  if (!b) {
+    toast("Respaldo no encontrado.");
+    return;
+  }
+  const label = b.label || id;
+  if (
+    !confirm(
+      `¿Eliminar este respaldo?\n\n${label}\n${payrollBackupReasonLabel(b.reason)} · ${new Date(
+        b.createdAt
+      ).toLocaleString("es")}\n\nNo se puede deshacer. La nómina abierta no se borra.`
+    )
+  ) {
+    return;
+  }
+  contabilidadData.payrollBackups = (contabilidadData.payrollBackups || []).filter(
+    (x) => String(x && x.id) !== id
+  );
+  const deleted = normalizePayrollBackupDeletedIds([
+    id,
+    ...(contabilidadData.payrollBackupDeletedIds || []),
+  ]);
+  contabilidadData.payrollBackupDeletedIds = deleted;
+  contabilidadData.payrollBackups = prunePayrollBackups(
+    contabilidadData.payrollBackups,
+    deleted
+  );
+  saveContabilidadData(true);
+  if (typeof logActivity === "function") {
+    logActivity(
+      "payroll_backup_delete",
+      `Respaldo eliminado: ${label} · por ${
+        currentUser ? currentUser.displayName || currentUser.username : "—"
+      }`
+    );
+  }
+  renderPayrollBackupsPanel(selectedPayrollId);
+  toast("Respaldo eliminado.");
 }
 
 function restorePayrollFromBackup(backupId) {
@@ -777,7 +845,11 @@ function normalizeContabilidadData(raw = {}) {
       ? raw.lotedomEmployees.map(normalizeOfficeEmployee)
       : [],
     payrolls: Array.isArray(raw.payrolls) ? raw.payrolls.map(normalizePayroll) : [],
-    payrollBackups: prunePayrollBackups(Array.isArray(raw.payrollBackups) ? raw.payrollBackups : []),
+    payrollBackupDeletedIds: normalizePayrollBackupDeletedIds(raw.payrollBackupDeletedIds),
+    payrollBackups: prunePayrollBackups(
+      Array.isArray(raw.payrollBackups) ? raw.payrollBackups : [],
+      raw.payrollBackupDeletedIds
+    ),
     settings: {
       defaultBook: String((raw.settings && raw.settings.defaultBook) || "EDWARD").trim() || "EDWARD",
     },
@@ -831,10 +903,11 @@ function applyRemoteContabilidadData(remote) {
     return [...map.values()].sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
   }
 
-  function mergeBackupsPreferFilled(a, b) {
+  function mergeBackupsPreferFilled(a, b, deletedIds) {
+    const banned = new Set(normalizePayrollBackupDeletedIds(deletedIds));
     const map = new Map();
     function consider(row) {
-      if (!row || !row.id) return;
+      if (!row || !row.id || banned.has(row.id)) return;
       const prev = map.get(row.id);
       if (!prev) {
         map.set(row.id, row);
@@ -855,14 +928,21 @@ function applyRemoteContabilidadData(remote) {
     return [...map.values()];
   }
 
+  const deletedIds = normalizePayrollBackupDeletedIds([
+    ...(local.payrollBackupDeletedIds || []),
+    ...(remoteNorm.payrollBackupDeletedIds || []),
+  ]);
+
   contabilidadData = {
     expenses: mergeById(local.expenses, remoteNorm.expenses),
     itbisCollected: mergeById(local.itbisCollected, remoteNorm.itbisCollected),
     officeEmployees: mergeById(local.officeEmployees, remoteNorm.officeEmployees),
     lotedomEmployees: mergeById(local.lotedomEmployees || [], remoteNorm.lotedomEmployees || []),
     payrolls: mergePayrollsPreferFilled(local.payrolls, remoteNorm.payrolls),
+    payrollBackupDeletedIds: deletedIds,
     payrollBackups: prunePayrollBackups(
-      mergeBackupsPreferFilled(local.payrollBackups || [], remoteNorm.payrollBackups || [])
+      mergeBackupsPreferFilled(local.payrollBackups || [], remoteNorm.payrollBackups || [], deletedIds),
+      deletedIds
     ),
     settings: {
       defaultBook: remoteNorm.settings.defaultBook || local.settings.defaultBook || "EDWARD",
@@ -4309,7 +4389,7 @@ function renderPayrollBackupsPanel(payrollId) {
     return;
   }
   box.innerHTML = `<h2>Respaldos de nómina</h2>
-    <p class="muted tight">Copias de seguridad en la nube (${allCount} en total). Puedes restaurar si algo se borró o se editó mal.</p>
+    <p class="muted tight">Copias de seguridad en la nube (${allCount} en total). Restaura si algo se editó mal, o elimina los que ya no necesites.</p>
     <div class="card-list" style="margin-top:8px">${related
       .map((b) => {
         const when = b.createdAt ? new Date(b.createdAt).toLocaleString("es") : "—";
@@ -4320,14 +4400,22 @@ function renderPayrollBackupsPanel(payrollId) {
           }</p>
           <p><strong>${escapeHtml(moneyRd(b.totals && b.totals.redondeo))}</strong>
             <span class="muted"> · ${(b.totals && b.totals.lines) || 0} empleado(s)</span></p>
-          <button type="button" class="btn secondary btn-pay-restore" data-id="${escapeHtml(
-            b.id
-          )}" style="width:auto;margin-top:8px;padding:8px 10px;font-size:12px">Restaurar este respaldo</button>
+          <div class="row-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+            <button type="button" class="btn secondary btn-pay-restore" data-id="${escapeHtml(
+              b.id
+            )}" style="width:auto;padding:8px 12px;font-size:12px">Restaurar</button>
+            <button type="button" class="btn danger btn-pay-delete-backup" data-id="${escapeHtml(
+              b.id
+            )}" style="width:auto;padding:8px 12px;font-size:12px">Eliminar</button>
+          </div>
         </article>`;
       })
       .join("")}</div>`;
   box.querySelectorAll(".btn-pay-restore").forEach((btn) => {
     btn.addEventListener("click", () => restorePayrollFromBackup(btn.dataset.id));
+  });
+  box.querySelectorAll(".btn-pay-delete-backup").forEach((btn) => {
+    btn.addEventListener("click", () => deletePayrollBackup(btn.dataset.id));
   });
 }
 
