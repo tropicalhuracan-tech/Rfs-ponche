@@ -2956,16 +2956,23 @@ function payrollPrintCss(paperSize, options = {}) {
     table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:${
       office ? "4px 5px" : "2px 4px"
     };vertical-align:middle}
-    table.nomina-print th{background:${colored ? "#b71c1c" : "#e8e8e8"};color:${
-      colored ? "#fff" : "#000"
-    };font-weight:900;font-size:${office ? "11px" : "11px"};line-height:1.15;white-space:nowrap;letter-spacing:0.01em}
-    table.nomina-print td{white-space:nowrap;padding:${office ? "4px 5px" : "2px 4px"}}
+    table.nomina-print th{background:${colored ? "#b71c1c" : "#e8e8e8"} !important;color:${
+      colored ? "#fff" : "#111"
+    } !important;font-weight:900;font-size:${office ? "11px" : "11px"};line-height:1.15;white-space:nowrap;letter-spacing:0.01em}
+    /* color explícito: el tema oscuro de la app hereda texto claro y el PDF sale con números blancos */
+    table.nomina-print td{white-space:nowrap;padding:${
+      office ? "4px 5px" : "2px 4px"
+    };color:#111 !important;background:#fff}
     table.nomina-print th.col-name,table.nomina-print td.col-name{text-align:left;font-weight:700;padding:${
       office ? "4px 6px" : "2px 5px"
     };max-width:11em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap !important;word-break:normal}
-    table.nomina-print th.col-num,table.nomina-print td.col-num{text-align:right}
-    table.nomina-print th.col-days,table.nomina-print td.col-days{text-align:center}
-    table.nomina-print tfoot td{background:${colored ? "#ffe082" : "#efefef"};font-weight:900}
+    table.nomina-print th.col-num{text-align:right}
+    table.nomina-print td.col-num{text-align:right;color:#111 !important}
+    table.nomina-print th.col-days{text-align:center}
+    table.nomina-print td.col-days{text-align:center;color:#111 !important}
+    table.nomina-print tfoot td{background:${
+      colored ? "#ffe082" : "#efefef"
+    } !important;font-weight:900;color:#111 !important}
     table.nomina-print tfoot td.col-redondeo-total{font-size:${office ? "12px" : "11.5px"}}
     table.nomina-print-office{width:100% !important}
     table.nomina-print-office tbody tr:nth-child(even) td,
@@ -3060,8 +3067,8 @@ async function buildPayrollPdfBlob(p) {
   const fmt = paper === "letter" ? "letter" : "legal";
   const isOffice = payrollIsOffice(p);
   const isLavega = payrollUsesLvaParams(p);
-  // Ancho del lienzo ≈ hoja horizontal (Carta ~1056px @96dpi; Legal más ancha)
-  const canvasW = fmt === "legal" ? 1340 : isOffice ? 1020 : 1100;
+  // Lienzo ancho: Monorriel tiene muchas columnas; si queda corto html2canvas las corta
+  let canvasW = fmt === "legal" ? 1600 : isOffice ? 1100 : 1400;
   const caption = payrollShareCaption(p);
   const logoUrl = (() => {
     try {
@@ -3072,26 +3079,46 @@ async function buildPayrollPdfBlob(p) {
   })();
   const host = document.createElement("div");
   host.setAttribute("data-rfs-payroll-pdf", "1");
-  // Visible para html2canvas (opacity:0 a veces deja captura vacía / minúscula)
-  host.style.cssText = `position:fixed;left:0;top:0;width:${canvasW}px;background:#fff;color:#111;padding:${
-    isOffice ? "14px 16px" : "12px 14px"
+  // Visible para html2canvas. color/#111 forzado: body de la app es tema oscuro (texto claro).
+  host.style.cssText = `position:fixed;left:0;top:0;width:${canvasW}px;max-width:none;background:#ffffff;color:#111111;padding:${
+    isOffice ? "14px 16px" : "10px 12px"
   };box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:${
-    isOffice ? "13px" : "12px"
-  };line-height:1.25;z-index:2147483000;pointer-events:none;`;
+    isOffice ? "12px" : "11px"
+  };line-height:1.2;z-index:2147483000;pointer-events:none;isolation:isolate;`;
   host.innerHTML = `
     <style>${payrollPrintCss(paper, { office: isOffice, lavega: isLavega })}
-      [data-rfs-payroll-pdf] #rfsPdfInner{width:100%;box-sizing:border-box}
-      [data-rfs-payroll-pdf] table.nomina-print{width:100% !important;max-width:100%}
-      [data-rfs-payroll-pdf] .brand{justify-content:center;margin:0 auto 10px}
+      [data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important}
+      [data-rfs-payroll-pdf] #rfsPdfInner{width:max-content;min-width:100%;max-width:none;box-sizing:border-box;background:#fff !important;color:#111 !important}
+      [data-rfs-payroll-pdf] h2,
+      [data-rfs-payroll-pdf] .meta,
+      [data-rfs-payroll-pdf] .meta *,
+      [data-rfs-payroll-pdf] .footer,
+      [data-rfs-payroll-pdf] .sign-line,
+      [data-rfs-payroll-pdf] .brand,
+      [data-rfs-payroll-pdf] .brand *{color:#111 !important}
+      [data-rfs-payroll-pdf] table.nomina-print{width:auto !important;max-width:none !important;margin:0 auto;color:#111 !important}
+      [data-rfs-payroll-pdf] table.nomina-print td,
+      [data-rfs-payroll-pdf] table.nomina-print td *,
+      [data-rfs-payroll-pdf] table.nomina-print tfoot td,
+      [data-rfs-payroll-pdf] table.nomina-print tfoot td *{color:#111 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      [data-rfs-payroll-pdf] table.nomina-print td{background:#fff !important}
+      [data-rfs-payroll-pdf] table.nomina-print th{color:#fff !important;background:#b71c1c !important}
+      [data-rfs-payroll-pdf] table.nomina-print:not(.nomina-print-office):not(.nomina-print-lavega) th{color:#111 !important;background:#e8e8e8 !important}
+      [data-rfs-payroll-pdf] table.nomina-print tfoot td{color:#111 !important;background:#ffe082 !important}
+      [data-rfs-payroll-pdf] table.nomina-print-lavega td.col-name,
+      [data-rfs-payroll-pdf] table.nomina-print-office td.col-name,
+      [data-rfs-payroll-pdf] table.nomina-print-lavega td.col-name *,
+      [data-rfs-payroll-pdf] table.nomina-print-office td.col-name *{color:#0d47a1 !important}
+      [data-rfs-payroll-pdf] .brand{justify-content:center;margin:0 auto 8px;background:transparent !important;border:0 !important;min-width:0}
     </style>
     <div id="rfsPdfInner">
-      <div class="brand" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;justify-content:center">
+      <div class="brand" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;justify-content:center;color:#111">
         <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" style="width:${
           isOffice ? "48" : "40"
         }px;height:${isOffice ? "48" : "40"}px;object-fit:contain" />
-        <div style="text-align:left">
-          <div style="font-size:${isOffice ? "18" : "15"}px;font-weight:800;margin:0">Reaction Force Security</div>
-          <div style="font-size:${isOffice ? "13" : "12"}px">${escapeHtml(caption)}</div>
+        <div style="text-align:left;color:#111">
+          <div style="font-size:${isOffice ? "18" : "15"}px;font-weight:800;margin:0;color:#111">Reaction Force Security</div>
+          <div style="font-size:${isOffice ? "13" : "12"}px;color:#111">${escapeHtml(caption)}</div>
         </div>
       </div>
       ${buildPayrollPrintHtml(p)}
@@ -3102,12 +3129,22 @@ async function buildPayrollPdfBlob(p) {
     if (typeof waitForImages === "function") await waitForImages(host);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const target = host.querySelector("#rfsPdfInner") || host;
+    const table = host.querySelector("table.nomina-print");
+    const measured = Math.max(
+      canvasW,
+      Math.ceil((target && target.scrollWidth) || 0) + 48,
+      Math.ceil((table && table.scrollWidth) || 0) + 64
+    );
+    // Tope razonable para no explotar memoria en móvil
+    canvasW = Math.min(Math.max(measured, canvasW), 2200);
+    host.style.width = `${canvasW}px`;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const opt = {
-      margin: isOffice ? [8, 8, 8, 8] : [6, 6, 6, 6],
+      margin: isOffice ? [7, 7, 7, 7] : [5, 5, 5, 5],
       filename: payrollPdfFileName(p),
       image: { type: "jpeg", quality: 0.95 },
       html2canvas: {
-        scale: isOffice ? 2 : 1.5,
+        scale: isOffice ? 2 : measured > 1500 ? 1.35 : 1.5,
         useCORS: true,
         allowTaint: true,
         logging: false,
@@ -3116,6 +3153,36 @@ async function buildPayrollPdfBlob(p) {
         width: canvasW,
         scrollX: 0,
         scrollY: 0,
+        onclone: (doc) => {
+          try {
+            const root = doc.querySelector("[data-rfs-payroll-pdf]");
+            if (!root) return;
+            root.style.setProperty("background", "#ffffff", "important");
+            root.style.setProperty("color", "#111111", "important");
+            root.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
+              td.style.setProperty("color", "#111111", "important");
+              td.querySelectorAll("*").forEach((el) => {
+                el.style.setProperty("color", "#111111", "important");
+              });
+            });
+            root
+              .querySelectorAll(
+                "table.nomina-print-office td.col-name, table.nomina-print-lavega td.col-name, table.nomina-print-office td.col-name *, table.nomina-print-lavega td.col-name *"
+              )
+              .forEach((el) => {
+                el.style.setProperty("color", "#0d47a1", "important");
+              });
+            root.querySelectorAll("table.nomina-print th").forEach((th) => {
+              const parent = th.closest("table");
+              const colored =
+                parent &&
+                (parent.classList.contains("nomina-print-lavega") ||
+                  parent.classList.contains("nomina-print-office"));
+              th.style.setProperty("color", colored ? "#ffffff" : "#111111", "important");
+              th.style.setProperty("background", colored ? "#b71c1c" : "#e8e8e8", "important");
+            });
+          } catch (_) {}
+        },
       },
       // Formato con nombre + landscape (NO [w,h]+portrait: jsPDF invierte a vertical)
       jsPDF: {
