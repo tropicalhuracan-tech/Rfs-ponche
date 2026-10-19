@@ -3310,209 +3310,18 @@ function resolveJsPdfConstructor() {
  * Importante: capturar el HOST (incluye <style>) y forzar tamaño del logo en línea
  * (logo.jpg es 1500×1500; sin CSS en el clone salía gigante solo el logo).
  */
-async function buildPayrollPdfBlob(p) {
-  if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
-  const html2pdf = await ensureHtml2Pdf();
-  const page = payrollPdfPageSpec(p);
-  const isOffice = payrollIsOffice(p);
-  const isLavega = payrollUsesLvaParams(p);
-  const caption = payrollShareCaption(p);
-  const logoPx = isOffice ? 48 : 42;
-  const logoUrl = (() => {
-    try {
-      return new URL("logo.jpg", window.location.href).href;
-    } catch (_) {
-      return "logo.jpg";
-    }
-  })();
-  const printCss = payrollPrintCss(page.format, { office: isOffice, lavega: isLavega });
-  const host = document.createElement("div");
-  host.setAttribute("data-rfs-payroll-pdf", "1");
-  host.className = "print-nomina";
-  // Fuera de pantalla pero visible para html2canvas (opacity:0 rompe la captura)
-  host.style.cssText =
-    "position:fixed;left:-14000px;top:0;width:" +
-    page.cssPx +
-    "px;max-width:" +
-    page.cssPx +
-    "px;background:#fff;color:#111;padding:8px 10px;box-sizing:border-box;pointer-events:none;z-index:-1;-webkit-print-color-adjust:exact;print-color-adjust:exact;";
-  host.innerHTML = `<style>
-${printCss}
-[data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important;width:${page.cssPx}px !important}
-[data-rfs-payroll-pdf] .brand{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;margin:0 auto 8px}
-[data-rfs-payroll-pdf] .brand img{
-  width:${logoPx}px !important;height:${logoPx}px !important;
-  max-width:${logoPx}px !important;max-height:${logoPx}px !important;
-  object-fit:contain !important;border:0 !important;display:block !important
-}
-[data-rfs-payroll-pdf] .brand > div{text-align:center}
-[data-rfs-payroll-pdf] .brand h1{font-size:${isOffice ? 18 : 16}px;font-weight:900;margin:0;color:#111 !important}
-[data-rfs-payroll-pdf] .brand .cap{font-size:12px;color:#111 !important}
-[data-rfs-payroll-pdf] h2.nomina-print-title{color:#fff !important;background:#b71c1c !important;padding:6px 10px;margin:0 0 6px;text-align:center;font-weight:900;font-size:12px}
-[data-rfs-payroll-pdf] #rfsPrintRoot{width:100% !important;background:#fff;color:#111}
-[data-rfs-payroll-pdf] table.nomina-print{width:100% !important;max-width:100% !important}
-[data-rfs-payroll-pdf] table.nomina-print td,
-[data-rfs-payroll-pdf] table.nomina-print tfoot td{color:#111 !important}
-[data-rfs-payroll-pdf] table.nomina-print-lavega td.col-name,
-[data-rfs-payroll-pdf] table.nomina-print-office td.col-name{color:#0d47a1 !important}
-</style>
-<div id="rfsPrintRoot">
-  <div class="brand">
-    <img src="${escapeHtml(logoUrl)}" alt="RFS" width="${logoPx}" height="${logoPx}" crossorigin="anonymous"
-      style="width:${logoPx}px;height:${logoPx}px;max-width:${logoPx}px;max-height:${logoPx}px;object-fit:contain;display:block;border:0"/>
-    <div>
-      <h1>Reaction Force Security</h1>
-      <div class="cap">${escapeHtml(caption)}</div>
-    </div>
-  </div>
-  ${buildPayrollPrintHtml(p)}
-</div>`;
-  document.body.appendChild(host);
-  try {
-    if (typeof waitForImages === "function") await waitForImages(host);
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    // Capturar HOST (incluye <style>). Capturar solo #rfsPrintRoot dejaba el logo a 1500px.
-    const target = host;
-    const canvasOpt = {
-      scale: 1.5,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      backgroundColor: "#ffffff",
-      windowWidth: page.cssPx,
-      width: page.cssPx,
-      scrollX: 0,
-      scrollY: 0,
-      onclone: (clonedDoc) => {
-        try {
-          const node = clonedDoc.querySelector("[data-rfs-payroll-pdf]");
-          if (node) {
-            node.style.setProperty("left", "0", "important");
-            node.style.setProperty("opacity", "1", "important");
-            node.style.setProperty("background", "#ffffff", "important");
-            node.style.setProperty("color", "#111111", "important");
-            node.style.setProperty("width", page.cssPx + "px", "important");
-          }
-          clonedDoc.querySelectorAll("[data-rfs-payroll-pdf] .brand img, .brand img").forEach((img) => {
-            img.setAttribute("width", String(logoPx));
-            img.setAttribute("height", String(logoPx));
-            img.style.setProperty("width", logoPx + "px", "important");
-            img.style.setProperty("height", logoPx + "px", "important");
-            img.style.setProperty("max-width", logoPx + "px", "important");
-            img.style.setProperty("max-height", logoPx + "px", "important");
-            img.style.setProperty("object-fit", "contain", "important");
-          });
-          clonedDoc.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
-            td.style.setProperty("color", "#111111", "important");
-          });
-          clonedDoc
-            .querySelectorAll(
-              "table.nomina-print-lavega td.col-name, table.nomina-print-office td.col-name"
-            )
-            .forEach((td) => td.style.setProperty("color", "#0d47a1", "important"));
-          clonedDoc.querySelectorAll("h2, h2.nomina-print-title").forEach((h) => {
-            h.style.setProperty("color", "#ffffff", "important");
-            h.style.setProperty("background", "#b71c1c", "important");
-          });
-        } catch (_) {}
-      },
-    };
-
-    const canvas = await html2pdf()
-      .set({ html2canvas: canvasOpt })
-      .from(target)
-      .toCanvas()
-      .get("canvas");
-    if (!canvas || !canvas.width) throw new Error("Captura PDF vacía");
-    // Si solo salió el logo (casi cuadrado ~1500px), fallar claro en vez de un PDF inútil
-    const table = host.querySelector("table.nomina-print");
-    const tableW = table ? table.scrollWidth || table.offsetWidth : 0;
-    if (tableW > 200 && canvas.width < 400 && canvas.height > canvas.width * 0.8) {
-      throw new Error("Captura incompleta (solo logo)");
-    }
-
-    const JsPDF = resolveJsPdfConstructor();
-    const pageFormat = [page.widthMm, page.heightMm];
-    let pdf = null;
-    if (JsPDF) {
-      pdf = new JsPDF({ unit: "mm", format: pageFormat, orientation: "portrait" });
-      if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
-        pdf = new JsPDF({ unit: "mm", format: page.format, orientation: "landscape" });
-      }
-    }
-    if (!pdf) {
-      const blob = await html2pdf()
-        .set({
-          margin: [page.marginMm, page.marginMm, page.marginMm, page.marginMm],
-          filename: payrollPdfFileName(p),
-          image: { type: "jpeg", quality: 0.95 },
-          html2canvas: canvasOpt,
-          jsPDF: { unit: "mm", format: page.format, orientation: "landscape" },
-          pagebreak: { mode: ["css", "legacy"] },
-        })
-        .from(target)
-        .outputPdf("blob");
-      if (!blob || !blob.size) throw new Error("PDF vacío");
-      return blob;
-    }
-
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const margin = page.marginMm;
-    const maxW = Math.max(10, pageW - margin * 2);
-    const maxH = Math.max(10, pageH - margin * 2);
-    const drawW = maxW;
-    const pxPerMm = canvas.width / drawW;
-    const sliceHpx = Math.max(1, Math.floor(maxH * pxPerMm));
-    let srcY = 0;
-    let pageIndex = 0;
-    while (srcY < canvas.height - 0.5) {
-      if (pageIndex > 0) {
-        if (pageFormat[0] > pageFormat[1]) pdf.addPage(pageFormat, "portrait");
-        else pdf.addPage(page.format, "landscape");
-      }
-      const hPx = Math.min(sliceHpx, canvas.height - srcY);
-      const slice = document.createElement("canvas");
-      slice.width = canvas.width;
-      slice.height = Math.max(1, Math.ceil(hPx));
-      const ctx = slice.getContext("2d");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, slice.width, slice.height);
-      ctx.drawImage(canvas, 0, srcY, canvas.width, hPx, 0, 0, canvas.width, hPx);
-      const drawH = hPx / pxPerMm;
-      const x = (Math.max(pageW, pdf.internal.pageSize.getWidth()) - drawW) / 2;
-      const y = margin;
-      try {
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), "F");
-      } catch (_) {}
-      pdf.addImage(slice.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
-      srcY += hPx;
-      pageIndex += 1;
-      if (pageIndex > 40) break;
-    }
-
-    const blob = pdf.output("blob");
-    if (!blob || !blob.size) throw new Error("PDF vacío");
-    return blob;
-  } finally {
-    host.remove();
-  }
-}
-
-function printOpenPayrollSheet() {
-  const p = resolveOpenPayrollForExport();
-  if (!p) return;
+/**
+ * PDF nómina = MISMA ventana / HTML / CSS / tamaño que Imprimir.
+ * Ya no hay captura aparte (evita logo gigante o hoja en blanco).
+ */
+function openPayrollPrintWindowForPdf(p, opts = {}) {
+  if (!p) return null;
+  if (typeof openPrintWindow !== "function") return null;
   const caption = payrollShareCaption(p);
   const paper = getPayrollPaperForExport(p);
-  const paperLabel = paper === "letter" ? "Carta" : "Legal";
   const isOffice = payrollIsOffice(p);
   const isLavega = payrollUsesLvaParams(p);
-  if (typeof openPrintWindow !== "function") {
-    downloadOpenPayrollPdf().catch(() => toast("No se pudo abrir la impresión."));
-    return;
-  }
-  const win = openPrintWindow(caption, buildPayrollPrintHtml(p), {
+  return openPrintWindow(caption, buildPayrollPrintHtml(p), {
     bodyClass: "print-nomina",
     pageSize: paper,
     orientation: "landscape",
@@ -3520,6 +3329,8 @@ function printOpenPayrollSheet() {
     pdfOrientation: "landscape",
     wide: true,
     autoPrint: false,
+    autoDownloadPdf: !!opts.autoDownloadPdf,
+    returnPdfToOpener: !!opts.returnPdfToOpener,
     extraCss: payrollPrintCss(paper, { office: isOffice, lavega: isLavega }),
     share: {
       text: caption,
@@ -3527,22 +3338,50 @@ function printOpenPayrollSheet() {
       fileName: payrollPdfFileName(p),
     },
   });
+}
+
+async function buildPayrollPdfBlob(p) {
+  if (!p) throw new Error("Sin nómina");
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (err, blob) => {
+      if (settled) return;
+      settled = true;
+      try {
+        window.__rfsPayrollPdfCallback = null;
+      } catch (_) {}
+      clearTimeout(timer);
+      if (err || !blob || !blob.size) reject(err || new Error("PDF vacío"));
+      else resolve(blob);
+    };
+    const timer = setTimeout(() => finish(new Error("Tiempo agotado al generar PDF")), 90000);
+    window.__rfsPayrollPdfCallback = (err, blob) => finish(err, blob);
+    const win = openPayrollPrintWindowForPdf(p, { returnPdfToOpener: true });
+    if (!win) {
+      finish(new Error("Permite ventanas emergentes para descargar el PDF"));
+    }
+  });
+}
+
+function printOpenPayrollSheet() {
+  const p = resolveOpenPayrollForExport();
+  if (!p) return;
+  const paper = getPayrollPaperForExport(p);
+  const paperLabel = paper === "letter" ? "Carta" : "Legal";
+  const win = openPayrollPrintWindowForPdf(p, {});
   if (!win) {
-    // Pop-up bloqueado (muy común en móvil/PWA): descarga PDF directo
-    toast("Ventana bloqueada · descargando PDF…");
-    downloadOpenPayrollPdf().catch(() => {});
+    toast("Permite ventanas emergentes para imprimir.");
     return;
   }
-  toast(
-    `${paperLabel} horizontal · en el diálogo elige Horizontal / Landscape. Usa Imprimir o Descargar PDF.`
-  );
+  toast(`${paperLabel} horizontal · usa Imprimir o Descargar PDF en la barra.`);
 }
 
 async function downloadOpenPayrollPdf() {
   const p = resolveOpenPayrollForExport();
   if (!p) return;
-  toast("Generando PDF…");
+  toast("Generando PDF (mismo ajuste que Imprimir)…");
   try {
+    // Misma ventana de impresión → mismo HTML/CSS/tamaño; el PDF vuelve al opener
     const blob = await buildPayrollPdfBlob(p);
     const name = payrollPdfFileName(p);
     if (typeof downloadBlobFile === "function") downloadBlobFile(blob, name);
@@ -3559,7 +3398,12 @@ async function downloadOpenPayrollPdf() {
     toast("PDF descargado.");
   } catch (err) {
     console.error(err);
-    toast("No se pudo crear el PDF. Revisa la conexión e inténtalo de nuevo.");
+    const msg = String((err && err.message) || err || "");
+    if (/emergente|popup|bloquead/i.test(msg)) {
+      toast("Permite ventanas emergentes y pulsa Descargar PDF otra vez.");
+    } else {
+      toast("No se pudo crear el PDF. Abre Imprimir y usa Descargar PDF ahí.");
+    }
   }
 }
 

@@ -5615,8 +5615,10 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   const extraCss = options && options.extraCss ? String(options.extraCss) : "";
   const bodyClass = options && options.bodyClass ? String(options.bodyClass) : "";
   const autoPrint = !(options && options.autoPrint === false);
+  const autoDownloadPdf = !!(options && options.autoDownloadPdf);
+  const returnPdfToOpener = !!(options && options.returnPdfToOpener);
   const share = options && options.share && typeof options.share === "object" ? options.share : null;
-  const shareEnabled = !!(share && (share.text || share.subject));
+  const shareEnabled = !!(share && (share.text || share.subject)) || autoDownloadPdf || returnPdfToOpener;
   const pageSize = String((options && options.pageSize) || "").toLowerCase(); // letter|legal
   const orientation = String((options && options.orientation) || "portrait").toLowerCase();
   const wide = !!(options && options.wide);
@@ -5707,7 +5709,8 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   </div>
   <div id="rfsPrintRoot">
   <div class="brand">
-    <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" />
+    <img src="${escapeHtml(logoUrl)}" alt="RFS" width="54" height="54" crossorigin="anonymous"
+      style="width:54px;height:54px;max-width:54px;max-height:54px;object-fit:contain;display:block;border:1px solid #ccc;border-radius:10px" />
     <div>
       <h1>Reaction Force Security</h1>
       <div>${escapeHtml(title)}</div>
@@ -5724,12 +5727,14 @@ function openPrintWindow(title, bodyHtml, options = {}) {
       var appHref = ${JSON.stringify(appHref)};
       var afterPrintKey = ${JSON.stringify(afterPrintKey)};
       var autoPrint = ${JSON.stringify(autoPrint)};
+      var autoDownloadPdf = ${JSON.stringify(autoDownloadPdf)};
+      var returnPdfToOpener = ${JSON.stringify(returnPdfToOpener)};
       var shareCfg = ${JSON.stringify(
         shareEnabled
           ? {
-              text: String(share.text || ""),
-              subject: String(share.subject || title),
-              fileName: String(share.fileName || "reporte.pdf"),
+              text: String((share && share.text) || title || ""),
+              subject: String((share && share.subject) || title),
+              fileName: String((share && share.fileName) || "reporte.pdf"),
             }
           : null
       )};
@@ -5825,8 +5830,8 @@ function openPrintWindow(title, bodyHtml, options = {}) {
           var ori = (pdfCfg && pdfCfg.orientation) || "portrait";
           var landscape = ori === "landscape";
           var widePdf = !!(pdfCfg && pdfCfg.wide);
-          // Nombre letter/legal + orientation landscape (arrays+[portrait] invertían a vertical)
           var jsFormat = fmt === "legal" || fmt === "letter" ? fmt : fmt;
+          // Mismo ancho que la impresión (Legal/Carta horizontal)
           var w = Math.max(root.scrollWidth || 0, root.offsetWidth || 0, widePdf ? (landscape ? 1100 : 900) : 800);
           if (landscape && widePdf) w = Math.max(w, fmt === "legal" ? 1340 : 1020);
           var opt = {
@@ -5834,7 +5839,7 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             filename: (shareCfg && shareCfg.fileName) || "reporte.pdf",
             image: { type: "jpeg", quality: 0.95 },
             html2canvas: {
-              scale: landscape ? 1.6 : 1.5,
+              scale: landscape ? 1.5 : 1.5,
               useCORS: true,
               allowTaint: true,
               logging: false,
@@ -5842,77 +5847,71 @@ function openPrintWindow(title, bodyHtml, options = {}) {
               windowWidth: w,
               width: w,
               scrollX: 0,
-              scrollY: 0
+              scrollY: 0,
+              onclone: function (doc) {
+                try {
+                  var imgs = doc.querySelectorAll(".brand img");
+                  for (var i = 0; i < imgs.length; i++) {
+                    imgs[i].setAttribute("width", "54");
+                    imgs[i].setAttribute("height", "54");
+                    imgs[i].style.width = "54px";
+                    imgs[i].style.height = "54px";
+                    imgs[i].style.maxWidth = "54px";
+                    imgs[i].style.maxHeight = "54px";
+                    imgs[i].style.objectFit = "contain";
+                  }
+                  var tds = doc.querySelectorAll("#rfsPrintRoot td, #rfsPrintRoot th");
+                  for (var j = 0; j < tds.length; j++) {
+                    if (!tds[j].closest("thead")) tds[j].style.color = "#111";
+                  }
+                } catch (eClone) {}
+              }
             },
             jsPDF: {
               unit: "mm",
               format: jsFormat,
               orientation: landscape ? "landscape" : "portrait"
             },
-            pagebreak: { mode: landscape ? ["css", "legacy"] : ["avoid-all", "css", "legacy"] }
+            // Misma paginación que la impresión del navegador
+            pagebreak: { mode: ["css", "legacy"] }
           };
-          // Nóminas / hojas anchas: Legal/Carta horizontal a ancho completo; varias páginas si hace falta
-          if (landscape && widePdf) {
-            return html2pdf().set(opt).from(root).toCanvas().get("canvas").then(function (canvas) {
-              if (!canvas || !canvas.width) throw new Error("Captura vacía");
-              var JsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-              if (!JsPDF) {
-                return html2pdf().set(opt).from(root).outputPdf("blob");
-              }
-              // format [ancho, alto] horizontal + portrait: evita que jsPDF invierta a vertical
-              var pageSize = jsFormat === "legal" ? [355.6, 215.9] : [279.4, 215.9];
-              var pdf = new JsPDF({ unit: "mm", format: pageSize, orientation: "portrait" });
-              if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
-                pdf = new JsPDF({ unit: "mm", format: jsFormat, orientation: "landscape" });
-              }
-              var pw = pdf.internal.pageSize.getWidth();
-              var ph = pdf.internal.pageSize.getHeight();
-              if (pw < ph) {
-                return html2pdf().set(opt).from(root).outputPdf("blob");
-              }
-              var margin = 6;
-              var maxW = pw - margin * 2;
-              var maxH = ph - margin * 2;
-              var drawW = maxW;
-              var pxPerMm = canvas.width / drawW;
-              var sliceHpx = Math.max(1, Math.floor(maxH * pxPerMm));
-              var srcY = 0;
-              var pageIndex = 0;
-              while (srcY < canvas.height - 0.5) {
-                if (pageIndex > 0) {
-                  if (pageSize[0] > pageSize[1]) pdf.addPage(pageSize, "portrait");
-                  else pdf.addPage(jsFormat, "landscape");
-                }
-                var hPx = Math.min(sliceHpx, canvas.height - srcY);
-                var slice = document.createElement("canvas");
-                slice.width = canvas.width;
-                slice.height = Math.max(1, Math.ceil(hPx));
-                var ctx = slice.getContext("2d");
-                ctx.fillStyle = "#ffffff";
-                ctx.fillRect(0, 0, slice.width, slice.height);
-                ctx.drawImage(canvas, 0, srcY, canvas.width, hPx, 0, 0, canvas.width, hPx);
-                var drawH = hPx / pxPerMm;
-                var x = (pw - drawW) / 2;
-                var y = margin;
-                try {
-                  pdf.setFillColor(255, 255, 255);
-                  pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), "F");
-                } catch (e0) {}
-                pdf.addImage(slice.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
-                srcY += hPx;
-                pageIndex += 1;
-                if (pageIndex > 40) break;
-              }
-              return pdf.output("blob");
-            }).catch(function () {
-              return html2pdf().set(opt).from(root).outputPdf("blob");
-            });
-          }
           return html2pdf().set(opt).from(root).outputPdf("blob").catch(function () {
             return html2pdf().set(opt).from(root).toPdf().get("pdf").then(function (pdf) {
               return pdf.output("blob");
             });
           });
+        });
+      }
+
+      function deliverPdfToOpenerOrDownload() {
+        setStatus("Generando PDF…");
+        makePdfBlob().then(function (blob) {
+          if (!blob || !blob.size) throw new Error("PDF vacío");
+          var fileName = (shareCfg && shareCfg.fileName) || "reporte.pdf";
+          if (returnPdfToOpener) {
+            return blob.arrayBuffer().then(function (buf) {
+              try {
+                if (window.opener && !window.opener.closed && typeof window.opener.__rfsPayrollPdfCallback === "function") {
+                  window.opener.__rfsPayrollPdfCallback(
+                    null,
+                    new Blob([buf], { type: "application/pdf" }),
+                    fileName
+                  );
+                }
+              } catch (eRet) {}
+              setTimeout(function () { try { window.close(); } catch (eClose) {} }, 150);
+            });
+          }
+          downloadBlob(blob, fileName);
+          setStatus("PDF descargado.");
+        }).catch(function (err) {
+          console.error(err);
+          setStatus("No se pudo crear el PDF.");
+          try {
+            if (returnPdfToOpener && window.opener && typeof window.opener.__rfsPayrollPdfCallback === "function") {
+              window.opener.__rfsPayrollPdfCallback(err || new Error("PDF falló"), null, "");
+            }
+          } catch (eErr) {}
         });
       }
 
@@ -5973,7 +5972,9 @@ function openPrintWindow(title, bodyHtml, options = {}) {
       if (mailBtn) mailBtn.addEventListener("click", function () { sharePdf("mail"); });
       if (pdfBtn) pdfBtn.addEventListener("click", function () { sharePdf("pdf"); });
       try { window.addEventListener("afterprint", notifyAfterPrint); } catch (e8) {}
-      if (autoPrint) {
+      if (returnPdfToOpener || autoDownloadPdf) {
+        setTimeout(function () { deliverPdfToOpenerOrDownload(); }, 450);
+      } else if (autoPrint) {
         setTimeout(function () {
           try { window.focus(); window.print(); } catch (e7) {}
         }, 350);
@@ -12143,7 +12144,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=157").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=158").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
