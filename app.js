@@ -1764,9 +1764,15 @@ function refreshUiAfterCloudSync() {
       renderEmployees();
     }
     if (activeId === "loansView" || activeId === "loanDetailView" || activeId === "loanNewView") renderLoans();
-    if (activeId === "monorrielView" || activeId === "monoReportDetailView" || activeId === "monoStaffView") {
+    if (
+      activeId === "monorrielView" ||
+      activeId === "monoReportDetailView" ||
+      activeId === "monoStaffView" ||
+      activeId === "monoEmployeeSummaryView"
+    ) {
       renderMonorrielHome();
       if (activeId === "monoStaffView") renderMonoStaffList();
+      if (activeId === "monoEmployeeSummaryView") renderMonoEmployeeSummary();
     }
     if (activeId === "monoReportEditView") {
       // Vista de edición abierta pero sin foco reciente: conservar filas, solo refrescar listas
@@ -3464,6 +3470,7 @@ const VIEW_TO_MODULE = {
   monorrielView: "monorriel",
   monoReportEditView: "monorriel",
   monoReportDetailView: "monorriel",
+  monoEmployeeSummaryView: "monorriel",
   monoStaffView: "monorriel",
   lvaView: "lavega",
   financeView: "finance",
@@ -6382,6 +6389,17 @@ function normalizeMonoAssignment(a = {}) {
   };
 }
 
+/** Fecha local del dispositivo (RD): evita que UTC cambie el día del reporte. */
+function monoLocalToday() {
+  return typeof localDateISO === "function" ? localDateISO() : todayIso();
+}
+
+function monoLocalYesterday() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return typeof localDateISO === "function" ? localDateISO(d) : d.toISOString().slice(0, 10);
+}
+
 function normalizeMonoReport(raw = {}) {
   const posts = monoPosts();
   const byPost = new Map((raw.assignments || []).map((a) => [a.postId, normalizeMonoAssignment(a)]));
@@ -6389,7 +6407,7 @@ function normalizeMonoReport(raw = {}) {
   const covered = assignments.filter((a) => (a.employeeName || "").trim()).length;
   return {
     id: raw.id || `mono-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    date: raw.date || todayIso(),
+    date: String(raw.date || monoLocalToday()).slice(0, 10),
     shift: raw.shift === "pm" ? "pm" : "am",
     supervisor: raw.supervisor || "",
     novedades: raw.novedades || "",
@@ -6663,6 +6681,9 @@ function applyMonoReportMetaToDom(meta) {
   if (shiftEl && meta.shift && document.activeElement !== shiftEl) shiftEl.value = meta.shift === "pm" ? "pm" : "am";
   if (supEl && document.activeElement !== supEl) supEl.value = meta.supervisor || "";
   if (novEl && document.activeElement !== novEl) novEl.value = meta.novedades || "";
+  try {
+    updateMonoReportDateHint();
+  } catch (_) {}
 }
 
 /** Copia inputs del editor (incl. nombres a medio escribir) a memoria + sessionStorage. */
@@ -6733,16 +6754,51 @@ function clearMonoReportDraftSession() {
   } catch (_) {}
 }
 
-function openMonoReportNew() {
+function updateMonoReportDateHint() {
+  const hint = document.getElementById("monoReportDateHint");
+  const dateEl = document.getElementById("monoReportDate");
+  if (!hint || !dateEl) return;
+  const d = String(dateEl.value || "").slice(0, 10);
+  const today = monoLocalToday();
+  if (!d) {
+    hint.textContent = "Indica la fecha del turno que estás reportando.";
+    return;
+  }
+  if (d === today) hint.textContent = "Reporte de hoy.";
+  else if (d === monoLocalYesterday()) hint.textContent = "Reporte de ayer.";
+  else if (d > today) hint.textContent = "Fecha futura: revisa si es correcta.";
+  else hint.textContent = `Día anterior · ${d}`;
+}
+
+function setMonoReportDate(iso) {
+  const dateEl = document.getElementById("monoReportDate");
+  const value = String(iso || monoLocalToday()).slice(0, 10);
+  if (dateEl) dateEl.value = value;
+  monoDraftMeta = { ...readMonoReportMetaFromDom(), date: value };
+  markMonoReportEdited();
+  updateMonoReportDateHint();
+  flushOpenMonoReportDraft();
+}
+
+function openMonoReportNew(opts = {}) {
   editingMonoReportId = null;
-  monoDraftAssignments = emptyMonoDraft();
-  monoDraftMeta = { date: todayIso(), shift: "am", supervisor: "", novedades: "" };
+  const keepAssignments = !!(opts && opts.keepAssignments && monoDraftAssignments);
+  if (!keepAssignments) monoDraftAssignments = emptyMonoDraft();
+  const date = String((opts && opts.date) || monoLocalToday()).slice(0, 10);
+  const shift = opts && opts.shift === "pm" ? "pm" : "am";
+  monoDraftMeta = {
+    date,
+    shift,
+    supervisor: (opts && opts.supervisor) || "",
+    novedades: (opts && opts.novedades) || "",
+  };
   document.getElementById("monoReportEditTitle").textContent = "Nuevo reporte Monorriel";
   document.getElementById("monoReportDate").value = monoDraftMeta.date;
-  document.getElementById("monoReportShift").value = "am";
-  document.getElementById("monoReportSupervisor").value = "";
-  document.getElementById("monoReportNovedades").value = "";
+  document.getElementById("monoReportShift").value = monoDraftMeta.shift;
+  document.getElementById("monoReportSupervisor").value = monoDraftMeta.supervisor;
+  document.getElementById("monoReportNovedades").value = monoDraftMeta.novedades;
   markMonoReportEdited();
+  updateMonoReportDateHint();
   renderMonoPostsEditor();
   switchView("monoReportEditView");
   flushOpenMonoReportDraft();
@@ -6757,7 +6813,7 @@ function openMonoReportEdit(id) {
   editingMonoReportId = id;
   monoDraftAssignments = draftFromReport(report);
   monoDraftMeta = {
-    date: report.date || todayIso(),
+    date: String(report.date || monoLocalToday()).slice(0, 10),
     shift: report.shift === "pm" ? "pm" : "am",
     supervisor: report.supervisor || "",
     novedades: report.novedades || "",
@@ -6768,13 +6824,34 @@ function openMonoReportEdit(id) {
   document.getElementById("monoReportSupervisor").value = monoDraftMeta.supervisor;
   document.getElementById("monoReportNovedades").value = monoDraftMeta.novedades;
   markMonoReportEdited();
+  updateMonoReportDateHint();
   renderMonoPostsEditor();
   switchView("monoReportEditView");
   flushOpenMonoReportDraft();
 }
 
+/** Abre un reporte viejo como plantilla de uno nuevo (otra fecha), sin sobrescribir el original. */
+function duplicateMonoReportAsNew(id) {
+  const report = getMonoReport(id || selectedMonoReportId);
+  if (!report) {
+    toast("Reporte no encontrado.");
+    return;
+  }
+  monoDraftAssignments = draftFromReport(report);
+  openMonoReportNew({
+    keepAssignments: true,
+    date: monoLocalToday(),
+    shift: report.shift === "pm" ? "pm" : "am",
+    supervisor: report.supervisor || "",
+    novedades: "",
+  });
+  toast(`Plantilla del ${report.date}. Cambia la fecha (ej. ayer) y guarda como reporte nuevo.`);
+  updateMonoReportDateHint();
+}
+
 function copyLastMonoReport() {
   const shift = document.getElementById("monoReportShift").value;
+  const keepDate = document.getElementById("monoReportDate")?.value || monoDraftMeta.date || monoLocalToday();
   const previous = monorrielReports
     .filter((r) => r.shift === shift && r.id !== editingMonoReportId)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
@@ -6786,8 +6863,15 @@ function copyLastMonoReport() {
   if (previous.supervisor && !document.getElementById("monoReportSupervisor").value.trim()) {
     document.getElementById("monoReportSupervisor").value = previous.supervisor;
   }
+  // Conservar la fecha que el usuario eligió (hoy/ayer/otra), no la del reporte copiado
+  if (document.getElementById("monoReportDate")) {
+    document.getElementById("monoReportDate").value = keepDate;
+  }
+  monoDraftMeta = { ...readMonoReportMetaFromDom(), date: keepDate };
   renderMonoPostsEditor();
-  toast(`Se copió el reporte del ${previous.date}. Puedes corregir puestos.`);
+  updateMonoReportDateHint();
+  flushOpenMonoReportDraft();
+  toast(`Puestos copiados del ${previous.date}. Fecha de este reporte: ${keepDate}.`);
 }
 
 function clearMonoDraftPosts() {
@@ -6813,7 +6897,11 @@ function collectMonoAssignmentsFromDraft() {
 }
 
 function saveMonoReport() {
-  const date = document.getElementById("monoReportDate").value || todayIso();
+  const date = String(document.getElementById("monoReportDate").value || monoLocalToday()).slice(0, 10);
+  if (!date) {
+    toast("Indica la fecha del reporte (puedes elegir un día anterior).");
+    return;
+  }
   const shift = document.getElementById("monoReportShift").value === "pm" ? "pm" : "am";
   const assignments = collectMonoAssignmentsFromDraft();
   const payload = {
@@ -6894,7 +6982,7 @@ function renderMonoReportsList() {
   if (!filtered.length) {
     list.innerHTML = monorrielReports.length
       ? `<p class="empty">Ningún reporte coincide.</p>`
-      : `<p class="empty">Aún no hay reportes. Crea el de hoy con “Nuevo reporte Monorriel”.</p>`;
+      : `<p class="empty">Aún no hay reportes. Crea uno con “Nuevo reporte Monorriel” (hoy o un día anterior).</p>`;
     return;
   }
   list.innerHTML = filtered
@@ -7112,6 +7200,172 @@ function renderMonoStaffList() {
   });
 }
 
+function monoEmployeeAttendanceKey(assignment) {
+  const id = String((assignment && assignment.employeeId) || "").trim();
+  if (id) return `id:${id}`;
+  const name = String((assignment && assignment.employeeName) || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  return name ? `name:${name}` : "";
+}
+
+/** Agrega asistencia por empleado a partir de los reportes Monorriel en un rango. */
+function buildMonoEmployeeAttendance(fromDate, toDate) {
+  const from = String(fromDate || "").slice(0, 10);
+  const to = String(toDate || "").slice(0, 10);
+  const map = new Map();
+  (monorrielReports || []).forEach((report) => {
+    const d = String(report.date || "").slice(0, 10);
+    if (!d) return;
+    if (from && d < from) return;
+    if (to && d > to) return;
+    const shift = report.shift === "pm" ? "pm" : "am";
+    (report.assignments || []).forEach((a) => {
+      const name = String(a.employeeName || "").trim();
+      if (!name) return;
+      const key = monoEmployeeAttendanceKey(a);
+      if (!key) return;
+      let row = map.get(key);
+      if (!row) {
+        row = {
+          key,
+          employeeId: a.employeeId || "",
+          name,
+          daySet: new Set(),
+          entries: [],
+        };
+        map.set(key, row);
+      }
+      if (!row.employeeId && a.employeeId) row.employeeId = a.employeeId;
+      if (name.length > String(row.name || "").length) row.name = name;
+      row.daySet.add(d);
+      row.entries.push({ date: d, shift, postId: a.postId || "" });
+    });
+  });
+  return [...map.values()]
+    .map((row) => {
+      const days = [...row.daySet].sort();
+      const byDay = new Map();
+      row.entries.forEach((e) => {
+        if (!byDay.has(e.date)) byDay.set(e.date, new Set());
+        byDay.get(e.date).add(e.shift);
+      });
+      const dayDetails = days.map((d) => {
+        const shifts = [...(byDay.get(d) || [])].sort();
+        return {
+          date: d,
+          shifts,
+          label: `${d} (${shifts.map((s) => (s === "pm" ? "PM" : "AM")).join("+")})`,
+        };
+      });
+      return {
+        employeeId: row.employeeId,
+        name: row.name,
+        daysCount: days.length,
+        days,
+        dayDetails,
+        shiftsCount: row.entries.length,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.daysCount - a.daysCount ||
+        String(a.name).localeCompare(String(b.name), "es")
+    );
+}
+
+function getMonoSummaryRangeFromDom() {
+  const fromEl = document.getElementById("monoSummaryFrom");
+  const toEl = document.getElementById("monoSummaryTo");
+  return {
+    from: fromEl ? String(fromEl.value || "").slice(0, 10) : "",
+    to: toEl ? String(toEl.value || "").slice(0, 10) : "",
+  };
+}
+
+function setMonoSummaryRange(from, to) {
+  const fromEl = document.getElementById("monoSummaryFrom");
+  const toEl = document.getElementById("monoSummaryTo");
+  if (fromEl) fromEl.value = from || "";
+  if (toEl) toEl.value = to || "";
+}
+
+function monoSummaryDefaultRange() {
+  const today = monoLocalToday();
+  const [y, m] = today.split("-");
+  return { from: `${y}-${m}-01`, to: today };
+}
+
+function openMonoEmployeeSummary() {
+  const range = monoSummaryDefaultRange();
+  const fromEl = document.getElementById("monoSummaryFrom");
+  const toEl = document.getElementById("monoSummaryTo");
+  if (fromEl && !fromEl.value) fromEl.value = range.from;
+  if (toEl && !toEl.value) toEl.value = range.to;
+  renderMonoEmployeeSummary();
+  switchView("monoEmployeeSummaryView");
+}
+
+function renderMonoEmployeeSummary() {
+  const body = document.getElementById("monoEmployeeSummaryBody");
+  const hint = document.getElementById("monoSummaryHint");
+  if (!body) return;
+  const { from, to } = getMonoSummaryRangeFromDom();
+  const rows = buildMonoEmployeeAttendance(from, to);
+  if (hint) {
+    const span =
+      from || to
+        ? `${from || "…"} → ${to || "…"}`
+        : "todos los reportes";
+    hint.textContent = `${rows.length} empleado(s) · ${monorrielReports.length} reporte(s) en historial · rango ${span}`;
+  }
+  if (!rows.length) {
+    body.innerHTML = `<p class="empty">No hay asistencia en ese rango. Crea reportes Monorriel por fecha y vuelve a consultar.</p>`;
+    return;
+  }
+  body.innerHTML = `<div class="schedule-wrap"><table class="schedule-table">
+    <thead><tr><th>Empleado</th><th>Días</th><th>Turnos</th><th>Fechas trabajadas</th></tr></thead>
+    <tbody>${rows
+      .map(
+        (r) => `<tr>
+      <td><strong>${escapeHtml(r.name)}</strong></td>
+      <td>${r.daysCount}</td>
+      <td>${r.shiftsCount}</td>
+      <td style="font-size:12px">${escapeHtml(r.dayDetails.map((d) => d.label).join(" · "))}</td>
+    </tr>`
+      )
+      .join("")}</tbody>
+  </table></div>`;
+}
+
+function printMonoEmployeeSummary() {
+  const { from, to } = getMonoSummaryRangeFromDom();
+  const rows = buildMonoEmployeeAttendance(from, to);
+  const span = from || to ? `${from || "…"} → ${to || "…"}` : "todos";
+  const tableRows = rows
+    .map(
+      (r) => `<tr>
+      <td>${escapeHtml(r.name)}</td>
+      <td style="text-align:center">${r.daysCount}</td>
+      <td style="text-align:center">${r.shiftsCount}</td>
+      <td>${escapeHtml(r.dayDetails.map((d) => d.label).join(", "))}</td>
+    </tr>`
+    )
+    .join("");
+  openPrintWindow(
+    "Resumen Monorriel por empleado",
+    `<h2>Asistencia Monorriel por empleado</h2>
+    <p class="muted">Rango: ${escapeHtml(span)} · ${rows.length} empleado(s)</p>
+    <table class="print-table">
+      <thead><tr><th>Empleado</th><th>Días</th><th>Turnos</th><th>Fechas (AM/PM)</th></tr></thead>
+      <tbody>${tableRows || `<tr><td colspan="4">Sin datos</td></tr>`}</tbody>
+    </table>`
+  );
+}
+
 function bindMonorrielUi() {
   if (!document.getElementById("btnOpenMonoReportNew")) return;
   ["monoReportDate", "monoReportShift", "monoReportSupervisor", "monoReportNovedades"].forEach((id) => {
@@ -7121,16 +7375,18 @@ function bindMonorrielUi() {
     const bump = () => {
       markMonoReportEdited();
       monoDraftMeta = readMonoReportMetaFromDom();
+      if (id === "monoReportDate") updateMonoReportDateHint();
       flushOpenMonoReportDraft();
     };
     el.addEventListener("input", bump);
     el.addEventListener("change", bump);
   });
-  document.getElementById("btnOpenMonoReportNew").addEventListener("click", openMonoReportNew);
+  document.getElementById("btnOpenMonoReportNew").addEventListener("click", () => openMonoReportNew());
   document.getElementById("btnMonoStaffInfo").addEventListener("click", () => {
     renderMonoStaffList();
     switchView("monoStaffView");
   });
+  document.getElementById("btnMonoEmployeeSummary")?.addEventListener("click", openMonoEmployeeSummary);
   document.getElementById("btnBackMonoFromEdit").addEventListener("click", () => {
     switchView("monorrielView");
     renderMonorrielHome();
@@ -7140,10 +7396,17 @@ function bindMonorrielUi() {
     renderMonorrielHome();
   });
   document.getElementById("btnBackMonoFromStaff").addEventListener("click", () => switchView("monorrielView"));
+  document.getElementById("btnBackMonoFromSummary")?.addEventListener("click", () => {
+    switchView("monorrielView");
+    renderMonorrielHome();
+  });
   document.getElementById("btnSaveMonoReport").addEventListener("click", saveMonoReport);
   document.getElementById("btnMonoCopyLast").addEventListener("click", copyLastMonoReport);
   document.getElementById("btnMonoClearPosts").addEventListener("click", clearMonoDraftPosts);
+  document.getElementById("btnMonoDateToday")?.addEventListener("click", () => setMonoReportDate(monoLocalToday()));
+  document.getElementById("btnMonoDateYesterday")?.addEventListener("click", () => setMonoReportDate(monoLocalYesterday()));
   document.getElementById("btnEditMonoReport").addEventListener("click", () => openMonoReportEdit(selectedMonoReportId));
+  document.getElementById("btnMonoDuplicateAsNew")?.addEventListener("click", () => duplicateMonoReportAsNew());
   document.getElementById("btnPrintMonoReport").addEventListener("click", printMonoReport);
   document.getElementById("btnDownloadMonoReport").addEventListener("click", downloadMonoReport);
   document.getElementById("btnShareMonoReport").addEventListener("click", () => {
@@ -7154,6 +7417,20 @@ function bindMonorrielUi() {
   document.getElementById("monoReportShift").addEventListener("change", () => {
     // keep draft; only hint refresh
     updateMonoCoverageHint();
+  });
+  document.getElementById("btnMonoSummaryApply")?.addEventListener("click", renderMonoEmployeeSummary);
+  document.getElementById("btnMonoSummaryPrint")?.addEventListener("click", printMonoEmployeeSummary);
+  document.getElementById("btnMonoSummaryMonth")?.addEventListener("click", () => {
+    const r = monoSummaryDefaultRange();
+    setMonoSummaryRange(r.from, r.to);
+    renderMonoEmployeeSummary();
+  });
+  document.getElementById("btnMonoSummaryAll")?.addEventListener("click", () => {
+    setMonoSummaryRange("", "");
+    renderMonoEmployeeSummary();
+  });
+  ["monoSummaryFrom", "monoSummaryTo"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", renderMonoEmployeeSummary);
   });
 }
 /* ==== FIN MÓDULO MONORRIEL ==== */
@@ -10217,8 +10494,12 @@ function switchView(viewId) {
   }
   if (viewId === "monorrielView") renderMonorrielHome();
   if (viewId === "lvaView") renderLvaModule();
-  if (viewId === "monoReportEditView") renderMonoPostsEditor();
+  if (viewId === "monoReportEditView") {
+    renderMonoPostsEditor();
+    updateMonoReportDateHint();
+  }
   if (viewId === "monoStaffView") renderMonoStaffList();
+  if (viewId === "monoEmployeeSummaryView") renderMonoEmployeeSummary();
   if (viewId === "messagesView") renderMessagesModule();
   if (viewId === "radioView") renderRadioModule();
   if (viewId === "adminView") updateAdminGate();
@@ -11803,7 +12084,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=149").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=150").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

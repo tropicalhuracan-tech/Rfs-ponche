@@ -1,4 +1,4 @@
-const CACHE = "rfs-ops-v149";
+const CACHE = "rfs-ops-v150";
 const ASSETS = [
   "./",
   "index.html",

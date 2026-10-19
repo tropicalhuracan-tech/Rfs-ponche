@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v149 · Cargar préstamos + filas manuales</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v150 · Monorriel: fechas pasadas + resumen empleado</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -405,9 +405,10 @@
         <button id="btnPrintMonorrielList" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir monorriel" title="Imprimir">⎙</button>
       </div>
       <div class="form-card">
-        <p class="muted">Reportes diarios de quién cubrió cada puesto. El personal Monorriel también aparece en Empleados y Préstamos.</p>
+        <p class="muted">Reportes diarios de quién cubrió cada puesto (puedes registrar días anteriores). El personal Monorriel también aparece en Empleados y Préstamos.</p>
         <button id="btnOpenMonoReportNew" class="btn primary" type="button">Nuevo reporte Monorriel</button>
         <button id="btnMonoStaffInfo" class="btn secondary" type="button">Ver personal Monorriel</button>
+        <button id="btnMonoEmployeeSummary" class="btn secondary" type="button">Resumen por empleado</button>
       </div>
       <div class="section-head tight">
         <h2>Reportes Monorriel</h2>
@@ -423,17 +424,22 @@
       <div class="section-head">
         <button id="btnBackMonoFromEdit" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
         <h1 id="monoReportEditTitle">Reporte Monorriel</h1>
-        <p class="muted">Fecha automática · puedes dejar puestos vacantes.</p>
+        <p class="muted">Elige la fecha del turno (hoy o días anteriores). Puedes dejar puestos vacantes.</p>
       </div>
       <div class="form-card">
         <div class="coords-row">
-          <label>Fecha<input id="monoReportDate" type="date" /></label>
+          <label>Fecha del reporte<input id="monoReportDate" type="date" /></label>
           <label>Turno
             <select id="monoReportShift">
               <option value="am">A.M. / Diurno</option>
               <option value="pm">P.M. / Nocturno</option>
             </select>
           </label>
+        </div>
+        <div class="loan-toolbar" style="margin-top:0">
+          <button id="btnMonoDateToday" class="btn ghost btn-sm" type="button">Hoy</button>
+          <button id="btnMonoDateYesterday" class="btn ghost btn-sm" type="button">Ayer</button>
+          <span id="monoReportDateHint" class="muted tight"></span>
         </div>
         <label>Supervisor<input id="monoReportSupervisor" type="text" placeholder="Nombre del supervisor" /></label>
         <div class="loan-toolbar">
@@ -456,6 +462,7 @@
       <div id="monoReportDetailBody" class="form-card"></div>
       <div class="loan-toolbar">
         <button id="btnEditMonoReport" class="btn primary" type="button">Editar / corregir</button>
+        <button id="btnMonoDuplicateAsNew" class="btn secondary" type="button">Usar como base (otra fecha)</button>
         <button id="btnPrintMonoReport" class="btn secondary" type="button">Imprimir</button>
         <button id="btnDownloadMonoReport" class="btn secondary" type="button">Descargar</button>
         <button id="btnShareMonoReport" class="btn secondary" type="button">Compartir</button>
@@ -470,6 +477,28 @@
         <p class="muted">Ya están en Empleados. Completa teléfono, cédula y datos allí.</p>
       </div>
       <div id="monoStaffList" class="card-list"></div>
+    </section>
+
+    <section id="monoEmployeeSummaryView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackMonoFromSummary" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1>Resumen por empleado</h1>
+        <p class="muted">Cuántos días y cuáles trabajó cada persona según los reportes Monorriel.</p>
+      </div>
+      <div class="form-card">
+        <div class="coords-row">
+          <label>Desde<input id="monoSummaryFrom" type="date" /></label>
+          <label>Hasta<input id="monoSummaryTo" type="date" /></label>
+        </div>
+        <div class="loan-toolbar">
+          <button id="btnMonoSummaryApply" class="btn primary" type="button">Actualizar resumen</button>
+          <button id="btnMonoSummaryPrint" class="btn secondary" type="button">Imprimir / PDF</button>
+          <button id="btnMonoSummaryMonth" class="btn ghost btn-sm" type="button">Este mes</button>
+          <button id="btnMonoSummaryAll" class="btn ghost btn-sm" type="button">Todo</button>
+        </div>
+        <p id="monoSummaryHint" class="muted tight"></p>
+        <div id="monoEmployeeSummaryBody"></div>
+      </div>
     </section>
 
     <section id="lvaView" class="view scroll-view">
