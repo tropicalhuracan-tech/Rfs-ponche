@@ -3437,57 +3437,78 @@ function payrollReceiptPayDateLabel(p) {
 }
 
 function payrollReceiptCss() {
-  // Epson TM-U220: rollo ~76 mm. Cambria 10 pt, negrita fuerte; espacio entre tickets para cortar.
+  // Epson TM-U220 ~76 mm: margen izquierdo amplio (la impresora come el borde),
+  // Cambria 10 pt negrita, diseño limpio sin tabla al borde.
   return `
-    @page{size:76mm auto;margin:2mm}
+    @page{size:76mm auto;margin:0}
     html,body.print-recibo{
-      width:72mm !important;max-width:72mm !important;margin:0 auto !important;
-      padding:1mm !important;background:#fff !important;color:#000 !important;
-      font-family:Cambria, "Times New Roman", Times, serif;
-      font-size:10pt;line-height:1.3;font-weight:700;-webkit-font-smoothing:none
+      width:76mm !important;max-width:76mm !important;margin:0 !important;
+      padding:3mm 4mm 3mm 8mm !important;box-sizing:border-box !important;
+      background:#fff !important;color:#000 !important;
+      font-family:Cambria,"Times New Roman",Times,serif;
+      font-size:10pt;line-height:1.35;font-weight:700
     }
     body.print-recibo .brand,
     body.print-recibo .print-bar + #rfsPrintRoot > .brand,
     body.print-recibo #rfsPrintRoot > .brand,
     body.print-recibo #rfsPrintRoot > .footer{display:none !important}
+    #rfsPrintRoot{width:100% !important;max-width:100% !important;padding:0 !important;margin:0 !important;box-sizing:border-box}
     .recibo-ticket{
-      width:100%;box-sizing:border-box;page-break-after:always;break-after:page;
-      padding:0 0 10mm;margin:0 0 6mm;color:#000;
+      width:100%;max-width:62mm;box-sizing:border-box;
+      page-break-after:always;break-after:page;
+      padding:2mm 0 12mm;margin:0 0 8mm;color:#000;
       border-bottom:1px dashed #000
     }
     .recibo-ticket:last-child{
       page-break-after:auto;break-after:auto;border-bottom:0;margin-bottom:0;padding-bottom:4mm
     }
     .recibo-ticket .co{
-      text-align:center;font-weight:900;font-size:11pt;letter-spacing:0.02em;margin:0 0 3px
+      text-align:center;font-weight:900;font-size:10.5pt;margin:0 0 2px;letter-spacing:0.01em
     }
     .recibo-ticket .title{
-      text-align:center;font-weight:900;font-size:12pt;margin:0 0 6px;text-transform:uppercase
+      text-align:center;font-weight:900;font-size:12pt;margin:0 0 4px;text-transform:uppercase
     }
-    .recibo-ticket .meta-line{margin:0 0 3px;font-size:10pt;font-weight:700}
+    .recibo-ticket .group-tag{
+      text-align:center;font-size:9.5pt;font-weight:700;margin:0 0 6px
+    }
+    .recibo-ticket .meta-line{margin:0 0 2px;font-size:10pt;font-weight:700}
     .recibo-ticket .meta-line strong{font-weight:900}
-    .recibo-ticket table{
-      width:100%;border-collapse:collapse;margin:6px 0 8px;table-layout:fixed
+    .recibo-ticket .sep{
+      border:0;border-top:1.5px solid #000;margin:6px 0
     }
-    .recibo-ticket th,.recibo-ticket td{
-      border:1.5px solid #000;padding:4px 5px;vertical-align:middle;font-size:10pt;font-weight:700
+    .recibo-ticket .rows{width:100%;margin:0;padding:0}
+    .recibo-ticket .row{
+      display:flex;justify-content:space-between;align-items:baseline;
+      gap:6px;margin:0 0 3px;font-size:10pt;font-weight:700
     }
-    .recibo-ticket th{font-weight:900;text-align:center;background:#fff}
-    .recibo-ticket td.desc{text-align:left;width:62%;font-weight:700}
-    .recibo-ticket td.amt{text-align:right;width:38%;font-weight:900;font-variant-numeric:tabular-nums}
-    .recibo-ticket .neto{
-      font-weight:900;font-size:11pt;margin:6px 0 12px;text-align:left
+    .recibo-ticket .row .lab{flex:1 1 auto;min-width:0;font-weight:700}
+    .recibo-ticket .row .val{
+      flex:0 0 auto;text-align:right;font-weight:900;font-variant-numeric:tabular-nums;
+      min-width:18mm
+    }
+    .recibo-ticket .head-row{
+      font-weight:900;border-bottom:1.5px solid #000;padding-bottom:3px;margin-bottom:5px
+    }
+    .recibo-ticket .neto-box{
+      margin:8px 0 10px;padding:5px 4px;border:2px solid #000;text-align:center;
+      font-weight:900;font-size:11pt
     }
     .recibo-ticket .signs{
-      display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px
+      display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px
     }
     .recibo-ticket .sign-line{
-      border-top:1.5px solid #000;margin-top:24px;padding-top:4px;text-align:center;font-size:10pt;font-weight:700
+      border-top:1.5px solid #000;margin-top:22px;padding-top:3px;text-align:center;
+      font-size:9.5pt;font-weight:700
     }
-    .recibo-ticket .group-tag{text-align:center;font-size:10pt;font-weight:700;margin:0 0 5px}
+    .recibo-ticket .cut-hint{
+      text-align:center;font-size:8pt;font-weight:700;margin:10px 0 0;letter-spacing:0.08em
+    }
     @media print{
-      html,body.print-recibo{padding:0 !important;margin:0 auto !important;width:72mm !important}
-      .recibo-ticket{page-break-after:always;padding-bottom:10mm;margin-bottom:6mm}
+      html,body.print-recibo{
+        width:76mm !important;max-width:76mm !important;margin:0 !important;
+        padding:3mm 4mm 3mm 8mm !important;box-sizing:border-box !important
+      }
+      .recibo-ticket{page-break-after:always;padding-bottom:12mm;margin-bottom:8mm}
       .recibo-ticket:last-child{page-break-after:auto;margin-bottom:0}
     }
   `;
@@ -3510,40 +3531,42 @@ function buildPayrollReceiptTicketHtml(p, line) {
   const unifRifa = roundMoney2((Number(l.uniformes) || 0) + (Number(l.rifa) || 0));
   const rows = [
     ["Sueldo bruto", l.salaryQuincena],
-    ["SFS/SVDS", l.sfs],
+    ["SFS / SVDS", l.sfs],
     ["Incentivos", l.incentivos],
     ["Volao", l.volaos],
-    ["Horas extras / feriados", extras],
-    ["Cena/Comida", comida],
-    ["Unif/Rifa", unifRifa],
+    ["Hrs extras / feriado", extras],
+    ["Cena / Comida", comida],
+    ["Unif / Rifa", unifRifa],
     ["Adelantos", l.adelantos],
     ["Prestamos", l.prestamos],
   ]
     .map(
       ([label, val]) =>
-        `<tr><td class="desc">${escapeHtml(label)}</td><td class="amt">${escapeHtml(
-          payrollReceiptAmt(val)
-        )}</td></tr>`
+        `<div class="row"><span class="lab">${escapeHtml(label)}</span><span class="val">${escapeHtml(
+          payrollReceiptAmt(val) || "—"
+        )}</span></div>`
     )
     .join("");
   const neto = Number(l.redondeo) || Number(l.salarioDepositar) || 0;
   return `<article class="recibo-ticket">
     <p class="co">REACTION FORCE SECURITY LS, SRL</p>
     <p class="title">RECIBO DE PAGO</p>
-    <p class="group-tag">${escapeHtml(groupMeta.label)} · ${escapeHtml(halfLabel(p.half || 1))}</p>
+    <p class="group-tag">${escapeHtml(groupMeta.short)} · ${escapeHtml(halfLabel(p.half || 1))}</p>
+    <hr class="sep" />
     <p class="meta-line"><strong>Empleado:</strong> ${escapeHtml(String(name).toUpperCase())}</p>
-    <p class="meta-line"><strong>Fecha:</strong> ${escapeHtml(fecha)} &nbsp; <strong>DIAS:</strong> ${escapeHtml(
-      days || "—"
-    )}</p>
-    <table>
-      <thead><tr><th>DESCRIPCIÓN</th><th>MONTO (RD$)</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <p class="neto">SUELDO NETO: RD$ ${escapeHtml(payrollReceiptAmt(neto) || "0.00")}</p>
+    <p class="meta-line"><strong>Fecha:</strong> ${escapeHtml(fecha)}</p>
+    <p class="meta-line"><strong>Días:</strong> ${escapeHtml(days || "—")}</p>
+    <hr class="sep" />
+    <div class="rows">
+      <div class="row head-row"><span class="lab">Concepto</span><span class="val">Monto RD$</span></div>
+      ${rows}
+    </div>
+    <div class="neto-box">SUELDO NETO: RD$ ${escapeHtml(payrollReceiptAmt(neto) || "0.00")}</div>
     <div class="signs">
       <div><div class="sign-line">Autorizado</div></div>
       <div><div class="sign-line">Recibido</div></div>
     </div>
+    <p class="cut-hint">· · · cortar aquí · · ·</p>
   </article>`;
 }
 
