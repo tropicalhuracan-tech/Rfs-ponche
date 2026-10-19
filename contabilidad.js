@@ -22,8 +22,18 @@ function emptyContabilidadData() {
   };
 }
 
-const PAYROLL_BACKUP_MAX = 36;
-const PAYROLL_BACKUP_MAX_PER_ID = 6;
+const PAYROLL_BACKUP_MAX = 80;
+const PAYROLL_BACKUP_MAX_PER_ID = 10;
+
+/** Cuántos empleados con nombre tiene una nómina (0 = vacía). */
+function payrollNamedLineCount(p) {
+  if (!p || !Array.isArray(p.lines)) return 0;
+  return p.lines.filter((l) => String(l && l.fullName || "").trim()).length;
+}
+
+function payrollBackupNamedCount(b) {
+  return payrollNamedLineCount(b && b.snapshot);
+}
 
 function moneyRd(n) {
   const v = Number(n) || 0;
@@ -563,7 +573,7 @@ function prunePayrollBackups(list) {
   const rows = (Array.isArray(list) ? list : [])
     .map(normalizePayrollBackup)
     .filter((b) => b.snapshot && b.payrollId);
-  // Por nómina: priorizar paid / before_delete, luego los más recientes
+  // Por nómina: priorizar con empleados, luego paid / before_delete, luego recientes
   const byPay = new Map();
   rows.forEach((b) => {
     if (!byPay.has(b.payrollId)) byPay.set(b.payrollId, []);
@@ -572,14 +582,27 @@ function prunePayrollBackups(list) {
   const kept = [];
   byPay.forEach((arr) => {
     arr.sort((a, b) => {
-      const rank = (r) => (r.reason === "paid" ? 3 : r.reason === "before_delete" ? 2 : 1);
+      const filled = payrollBackupNamedCount(b) - payrollBackupNamedCount(a);
+      if (filled) return filled;
+      const rank = (r) =>
+        r.reason === "paid" ? 4 : r.reason === "before_delete" ? 3 : r.reason === "manual" ? 2 : 1;
       const rk = rank(b) - rank(a);
       if (rk) return rk;
       return String(b.createdAt).localeCompare(String(a.createdAt));
     });
-    kept.push(...arr.slice(0, PAYROLL_BACKUP_MAX_PER_ID));
+    // No descartar el último respaldo con empleados de esta nómina
+    const slice = arr.slice(0, PAYROLL_BACKUP_MAX_PER_ID);
+    const bestFilled = arr.find((x) => payrollBackupNamedCount(x) > 0);
+    if (bestFilled && !slice.some((x) => x.id === bestFilled.id)) {
+      slice[slice.length - 1] = bestFilled;
+    }
+    kept.push(...slice);
   });
-  kept.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  kept.sort((a, b) => {
+    const filled = payrollBackupNamedCount(b) - payrollBackupNamedCount(a);
+    if (filled) return filled;
+    return String(b.createdAt).localeCompare(String(a.createdAt));
+  });
   return kept.slice(0, PAYROLL_BACKUP_MAX);
 }
 
@@ -682,6 +705,65 @@ function restorePayrollFromBackup(backupId) {
   toast("Nómina restaurada desde el respaldo.");
 }
 
+/** Semilla de recuperación: La Vega 01–15 oct 2026 (snapshot 14-oct; días 13 por defecto). */
+const LAVEGA_OCT_H1_RECOVERY_SEED = {"id":"pay-1791943152987-8l82","period":"2026-10","half":1,"group":"lavega","payDate":"2026-10-20","lines":[{"employeeId":"emp-1791933177973-ebvz6l","fullName":"ANDRES CABRERA","position":"ENTRADA JARABACOA","cedula":"047-0134385-9","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":600.0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177971-tyaldy","fullName":"FRANCISCO GALAN","position":"BOTADERO 02","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177974-l2dckb","fullName":"FRANKLIN AYBAR","position":"BURENDE","cedula":"047-0013450-7","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177973-r83kcb","fullName":"JORGE LUIS","position":"ENTRADA JARABACOA","cedula":"012-0108564-2","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177971-epawy6","fullName":"JOSE DANIEL","position":"botadero","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177969-oleb64","fullName":"JOSE MIGUEL","position":"miranda carpa","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177974-z6r26t","fullName":"JULIO EDUARDO","position":"ARENOSO ABAJO","cedula":"047-0151191-9","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177971-z7cc5y","fullName":"LUIS DAVID","position":"traumatologico","cedula":"402-4281609-4","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177972-hwrpcb","fullName":"PABLO LUIS","position":"ARROYO EL PINO","cedula":"034-002839-1","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177972-lhh81e","fullName":"RAFAEL GARCIA","position":"INGENIERIA ESTRELLA","cedula":"056-0096608-8","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177974-ujevqp","fullName":"RAFAEL SANTIAGO","position":"GUACO LA VEGA","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177973-v3ukre","fullName":"RAFAEL TORRES","position":"GEREMIAS","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115}],"createdAt":"2026-10-14T01:59:12.987Z","createdBy":"EDWARD CRUZ"};
+
+/**
+ * Si la nómina La Vega 01–15 oct quedó vacía (respaldos también vacíos),
+ * restaura la última copia conocida. No pisa una nómina que ya tenga empleados.
+ */
+function recoverLavegaOctPayrollIfEmpty() {
+  const seed = LAVEGA_OCT_H1_RECOVERY_SEED;
+  if (!seed || !seed.id) return false;
+  if (!contabilidadData || typeof contabilidadData !== "object") return false;
+  if (!Array.isArray(contabilidadData.payrolls)) contabilidadData.payrolls = [];
+  const idx = contabilidadData.payrolls.findIndex(
+    (p) =>
+      p &&
+      (p.id === seed.id ||
+        (p.group === "lavega" &&
+          p.period === "2026-10" &&
+          (p.half === 1 || !p.half) &&
+          p.status !== "cancelled"))
+  );
+  const existing = idx >= 0 ? contabilidadData.payrolls[idx] : null;
+  if (existing && payrollNamedLineCount(existing) > 0) return false;
+  const fromBackup = (contabilidadData.payrollBackups || [])
+    .map(normalizePayrollBackup)
+    .filter(
+      (b) =>
+        (b.payrollId === seed.id || (existing && b.payrollId === existing.id)) &&
+        payrollBackupNamedCount(b) > 0
+    )
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  const source = fromBackup && fromBackup.snapshot ? fromBackup.snapshot : seed;
+  const lines = Array.isArray(source.lines) && source.lines.length ? source.lines : seed.lines || [];
+  if (!lines.length) return false;
+  const restored = normalizePayroll({
+    ...source,
+    id: (existing && existing.id) || seed.id,
+    period: "2026-10",
+    half: 1,
+    group: "lavega",
+    payDate: source.payDate || seed.payDate || "2026-10-20",
+    status: "draft",
+    lines,
+    note:
+      (existing && String(existing.note || "").includes("La Vega") && existing.note) ||
+      "Nómina La Vega Autopista · 01 al 15 · Octubre 2026 · Recuperada (días 13 por defecto; revisar)",
+    createdBy: seed.createdBy || (existing && existing.createdBy) || "",
+    createdAt: seed.createdAt || (existing && existing.createdAt) || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  if (payrollNamedLineCount(restored) === 0) return false;
+  if (idx >= 0) contabilidadData.payrolls[idx] = restored;
+  else contabilidadData.payrolls.unshift(restored);
+  try {
+    snapshotPayrollBackup(restored, "manual");
+  } catch (_) {}
+  return true;
+}
+
 function normalizeContabilidadData(raw = {}) {
   return {
     expenses: Array.isArray(raw.expenses) ? raw.expenses.map(normalizeFiscalExpense) : [],
@@ -726,19 +808,69 @@ function applyRemoteContabilidadData(remote) {
     return [...map.values()].sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
   }
 
+  /** Nunca dejar que una nómina vacía (0 empleados) pise una con datos. */
+  function mergePayrollsPreferFilled(a, b) {
+    const map = new Map();
+    function consider(row) {
+      if (!row || !row.id) return;
+      const prev = map.get(row.id);
+      if (!prev) {
+        map.set(row.id, row);
+        return;
+      }
+      const prevN = payrollNamedLineCount(prev);
+      const rowN = payrollNamedLineCount(row);
+      if (prevN > 0 && rowN === 0) return;
+      if (rowN > 0 && prevN === 0) {
+        map.set(row.id, row);
+        return;
+      }
+      if (String(row.updatedAt) > String(prev.updatedAt)) map.set(row.id, row);
+    }
+    [...a, ...b].forEach(consider);
+    return [...map.values()].sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
+  }
+
+  function mergeBackupsPreferFilled(a, b) {
+    const map = new Map();
+    function consider(row) {
+      if (!row || !row.id) return;
+      const prev = map.get(row.id);
+      if (!prev) {
+        map.set(row.id, row);
+        return;
+      }
+      const prevN = payrollBackupNamedCount(prev);
+      const rowN = payrollBackupNamedCount(row);
+      if (prevN > 0 && rowN === 0) return;
+      if (rowN > 0 && prevN === 0) {
+        map.set(row.id, row);
+        return;
+      }
+      if (String(row.updatedAt || row.createdAt) > String(prev.updatedAt || prev.createdAt)) {
+        map.set(row.id, row);
+      }
+    }
+    [...a, ...b].forEach(consider);
+    return [...map.values()];
+  }
+
   contabilidadData = {
     expenses: mergeById(local.expenses, remoteNorm.expenses),
     itbisCollected: mergeById(local.itbisCollected, remoteNorm.itbisCollected),
     officeEmployees: mergeById(local.officeEmployees, remoteNorm.officeEmployees),
     lotedomEmployees: mergeById(local.lotedomEmployees || [], remoteNorm.lotedomEmployees || []),
-    payrolls: mergeById(local.payrolls, remoteNorm.payrolls),
+    payrolls: mergePayrollsPreferFilled(local.payrolls, remoteNorm.payrolls),
     payrollBackups: prunePayrollBackups(
-      mergeById(local.payrollBackups || [], remoteNorm.payrollBackups || [])
+      mergeBackupsPreferFilled(local.payrollBackups || [], remoteNorm.payrollBackups || [])
     ),
     settings: {
       defaultBook: remoteNorm.settings.defaultBook || local.settings.defaultBook || "EDWARD",
     },
   };
+  try {
+    recoverLavegaOctPayrollIfEmpty();
+  } catch (_) {}
   localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
 }
 
@@ -4109,6 +4241,12 @@ function renderPayrollBackupsPanel(payrollId) {
 
 function renderContabilidadModule() {
   if (!canAccessContabilidad()) return;
+  try {
+    if (recoverLavegaOctPayrollIfEmpty()) {
+      saveContabilidadData(true);
+      toast("Nómina La Vega 01–15 oct recuperada (12 empleados). Revisa los días.");
+    }
+  } catch (_) {}
   ensureMonthFilter();
   const summary = document.getElementById("contabSummary");
   if (summary) {

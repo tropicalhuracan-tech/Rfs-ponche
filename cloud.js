@@ -528,6 +528,63 @@
     return { light: src, mediaJobs: [] };
   }
 
+  function payrollNamedCount(p) {
+    if (!p || !Array.isArray(p.lines)) return 0;
+    return p.lines.filter((l) => String((l && l.fullName) || "").trim()).length;
+  }
+
+  /** Evita que un cliente con nómina vacía borre la versión con empleados en la nube. */
+  function mergeContabilidadPreferFilledPayrolls(localContab, remoteContab) {
+    const local = localContab && typeof localContab === "object" ? localContab : emptyContabilidad();
+    const remote = remoteContab && typeof remoteContab === "object" ? remoteContab : emptyContabilidad();
+    const map = new Map();
+    function consider(row) {
+      if (!row || !row.id) return;
+      const prev = map.get(row.id);
+      if (!prev) {
+        map.set(row.id, row);
+        return;
+      }
+      const prevN = payrollNamedCount(prev);
+      const rowN = payrollNamedCount(row);
+      if (prevN > 0 && rowN === 0) return;
+      if (rowN > 0 && prevN === 0) {
+        map.set(row.id, row);
+        return;
+      }
+      if (String(row.updatedAt || "") > String(prev.updatedAt || "")) map.set(row.id, row);
+    }
+    [...(remote.payrolls || []), ...(local.payrolls || [])].forEach(consider);
+    const payrolls = [...map.values()].sort((a, b) =>
+      String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+    );
+    const backupMap = new Map();
+    function considerBackup(row) {
+      if (!row || !row.id) return;
+      const prev = backupMap.get(row.id);
+      if (!prev) {
+        backupMap.set(row.id, row);
+        return;
+      }
+      const prevN = payrollNamedCount(prev.snapshot);
+      const rowN = payrollNamedCount(row.snapshot);
+      if (prevN > 0 && rowN === 0) return;
+      if (rowN > 0 && prevN === 0) {
+        backupMap.set(row.id, row);
+        return;
+      }
+      if (String(row.updatedAt || row.createdAt || "") > String(prev.updatedAt || prev.createdAt || "")) {
+        backupMap.set(row.id, row);
+      }
+    }
+    [...(remote.payrollBackups || []), ...(local.payrollBackups || [])].forEach(considerBackup);
+    return {
+      ...local,
+      payrolls,
+      payrollBackups: [...backupMap.values()],
+    };
+  }
+
   async function stripDepuracion(dep) {
     const src = dep && typeof dep === "object" ? dep : emptyDepuracion();
     const mediaJobs = [];
@@ -954,7 +1011,17 @@
     const pettyPack = await stripPettyCash(pettyCash);
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
-    const contabPack = stripContabilidad(contabilidad);
+    let contabToSave = contabilidad;
+    try {
+      const remoteContabDoc = await getDoc(partPath("contabilidad")).catch(() => null);
+      const remoteContab = remoteContabDoc && remoteContabDoc.fields && remoteContabDoc.fields.contabilidadJson
+        ? parseObjectField(remoteContabDoc.fields, "contabilidadJson")
+        : null;
+      if (remoteContab) {
+        contabToSave = mergeContabilidadPreferFilledPayrolls(contabilidad, remoteContab);
+      }
+    } catch (_) {}
+    const contabPack = stripContabilidad(contabToSave);
     await persistMediaJobs([
       ...empPack.mediaJobs,
       ...pettyPack.mediaJobs,
