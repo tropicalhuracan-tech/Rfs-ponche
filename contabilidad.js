@@ -230,7 +230,7 @@ const LVA_PAYROLL_UNIFORMES = 115;
 const LVA_PAYROLL_RIFA = 85;
 const LVA_PAYROLL_SFS_RATE = 0.0591; // ~SFS/SVDS observado en nómina Excel
 const LVA_PAYROLL_DAY_BASE = 26;
-/** Seguro de vida (SVDA): fijo RD$ 90 La Vega. Columna Almuerzo/SVDA = comida (editable) + SVDA. */
+/** Seguro de vida (SVDA): fijo RD$ 90. Columna Comida / Seg. vida = comida (editable) + seguro. */
 const LVA_PAYROLL_SVDA = 90;
 /**
  * Días tipo "13+2": la quincena solo usa el primer número (12/13/15…).
@@ -391,11 +391,11 @@ function computePayrollLineTotals(line, opts = {}) {
     if (!sfs && salaryQuincena) sfs = roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE);
   }
 
-  // La Vega / Monorriel: comida (almuerzo editable) + SVDA fijo 90; ambas suman
+  // LVA (La Vega / Monorriel / Lotedom / Banco / Efectivo): comida editable + seguro de vida fijo 90
   const svda = lavega && hasName ? LVA_PAYROLL_SVDA : 0;
   const almuerzoSvda = roundMoney2(almuerzo + svda);
 
-  // Restan: SFS/SVDS, uniformes, almuerzo+SVDA, rifa, adelantos, descuento préstamos
+  // Restan: SFS/SVDS, uniformes, comida, seguro de vida, rifa, adelantos, préstamos
   const totalDescuentos = roundMoney2(sfs + uniformes + almuerzo + svda + rifa + adelantos + prestamos);
   // Suman al quincenal: volaos (+N), incentivos, horas extras, feriado
   const totalCobrar = roundMoney2(salaryQuincena + volaos + incentivos + horasExtras + feriado);
@@ -1429,7 +1429,7 @@ const PAYROLL_GROUP_META = {
   general: { label: "General / Otros", short: "General", title: "GENERAL / OTROS" },
 };
 
-/** Grupos con fórmula La Vega (Unif/Rifa, Almuerzo/SVDA, nombres cortos). */
+/** Grupos con fórmula La Vega (Unif/Rifa, Comida/Seg. vida, nombres cortos). */
 const PAYROLL_LVA_GROUPS = ["lavega", "monorriel", "lotedom", "banco", "efectivo"];
 
 function payrollGroupUsesLvaParams(group) {
@@ -1438,7 +1438,7 @@ function payrollGroupUsesLvaParams(group) {
 
 /**
  * Semilla nómina LOTEDOM (PDF Nómina Lotedom · 16-30 sep 2026).
- * Mismos parámetros que Monorriel/La Vega: Unif/Rifa 115/85, Almuerzo/SVDA (comida+90),
+ * Mismos parámetros que Monorriel/La Vega: Unif/Rifa 115/85, Comida + Seg. vida (90),
  * nombre corto (1+1). Seguro vida del PDF se une en SVDA; sueldos/días/extras/desc. del PDF.
  */
 const LOTEDOM_PAYROLL_ROSTER = [
@@ -1941,7 +1941,7 @@ function payrollIsEfectivo(p) {
   return !!(p && p.group === "efectivo");
 }
 
-/** La Vega, Monorriel, LOTEDOM, Banco y Efectivo: mismas columnas / Unif-Rifa / Almuerzo-SVDA / nombres cortos. */
+/** La Vega, Monorriel, LOTEDOM, Banco y Efectivo: mismas columnas / Unif-Rifa / Comida-Seg.vida / nombres cortos. */
 function payrollUsesLvaParams(p) {
   if (!p) return false;
   if (payrollGroupUsesLvaParams(p.group)) return true;
@@ -2024,7 +2024,7 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
         ? OFFICE_PAYROLL_SFS
         : pickSeedNum(prevLine.sfs, person.sfs, 0),
       // Oficina: sin uniforme/volao/comida/feriado/extras; sí rifa
-      // La Vega/Monorriel/LOTEDOM: Unif/Rifa unidos (115/85); SVDA en Almuerzo/SVDA
+      // La Vega/Monorriel/LOTEDOM: Unif/Rifa unidos (115/85); Seg. vida en Comida/Seg. vida
       uniformes: isOffice
         ? 0
         : prevLine.uniformes != null && Number.isFinite(prevUniformes)
@@ -2764,7 +2764,7 @@ function getPayrollEditorCols(p) {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
-    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "almuerzoSvda"];
+    if (lavega && key === "almuerzo") return ["almuerzo", "Comida / Seg. vida", "almuerzoSvda"];
     return [key, label, kind];
   });
 }
@@ -2776,7 +2776,7 @@ function getPayrollPrintCols(p) {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
-    if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "almuerzoSvda"];
+    if (lavega && key === "almuerzo") return ["almuerzo", "Comida / Seg. vida", "almuerzoSvda"];
     return [key, label, kind];
   });
 }
@@ -2791,7 +2791,7 @@ function formatUnifRifa(line) {
   return `${u || 0}/${r || LVA_PAYROLL_RIFA}`;
 }
 
-/** Comida editable / SVDA fijo 90 (La Vega). */
+/** Comida editable / Seguro de vida fijo 90 (todas las nóminas LVA). */
 function formatAlmuerzoSvda(line) {
   const meal = Math.max(0, Number(line && line.almuerzo) || 0);
   const hasName = payrollLineHasEmployeeName(line);
@@ -3555,16 +3555,21 @@ function buildPayrollReceiptTicketHtml(p, line) {
     ? `${groupMeta.short} · ${tandaMeta.short} · ${halfLabel(p.half || 1)}`
     : `${groupMeta.short} · ${halfLabel(p.half || 1)}`;
   const extras = roundMoney2((Number(l.horasExtras) || 0) + (Number(l.feriado) || 0));
-  // SVDA fijo 90 = seguro de vida (no es comida). Comida = solo almuerzo editable.
+  // Todas las nóminas con recibo (Banco/Efectivo/La Vega/Lotedom/Monorriel):
+  // SVDA fijo 90 = Seguro de vida; Cena/Comida = solo almuerzo editable.
+  const splitMealInsurance = payrollSupportsReceiptPrint(p) || payrollUsesLvaParams(p);
   const comida = roundMoney2(Number(l.almuerzo) || 0);
-  const seguroVida = roundMoney2(Number(l.svda) || 0);
+  const seguroVida = roundMoney2(
+    Number(l.svda) ||
+      (splitMealInsurance && payrollLineHasEmployeeName(l) ? LVA_PAYROLL_SVDA : 0)
+  );
   const unifRifa = roundMoney2((Number(l.uniformes) || 0) + (Number(l.rifa) || 0));
-  const mealOrInsuranceRows = seguroVida
+  const mealOrInsuranceRows = splitMealInsurance
     ? [
         ["Seguro de vida", seguroVida],
         ["Cena / Comida", comida],
       ]
-    : [["Cena / Comida", comida]];
+    : [["Cena / Comida", roundMoney2(comida + seguroVida)]];
   const rows = [
     ["Sueldo bruto", l.salaryQuincena],
     ["SFS / SVDS", l.sfs],
@@ -4190,7 +4195,7 @@ function renderNominaTab() {
       saveContabilidadData(true);
     }
   }
-  // La Vega / Monorriel: nombre corto + uniforme 215→115; comida editable + SVDA 90
+  // La Vega / Monorriel: nombre corto + uniforme 215→115; comida editable + Seg. vida 90
   if (payrollUsesLvaParams(p)) {
     const openFormulaOpts = payrollComputeOpts(p);
     const staffById = new Map();
@@ -4289,7 +4294,7 @@ function renderNominaTab() {
                   ? `${label} · Auto: ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay} (al cambiar días)`
                   : `${label} · Manual (sin auto por días)`
                 : kind === "almuerzoSvda"
-                  ? `${label} · comida editable / SVDA fijo ${LVA_PAYROLL_SVDA}`
+                  ? `${label} · comida editable / Seguro de vida fijo RD$ ${LVA_PAYROLL_SVDA}`
                   : label;
         const headLabel =
           key === "fullName"
@@ -4335,7 +4340,7 @@ function renderNominaTab() {
           if (kind === "almuerzoSvda") {
             return `<td class="${fit}"><input class="nomina-inp nomina-inp-unifrifa" data-f="almuerzoSvda" type="text" inputmode="decimal" placeholder="0/${LVA_PAYROLL_SVDA}" value="${escapeHtml(
               formatAlmuerzoSvda(l)
-            )}" title="Comida editable / SVDA fijo ${LVA_PAYROLL_SVDA} (ambas suman)" /></td>`;
+            )}" title="Comida editable / Seguro de vida fijo RD$ ${LVA_PAYROLL_SVDA} (ambas suman)" /></td>`;
           }
           const cls = kind === "days" ? "nomina-inp nomina-inp-days" : kind === "text" ? "nomina-inp nomina-inp-ced" : "nomina-inp";
           const val = l[key] == null ? "" : l[key];
@@ -4407,7 +4412,7 @@ function renderNominaTab() {
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": quincena solo con 13; el +N = RD$ ${formulaProfile.volaoPerExtraDay} c/u solo en Volaos. ${extrasHelp} Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
-          ? ` Almuerzo/SVDA = comida + SVDA RD$ ${LVA_PAYROLL_SVDA}.`
+          ? ` Comida editable + Seguro de vida RD$ ${LVA_PAYROLL_SVDA}.`
           : ""
       } Usa «Cargar préstamos» para la cuota del pago ${escapeHtml((p.payDate || "").slice(8, 10) || "5/20")} (${loanAutoN} con cuota).${
         manualN ? ` ${manualN} fila(s) manual(es) sin fórmulas.` : " «＋ Manual» = trato especial sin fórmulas."
