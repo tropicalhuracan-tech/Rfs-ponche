@@ -5828,11 +5828,11 @@ function openPrintWindow(title, bodyHtml, options = {}) {
           var w = Math.max(root.scrollWidth || 0, root.offsetWidth || 0, widePdf ? (landscape ? 1100 : 900) : 800);
           if (landscape && widePdf) w = Math.max(w, fmt === "legal" ? 1340 : 1020);
           var opt = {
-            margin: landscape ? [8, 8, 8, 8] : [10, 10, 12, 10],
+            margin: landscape ? [6, 6, 6, 6] : [10, 10, 12, 10],
             filename: (shareCfg && shareCfg.fileName) || "reporte.pdf",
             image: { type: "jpeg", quality: 0.95 },
             html2canvas: {
-              scale: landscape ? 1.8 : 1.5,
+              scale: landscape ? 1.6 : 1.5,
               useCORS: true,
               allowTaint: true,
               logging: false,
@@ -5849,6 +5849,40 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             },
             pagebreak: { mode: landscape ? ["css", "legacy"] : ["avoid-all", "css", "legacy"] }
           };
+          // Nóminas / hojas anchas: capturar canvas y centrar en Legal/Carta horizontal
+          if (landscape && widePdf) {
+            return html2pdf().set(opt).from(root).toCanvas().get("canvas").then(function (canvas) {
+              if (!canvas || !canvas.width) throw new Error("Captura vacía");
+              var JsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+              if (!JsPDF) {
+                return html2pdf().set(opt).from(root).outputPdf("blob");
+              }
+              // format [ancho, alto] horizontal + portrait: evita que jsPDF invierta a vertical
+              var pageSize = jsFormat === "legal" ? [355.6, 215.9] : [279.4, 215.9];
+              var pdf = new JsPDF({ unit: "mm", format: pageSize, orientation: "portrait" });
+              if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
+                pdf = new JsPDF({ unit: "mm", format: jsFormat, orientation: "landscape" });
+              }
+              var pw = pdf.internal.pageSize.getWidth();
+              var ph = pdf.internal.pageSize.getHeight();
+              var margin = 6;
+              var maxW = pw - margin * 2;
+              var maxH = ph - margin * 2;
+              var drawW = maxW;
+              var drawH = (canvas.height / canvas.width) * drawW;
+              if (drawH > maxH) {
+                drawH = maxH;
+                drawW = (canvas.width / canvas.height) * drawH;
+              }
+              var x = (pw - drawW) / 2;
+              var y = (ph - drawH) / 2;
+              try { pdf.setFillColor(255, 255, 255); pdf.rect(0, 0, pw, ph, "F"); } catch (e0) {}
+              pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
+              return pdf.output("blob");
+            }).catch(function () {
+              return html2pdf().set(opt).from(root).outputPdf("blob");
+            });
+          }
           return html2pdf().set(opt).from(root).outputPdf("blob").catch(function () {
             return html2pdf().set(opt).from(root).toPdf().get("pdf").then(function (pdf) {
               return pdf.output("blob");
@@ -12084,7 +12118,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=152").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=153").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

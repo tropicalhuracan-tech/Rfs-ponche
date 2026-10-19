@@ -1486,31 +1486,35 @@ function getSelectedPayrollPaper() {
   return el && el.value === "letter" ? "letter" : "legal";
 }
 
-/** Oficina: siempre Carta horizontal (menos columnas). La Vega/otros: selector. */
+/** Oficina: Carta horizontal. Resto (La Vega, Monorriel, etc.): Legal horizontal al PDF. */
 function getPayrollPaperForExport(p) {
   if (payrollIsOffice(p) || getSelectedPayrollGroup() === "oficina") return "letter";
-  return getSelectedPayrollPaper();
+  // PDF/impresión de campo: siempre Legal (el selector no debe forzar Carta vertical)
+  return "legal";
 }
 
 function syncPayrollPaperUiForGroup(group) {
   const office = group === "oficina";
-  const paper = office ? "letter" : getSelectedPayrollPaper();
+  const paper = office ? "letter" : "legal";
   const main = document.getElementById("contabPayrollPaper");
   const detail = document.getElementById("contabPayrollPaper2");
   if (main) {
-    if (office) main.value = "letter";
-    main.disabled = office;
-    main.title = office ? "Oficina: siempre Carta horizontal (como impresión La Vega)" : "";
+    main.value = paper;
+    main.disabled = true;
+    main.title = office
+      ? "Oficina: Carta horizontal"
+      : "PDF/impresión: Legal horizontal (centrado)";
   }
   if (detail) {
-    detail.value = main ? main.value : paper;
-    detail.disabled = office;
+    detail.value = paper;
+    detail.disabled = true;
+    detail.title = main ? main.title : "";
   }
   const hint = document.getElementById("contabPayrollHint");
   if (hint) {
     hint.textContent = office
-      ? `Mes: ${monthLabel(getSelectedMonth())} · Hoja Carta horizontal`
-      : `Mes: ${monthLabel(getSelectedMonth())}`;
+      ? `Mes: ${monthLabel(getSelectedMonth())} · PDF Carta horizontal`
+      : `Mes: ${monthLabel(getSelectedMonth())} · PDF Legal horizontal`;
   }
 }
 
@@ -3191,16 +3195,39 @@ function payrollPdfFileName(p) {
   return `${safe || "nomina"}.pdf`;
 }
 
-/** PDF en la misma ventana (no depende de pop-ups; sirve en móvil/PWA). */
+/** Tamaño de página PDF nómina: siempre horizontal. Oficina=Carta; resto=Legal. */
+function payrollPdfPageSpec(p) {
+  const isOffice = payrollIsOffice(p);
+  // Legal landscape 14×8.5 in → 355.6 × 215.9 mm; Carta landscape 11×8.5 → 279.4 × 215.9 mm
+  if (isOffice) {
+    return { format: "letter", orientation: "landscape", widthMm: 279.4, heightMm: 215.9, marginMm: 7 };
+  }
+  return { format: "legal", orientation: "landscape", widthMm: 355.6, heightMm: 215.9, marginMm: 6 };
+}
+
+function resolveJsPdfConstructor() {
+  try {
+    if (window.jspdf && typeof window.jspdf.jsPDF === "function") return window.jspdf.jsPDF;
+  } catch (_) {}
+  try {
+    if (typeof window.jsPDF === "function") return window.jsPDF;
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * PDF nómina: Legal (o Carta oficina) horizontal, contenido centrado en la hoja.
+ * Se arma a mano (html2canvas + jsPDF) porque html2pdf a veces entrega Carta vertical.
+ */
 async function buildPayrollPdfBlob(p) {
   if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
   const html2pdf = await ensureHtml2Pdf();
-  const paper = getPayrollPaperForExport(p);
-  const fmt = paper === "letter" ? "letter" : "legal";
+  const page = payrollPdfPageSpec(p);
+  const fmt = page.format;
   const isOffice = payrollIsOffice(p);
   const isLavega = payrollUsesLvaParams(p);
-  // Lienzo ancho: Monorriel tiene muchas columnas; si queda corto html2canvas las corta
-  let canvasW = fmt === "legal" ? 1600 : isOffice ? 1100 : 1400;
+  // Lienzo ancho para que Monorriel/La Vega no corten columnas
+  let canvasW = fmt === "legal" ? 1700 : isOffice ? 1200 : 1500;
   const caption = payrollShareCaption(p);
   const logoUrl = (() => {
     try {
@@ -3218,9 +3245,9 @@ async function buildPayrollPdfBlob(p) {
     isOffice ? "12px" : "11px"
   };line-height:1.2;z-index:2147483000;pointer-events:none;isolation:isolate;`;
   host.innerHTML = `
-    <style>${payrollPrintCss(paper, { office: isOffice, lavega: isLavega })}
+    <style>${payrollPrintCss(fmt, { office: isOffice, lavega: isLavega })}
       [data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important}
-      [data-rfs-payroll-pdf] #rfsPdfInner{width:max-content;min-width:100%;max-width:none;box-sizing:border-box;background:#fff !important;color:#111 !important}
+      [data-rfs-payroll-pdf] #rfsPdfInner{width:max-content;min-width:100%;max-width:none;box-sizing:border-box;background:#fff !important;color:#111 !important;margin:0 auto}
       [data-rfs-payroll-pdf] h2,
       [data-rfs-payroll-pdf] .meta,
       [data-rfs-payroll-pdf] .meta *,
@@ -3267,69 +3294,131 @@ async function buildPayrollPdfBlob(p) {
       Math.ceil((target && target.scrollWidth) || 0) + 48,
       Math.ceil((table && table.scrollWidth) || 0) + 64
     );
-    // Tope razonable para no explotar memoria en móvil
     canvasW = Math.min(Math.max(measured, canvasW), 2200);
     host.style.width = `${canvasW}px`;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const opt = {
-      margin: isOffice ? [7, 7, 7, 7] : [5, 5, 5, 5],
-      filename: payrollPdfFileName(p),
-      image: { type: "jpeg", quality: 0.95 },
-      html2canvas: {
-        scale: isOffice ? 2 : measured > 1500 ? 1.35 : 1.5,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        windowWidth: canvasW,
-        width: canvasW,
-        scrollX: 0,
-        scrollY: 0,
-        onclone: (doc) => {
-          try {
-            const root = doc.querySelector("[data-rfs-payroll-pdf]");
-            if (!root) return;
-            root.style.setProperty("background", "#ffffff", "important");
-            root.style.setProperty("color", "#111111", "important");
-            root.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
-              td.style.setProperty("color", "#111111", "important");
-              td.querySelectorAll("*").forEach((el) => {
-                el.style.setProperty("color", "#111111", "important");
-              });
+
+    const canvasOpt = {
+      scale: isOffice ? 2 : measured > 1600 ? 1.3 : 1.45,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+      windowWidth: canvasW,
+      width: canvasW,
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (doc) => {
+        try {
+          const root = doc.querySelector("[data-rfs-payroll-pdf]");
+          if (!root) return;
+          root.style.setProperty("background", "#ffffff", "important");
+          root.style.setProperty("color", "#111111", "important");
+          root.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
+            td.style.setProperty("color", "#111111", "important");
+            td.querySelectorAll("*").forEach((el) => {
+              el.style.setProperty("color", "#111111", "important");
             });
-            root
-              .querySelectorAll(
-                "table.nomina-print-office td.col-name, table.nomina-print-lavega td.col-name, table.nomina-print-office td.col-name *, table.nomina-print-lavega td.col-name *"
-              )
-              .forEach((el) => {
-                el.style.setProperty("color", "#0d47a1", "important");
-              });
-            root.querySelectorAll("table.nomina-print th").forEach((th) => {
-              const parent = th.closest("table");
-              const colored =
-                parent &&
-                (parent.classList.contains("nomina-print-lavega") ||
-                  parent.classList.contains("nomina-print-office"));
-              th.style.setProperty("color", colored ? "#ffffff" : "#111111", "important");
-              th.style.setProperty("background", colored ? "#b71c1c" : "#e8e8e8", "important");
+          });
+          root
+            .querySelectorAll(
+              "table.nomina-print-office td.col-name, table.nomina-print-lavega td.col-name, table.nomina-print-office td.col-name *, table.nomina-print-lavega td.col-name *"
+            )
+            .forEach((el) => {
+              el.style.setProperty("color", "#0d47a1", "important");
             });
-          } catch (_) {}
-        },
+          root.querySelectorAll("table.nomina-print th").forEach((th) => {
+            const parent = th.closest("table");
+            const colored =
+              parent &&
+              (parent.classList.contains("nomina-print-lavega") ||
+                parent.classList.contains("nomina-print-office"));
+            th.style.setProperty("color", colored ? "#ffffff" : "#111111", "important");
+            th.style.setProperty("background", colored ? "#b71c1c" : "#e8e8e8", "important");
+          });
+        } catch (_) {}
       },
-      // Formato con nombre + landscape (NO [w,h]+portrait: jsPDF invierte a vertical)
-      jsPDF: {
-        unit: "mm",
-        format: fmt,
-        orientation: "landscape",
-      },
-      pagebreak: { mode: ["css", "legacy"] },
     };
-    let blob = null;
-    try {
-      blob = await html2pdf().set(opt).from(target).outputPdf("blob");
-    } catch (_) {
-      blob = await html2pdf().set(opt).from(target).toPdf().get("pdf").then((pdf) => pdf.output("blob"));
+
+    // 1) Captura → 2) jsPDF Legal/Carta landscape → 3) imagen centrada (evita Carta vertical de html2pdf)
+    const canvas = await html2pdf()
+      .set({ html2canvas: canvasOpt })
+      .from(target)
+      .toCanvas()
+      .get("canvas");
+    if (!canvas || !canvas.width) throw new Error("Captura PDF vacía");
+
+    const JsPDF = resolveJsPdfConstructor();
+    /**
+     * jsPDF con format:[w,h] + orientation:"landscape" INTERCAMBIA w/h → queda vertical.
+     * Solución: pasar ya el tamaño horizontal [ancho > alto] con orientation:"portrait".
+     */
+    let pdf = null;
+    if (JsPDF) {
+      pdf = new JsPDF({
+        unit: "mm",
+        format: [page.widthMm, page.heightMm],
+        orientation: "portrait",
+      });
+      // Si alguna build aún invierte, reintentar con nombre + landscape
+      if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
+        pdf = new JsPDF({ unit: "mm", format: fmt, orientation: "landscape" });
+      }
     }
+    if (!pdf) {
+      pdf = await html2pdf()
+        .set({
+          margin: 0,
+          image: { type: "jpeg", quality: 0.95 },
+          html2canvas: canvasOpt,
+          jsPDF: {
+            unit: "mm",
+            format: [page.widthMm, page.heightMm],
+            orientation: "portrait",
+          },
+          pagebreak: { mode: [] },
+        })
+        .from(target)
+        .toPdf()
+        .get("pdf");
+    }
+
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+    const margin = page.marginMm;
+    const maxW = Math.max(10, pageW - margin * 2);
+    const maxH = Math.max(10, pageH - margin * 2);
+    const imgW = canvas.width;
+    const imgH = canvas.height;
+    let drawW = maxW;
+    let drawH = (imgH / imgW) * drawW;
+    if (drawH > maxH) {
+      drawH = maxH;
+      drawW = (imgW / imgH) * drawH;
+    }
+    const x = (pageW - drawW) / 2;
+    const y = (pageH - drawH) / 2;
+    const imgData = canvas.toDataURL("image/jpeg", 0.95);
+
+    // Limpiar páginas que html2pdf/fallback puedan haber dejado
+    const total = pdf.getNumberOfPages ? pdf.getNumberOfPages() : 1;
+    for (let i = total; i > 1; i -= 1) {
+      try {
+        pdf.deletePage(i);
+      } catch (_) {}
+    }
+    try {
+      pdf.setPage(1);
+    } catch (_) {}
+    // Fondo blanco y dibujar centrado
+    try {
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(0, 0, pageW, pageH, "F");
+    } catch (_) {}
+    pdf.addImage(imgData, "JPEG", x, y, drawW, drawH, undefined, "FAST");
+
+    const blob = pdf.output("blob");
     if (!blob || !blob.size) throw new Error("PDF vacío");
     return blob;
   } finally {
