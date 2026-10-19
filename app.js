@@ -7272,10 +7272,11 @@ function monoEmployeeAttendanceKey(assignment) {
   return name ? `name:${name}` : "";
 }
 
-/** Agrega asistencia por empleado a partir de los reportes Monorriel en un rango. */
-function buildMonoEmployeeAttendance(fromDate, toDate) {
+/** Agrega asistencia por empleado. shiftFilter: "am" | "pm" | "" (todos). */
+function buildMonoEmployeeAttendance(fromDate, toDate, shiftFilter = "") {
   const from = String(fromDate || "").slice(0, 10);
   const to = String(toDate || "").slice(0, 10);
+  const want = shiftFilter === "pm" || shiftFilter === "am" ? shiftFilter : "";
   const map = new Map();
   (monorrielReports || []).forEach((report) => {
     const d = String(report.date || "").slice(0, 10);
@@ -7283,6 +7284,7 @@ function buildMonoEmployeeAttendance(fromDate, toDate) {
     if (from && d < from) return;
     if (to && d > to) return;
     const shift = report.shift === "pm" ? "pm" : "am";
+    if (want && shift !== want) return;
     (report.assignments || []).forEach((a) => {
       const name = String(a.employeeName || "").trim();
       if (!name) return;
@@ -7315,11 +7317,10 @@ function buildMonoEmployeeAttendance(fromDate, toDate) {
       });
       const dayDetails = days.map((d) => {
         const shifts = [...(byDay.get(d) || [])].sort();
-        return {
-          date: d,
-          shifts,
-          label: `${d} (${shifts.map((s) => (s === "pm" ? "PM" : "AM")).join("+")})`,
-        };
+        const label = want
+          ? d
+          : `${d} (${shifts.map((s) => (s === "pm" ? "PM" : "AM")).join("+")})`;
+        return { date: d, shifts, label };
       });
       return {
         employeeId: row.employeeId,
@@ -7328,6 +7329,7 @@ function buildMonoEmployeeAttendance(fromDate, toDate) {
         days,
         dayDetails,
         shiftsCount: row.entries.length,
+        shiftFilter: want || "",
       };
     })
     .sort(
@@ -7335,6 +7337,26 @@ function buildMonoEmployeeAttendance(fromDate, toDate) {
         b.daysCount - a.daysCount ||
         String(a.name).localeCompare(String(b.name), "es")
     );
+}
+
+/** Pestaña activa del resumen: am (día) o pm (noche). */
+let monoSummaryShiftTab = "am";
+
+function getMonoSummaryShiftTab() {
+  return monoSummaryShiftTab === "pm" ? "pm" : "am";
+}
+
+function setMonoSummaryShiftTab(shift) {
+  monoSummaryShiftTab = shift === "pm" ? "pm" : "am";
+  document.querySelectorAll(".mono-summary-tabs .emp-tab[data-mono-summary-shift]").forEach((btn) => {
+    const on = btn.dataset.monoSummaryShift === monoSummaryShiftTab;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+}
+
+function monoSummaryShiftTitle(shift) {
+  return shift === "pm" ? "Noche (P.M.)" : "Día (A.M.)";
 }
 
 function getMonoSummaryRangeFromDom() {
@@ -7373,21 +7395,31 @@ function renderMonoEmployeeSummary() {
   const body = document.getElementById("monoEmployeeSummaryBody");
   const hint = document.getElementById("monoSummaryHint");
   if (!body) return;
+  setMonoSummaryShiftTab(getMonoSummaryShiftTab());
+  const shift = getMonoSummaryShiftTab();
   const { from, to } = getMonoSummaryRangeFromDom();
-  const rows = buildMonoEmployeeAttendance(from, to);
+  const rows = buildMonoEmployeeAttendance(from, to, shift);
+  const shiftReports = (monorrielReports || []).filter((r) => {
+    const d = String(r.date || "").slice(0, 10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return (r.shift === "pm" ? "pm" : "am") === shift;
+  }).length;
   if (hint) {
     const span =
       from || to
         ? `${from || "…"} → ${to || "…"}`
         : "todos los reportes";
-    hint.textContent = `${rows.length} empleado(s) · ${monorrielReports.length} reporte(s) en historial · rango ${span}`;
+    hint.textContent = `${monoSummaryShiftTitle(shift)} · ${rows.length} empleado(s) · ${shiftReports} reporte(s) de ese turno · rango ${span}`;
   }
   if (!rows.length) {
-    body.innerHTML = `<p class="empty">No hay asistencia en ese rango. Crea reportes Monorriel por fecha y vuelve a consultar.</p>`;
+    body.innerHTML = `<p class="empty">No hay asistencia de <strong>${escapeHtml(
+      monoSummaryShiftTitle(shift)
+    )}</strong> en ese rango. Revisa los reportes diarios de ese turno.</p>`;
     return;
   }
   body.innerHTML = `<div class="schedule-wrap"><table class="schedule-table">
-    <thead><tr><th>Empleado</th><th>Días</th><th>Turnos</th><th>Fechas trabajadas</th></tr></thead>
+    <thead><tr><th>Empleado</th><th>Días</th><th>Puestos</th><th>Fechas trabajadas</th></tr></thead>
     <tbody>${rows
       .map(
         (r) => `<tr>
@@ -7402,9 +7434,11 @@ function renderMonoEmployeeSummary() {
 }
 
 function printMonoEmployeeSummary() {
+  const shift = getMonoSummaryShiftTab();
   const { from, to } = getMonoSummaryRangeFromDom();
-  const rows = buildMonoEmployeeAttendance(from, to);
+  const rows = buildMonoEmployeeAttendance(from, to, shift);
   const span = from || to ? `${from || "…"} → ${to || "…"}` : "todos";
+  const shiftTitle = monoSummaryShiftTitle(shift);
   const tableRows = rows
     .map(
       (r) => `<tr>
@@ -7416,11 +7450,13 @@ function printMonoEmployeeSummary() {
     )
     .join("");
   openPrintWindow(
-    "Resumen Monorriel por empleado",
-    `<h2>Asistencia Monorriel por empleado</h2>
-    <p class="muted">Rango: ${escapeHtml(span)} · ${rows.length} empleado(s)</p>
+    `Resumen Monorriel · ${shiftTitle}`,
+    `<h2>Asistencia Monorriel · ${escapeHtml(shiftTitle)}</h2>
+    <p class="muted">Rango: ${escapeHtml(span)} · ${rows.length} empleado(s) · según reportes diarios ${
+      shift === "pm" ? "P.M." : "A.M."
+    }</p>
     <table class="print-table">
-      <thead><tr><th>Empleado</th><th>Días</th><th>Turnos</th><th>Fechas (AM/PM)</th></tr></thead>
+      <thead><tr><th>Empleado</th><th>Días</th><th>Puestos</th><th>Fechas</th></tr></thead>
       <tbody>${tableRows || `<tr><td colspan="4">Sin datos</td></tr>`}</tbody>
     </table>`
   );
@@ -7491,6 +7527,14 @@ function bindMonorrielUi() {
   });
   ["monoSummaryFrom", "monoSummaryTo"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", renderMonoEmployeeSummary);
+  });
+  document.querySelectorAll(".mono-summary-tabs .emp-tab[data-mono-summary-shift]").forEach((btn) => {
+    if (btn.dataset.monoSummaryBound === "1") return;
+    btn.dataset.monoSummaryBound = "1";
+    btn.addEventListener("click", () => {
+      setMonoSummaryShiftTab(btn.dataset.monoSummaryShift);
+      renderMonoEmployeeSummary();
+    });
   });
 }
 /* ==== FIN MÓDULO MONORRIEL ==== */
@@ -12144,7 +12188,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=167").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=168").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
