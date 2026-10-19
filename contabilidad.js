@@ -3555,15 +3555,23 @@ function buildPayrollReceiptTicketHtml(p, line) {
     ? `${groupMeta.short} · ${tandaMeta.short} · ${halfLabel(p.half || 1)}`
     : `${groupMeta.short} · ${halfLabel(p.half || 1)}`;
   const extras = roundMoney2((Number(l.horasExtras) || 0) + (Number(l.feriado) || 0));
-  const comida = roundMoney2((Number(l.almuerzo) || 0) + (Number(l.svda) || 0));
+  // SVDA fijo 90 = seguro de vida (no es comida). Comida = solo almuerzo editable.
+  const comida = roundMoney2(Number(l.almuerzo) || 0);
+  const seguroVida = roundMoney2(Number(l.svda) || 0);
   const unifRifa = roundMoney2((Number(l.uniformes) || 0) + (Number(l.rifa) || 0));
+  const mealOrInsuranceRows = seguroVida
+    ? [
+        ["Seguro de vida", seguroVida],
+        ["Cena / Comida", comida],
+      ]
+    : [["Cena / Comida", comida]];
   const rows = [
     ["Sueldo bruto", l.salaryQuincena],
     ["SFS / SVDS", l.sfs],
     ["Incentivos", l.incentivos],
     ["Volao", l.volaos],
     ["Hrs extras / feriado", extras],
-    ["Cena / Comida", comida],
+    ...mealOrInsuranceRows,
     ["Unif / Rifa", unifRifa],
     ["Adelantos", l.adelantos],
     ["Prestamos", l.prestamos],
