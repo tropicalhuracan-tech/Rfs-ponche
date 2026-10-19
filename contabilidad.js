@@ -3437,13 +3437,14 @@ function payrollReceiptPayDateLabel(p) {
 }
 
 function payrollReceiptCss() {
-  // Epson TM-U220: rollo ~76 mm. Sin logo (impacto/punto no sirve para gráficos grandes).
+  // Epson TM-U220: rollo ~76 mm. Cambria 10 pt, negrita fuerte; espacio entre tickets para cortar.
   return `
     @page{size:76mm auto;margin:2mm}
     html,body.print-recibo{
       width:72mm !important;max-width:72mm !important;margin:0 auto !important;
       padding:1mm !important;background:#fff !important;color:#000 !important;
-      font-family:"Courier New",Courier,monospace;font-size:11px;line-height:1.25
+      font-family:Cambria, "Times New Roman", Times, serif;
+      font-size:10pt;line-height:1.3;font-weight:700;-webkit-font-smoothing:none
     }
     body.print-recibo .brand,
     body.print-recibo .print-bar + #rfsPrintRoot > .brand,
@@ -3451,36 +3452,43 @@ function payrollReceiptCss() {
     body.print-recibo #rfsPrintRoot > .footer{display:none !important}
     .recibo-ticket{
       width:100%;box-sizing:border-box;page-break-after:always;break-after:page;
-      padding:0 0 4mm;color:#000
+      padding:0 0 10mm;margin:0 0 6mm;color:#000;
+      border-bottom:1px dashed #000
     }
-    .recibo-ticket:last-child{page-break-after:auto;break-after:auto}
-    .recibo-ticket .co{text-align:center;font-weight:900;font-size:12px;letter-spacing:0.02em;margin:0 0 2px}
-    .recibo-ticket .title{text-align:center;font-weight:900;font-size:13px;margin:0 0 6px;text-transform:uppercase}
-    .recibo-ticket .meta-line{margin:0 0 2px;font-size:11px}
+    .recibo-ticket:last-child{
+      page-break-after:auto;break-after:auto;border-bottom:0;margin-bottom:0;padding-bottom:4mm
+    }
+    .recibo-ticket .co{
+      text-align:center;font-weight:900;font-size:11pt;letter-spacing:0.02em;margin:0 0 3px
+    }
+    .recibo-ticket .title{
+      text-align:center;font-weight:900;font-size:12pt;margin:0 0 6px;text-transform:uppercase
+    }
+    .recibo-ticket .meta-line{margin:0 0 3px;font-size:10pt;font-weight:700}
     .recibo-ticket .meta-line strong{font-weight:900}
     .recibo-ticket table{
       width:100%;border-collapse:collapse;margin:6px 0 8px;table-layout:fixed
     }
     .recibo-ticket th,.recibo-ticket td{
-      border:1px solid #000;padding:3px 4px;vertical-align:middle;font-size:11px
+      border:1.5px solid #000;padding:4px 5px;vertical-align:middle;font-size:10pt;font-weight:700
     }
     .recibo-ticket th{font-weight:900;text-align:center;background:#fff}
-    .recibo-ticket td.desc{text-align:left;width:62%}
-    .recibo-ticket td.amt{text-align:right;width:38%;font-variant-numeric:tabular-nums}
+    .recibo-ticket td.desc{text-align:left;width:62%;font-weight:700}
+    .recibo-ticket td.amt{text-align:right;width:38%;font-weight:900;font-variant-numeric:tabular-nums}
     .recibo-ticket .neto{
-      font-weight:900;font-size:12px;margin:4px 0 10px;text-align:left
+      font-weight:900;font-size:11pt;margin:6px 0 12px;text-align:left
     }
     .recibo-ticket .signs{
-      display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px
+      display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px
     }
     .recibo-ticket .sign-line{
-      border-top:1px solid #000;margin-top:22px;padding-top:3px;text-align:center;font-size:10px
+      border-top:1.5px solid #000;margin-top:24px;padding-top:4px;text-align:center;font-size:10pt;font-weight:700
     }
-    .recibo-ticket .group-tag{text-align:center;font-size:10px;margin:0 0 4px}
+    .recibo-ticket .group-tag{text-align:center;font-size:10pt;font-weight:700;margin:0 0 5px}
     @media print{
       html,body.print-recibo{padding:0 !important;margin:0 auto !important;width:72mm !important}
-      .recibo-ticket{page-break-after:always}
-      .recibo-ticket:last-child{page-break-after:auto}
+      .recibo-ticket{page-break-after:always;padding-bottom:10mm;margin-bottom:6mm}
+      .recibo-ticket:last-child{page-break-after:auto;margin-bottom:0}
     }
   `;
 }
