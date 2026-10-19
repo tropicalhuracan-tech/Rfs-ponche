@@ -2522,13 +2522,9 @@ function recalculateOpenPayroll(save = false) {
   const opts = payrollComputeOpts(p);
   const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
   if (payDate && p.payDate !== payDate) p.payDate = payDate;
-  let workLines = lines;
-  if (p.group === "monorriel") {
-    workLines = applyMonorrielLoanDeductionsToLines(lines, payDate, {
-      forceClear: true,
-      skipManual: true,
-    });
-  }
+  // No reaplicar préstamos auto aquí: respeta lo escrito en la casilla Préstamos.
+  // Para cuotas del módulo usar «Cargar préstamos».
+  const workLines = lines;
   p.lines = workLines.map((l) => {
     if (isManualPayrollLine(l)) {
       return computePayrollLineTotals(l, opts);
@@ -2571,16 +2567,12 @@ function saveOpenPayrollEdits() {
   // Respaldo del estado anterior antes de sobrescribir
   snapshotPayrollBackup(p, "save");
   const opts = payrollComputeOpts(p);
-  let workLines = lines.map((l) => computePayrollLineTotalsForPayroll(p, l));
+  // Conservar Préstamos tecleados; «Cargar préstamos» es el único que pisa con cuotas auto.
   if (p.group === "monorriel") {
     const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
     if (payDate) p.payDate = payDate;
-    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, {
-      forceClear: true,
-      skipManual: true,
-    }).map((l) => computePayrollLineTotals(l, opts));
   }
-  p.lines = workLines;
+  p.lines = lines.map((l) => computePayrollLineTotalsForPayroll(p, l));
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   renderNominaTab();
@@ -3314,8 +3306,8 @@ function resolveJsPdfConstructor() {
 }
 
 /**
- * PDF nómina = mismo HTML/CSS que Imprimir, en hoja Legal (o Carta oficina) horizontal,
- * contenido a ancho de página y centrado (como la foto de referencia).
+ * PDF nómina = mismo HTML/CSS que Imprimir, Legal/Carta horizontal.
+ * Host en la página (como cotizaciones): más fiable que iframe en móvil/PWA.
  */
 async function buildPayrollPdfBlob(p) {
   if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
@@ -3332,42 +3324,30 @@ async function buildPayrollPdfBlob(p) {
     }
   })();
   const printCss = payrollPrintCss(page.format, { office: isOffice, lavega: isLavega });
-  // Mismo documento / CSS que Imprimir (openPrintWindow + payrollPrintCss)
-  const docHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
-<style>
+  const host = document.createElement("div");
+  host.setAttribute("data-rfs-payroll-pdf", "1");
+  host.className = "print-nomina";
+  host.style.cssText =
+    "position:fixed;left:0;top:0;width:" +
+    page.cssPx +
+    "px;max-width:" +
+    page.cssPx +
+    "px;background:#fff;color:#111;padding:8px 10px;box-sizing:border-box;opacity:0;pointer-events:none;z-index:2147483000;-webkit-print-color-adjust:exact;print-color-adjust:exact;";
+  host.innerHTML = `<style>
 ${printCss}
-html,body{margin:0;padding:0;background:#fff !important;color:#111 !important}
-body.print-nomina{
-  width:${page.cssPx}px !important;max-width:${page.cssPx}px !important;
-  padding:8px 10px !important;box-sizing:border-box;
-  -webkit-print-color-adjust:exact;print-color-adjust:exact;
-}
-#rfsPrintRoot{width:100% !important;max-width:100% !important;align-items:stretch}
-/* Misma marca que la ventana de impresión / foto: logo a la izquierda */
-.brand{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;margin:0 auto 8px;text-align:left}
-.brand img{width:${isOffice ? 48 : 42}px;height:${isOffice ? 48 : 42}px;object-fit:contain;border:0;flex:0 0 auto}
-.brand > div{text-align:center}
-.brand h1{font-size:${isOffice ? 18 : 16}px;font-weight:900;margin:0;color:#111 !important}
-.brand .cap{font-size:12px;color:#111 !important}
-h2.nomina-print-title,body.print-nomina h2{
-  color:#fff !important;background:#b71c1c !important;
-  padding:6px 10px;margin:0 0 6px;text-align:center;font-weight:900;font-size:12px
-}
-table.nomina-print{width:100% !important;max-width:100% !important}
-table.nomina-print th{color:${isOffice || isLavega ? "#fff" : "#111"} !important;background:${
-    isOffice || isLavega ? "#b71c1c" : "#e8e8e8"
-  } !important}
-table.nomina-print td,table.nomina-print td *,table.nomina-print tfoot td,table.nomina-print tfoot td *{
-  color:#111 !important
-}
-table.nomina-print tfoot td{background:${isOffice || isLavega ? "#ffe082" : "#efefef"} !important}
-table.nomina-print-lavega td.col-name,table.nomina-print-office td.col-name,
-table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{color:#0d47a1 !important}
-.meta{color:#111 !important}
-.meta *{color:#111 !important}
-.sign-line,.footer{color:#111 !important}
-</style></head>
-<body class="print-nomina">
+[data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important}
+[data-rfs-payroll-pdf] .brand{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;margin:0 auto 8px}
+[data-rfs-payroll-pdf] .brand img{width:${isOffice ? 48 : 42}px;height:${isOffice ? 48 : 42}px;object-fit:contain;border:0}
+[data-rfs-payroll-pdf] .brand > div{text-align:center}
+[data-rfs-payroll-pdf] .brand h1{font-size:${isOffice ? 18 : 16}px;font-weight:900;margin:0;color:#111 !important}
+[data-rfs-payroll-pdf] .brand .cap{font-size:12px;color:#111 !important}
+[data-rfs-payroll-pdf] h2.nomina-print-title{color:#fff !important;background:#b71c1c !important;padding:6px 10px;margin:0 0 6px;text-align:center;font-weight:900;font-size:12px}
+[data-rfs-payroll-pdf] table.nomina-print{width:100% !important;max-width:100% !important}
+[data-rfs-payroll-pdf] table.nomina-print td,
+[data-rfs-payroll-pdf] table.nomina-print tfoot td{color:#111 !important}
+[data-rfs-payroll-pdf] table.nomina-print-lavega td.col-name,
+[data-rfs-payroll-pdf] table.nomina-print-office td.col-name{color:#0d47a1 !important}
+</style>
 <div id="rfsPrintRoot">
   <div class="brand">
     <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous"/>
@@ -3377,32 +3357,14 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
     </div>
   </div>
   ${buildPayrollPrintHtml(p)}
-</div>
-</body></html>`;
-
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("data-rfs-payroll-pdf-frame", "1");
-  iframe.style.cssText =
-    "position:fixed;left:0;top:0;width:" +
-    page.cssPx +
-    "px;height:900px;opacity:0.01;pointer-events:none;border:0;z-index:2147483000;background:#fff";
-  document.body.appendChild(iframe);
+</div>`;
+  document.body.appendChild(host);
   try {
-    const idoc = iframe.contentDocument || iframe.contentWindow.document;
-    idoc.open();
-    idoc.write(docHtml);
-    idoc.close();
-    await new Promise((r) => setTimeout(r, 80));
-    if (typeof waitForImages === "function") await waitForImages(idoc);
+    if (typeof waitForImages === "function") await waitForImages(host);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const root = idoc.getElementById("rfsPrintRoot");
-    if (!root) throw new Error("Sin contenido de impresión");
-    const fullH = Math.max(root.scrollHeight || 0, root.offsetHeight || 0, 400);
-    iframe.style.height = `${fullH + 40}px`;
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
+    const root = host.querySelector("#rfsPrintRoot") || host;
     const canvasOpt = {
-      scale: 1.75,
+      scale: 1.6,
       useCORS: true,
       allowTaint: true,
       logging: false,
@@ -3413,10 +3375,11 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
       scrollY: 0,
       onclone: (clonedDoc) => {
         try {
-          const body = clonedDoc.body;
-          if (body) {
-            body.style.setProperty("background", "#ffffff", "important");
-            body.style.setProperty("color", "#111111", "important");
+          const node = clonedDoc.querySelector("[data-rfs-payroll-pdf]");
+          if (node) {
+            node.style.setProperty("opacity", "1", "important");
+            node.style.setProperty("background", "#ffffff", "important");
+            node.style.setProperty("color", "#111111", "important");
           }
           clonedDoc.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
             td.style.setProperty("color", "#111111", "important");
@@ -3430,12 +3393,6 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
             h.style.setProperty("color", "#ffffff", "important");
             h.style.setProperty("background", "#b71c1c", "important");
           });
-          clonedDoc.querySelectorAll("table.nomina-print th").forEach((th) => {
-            const colored =
-              th.closest("table.nomina-print-lavega") || th.closest("table.nomina-print-office");
-            th.style.setProperty("color", colored ? "#ffffff" : "#111111", "important");
-            th.style.setProperty("background", colored ? "#b71c1c" : "#e8e8e8", "important");
-          });
         } catch (_) {}
       },
     };
@@ -3448,24 +3405,36 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
     if (!canvas || !canvas.width) throw new Error("Captura PDF vacía");
 
     const JsPDF = resolveJsPdfConstructor();
-    if (!JsPDF) throw new Error("jsPDF no disponible");
-    // [ancho>alto] + portrait = hoja horizontal real (evita que jsPDF invierta a vertical)
     const pageFormat = [page.widthMm, page.heightMm];
-    let pdf = new JsPDF({ unit: "mm", format: pageFormat, orientation: "portrait" });
-    if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
-      pdf = new JsPDF({ unit: "mm", format: page.format, orientation: "landscape" });
+    let pdf = null;
+    if (JsPDF) {
+      pdf = new JsPDF({ unit: "mm", format: pageFormat, orientation: "portrait" });
+      if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
+        pdf = new JsPDF({ unit: "mm", format: page.format, orientation: "landscape" });
+      }
+    }
+    if (!pdf) {
+      // Fallback: html2pdf directo (misma hoja horizontal)
+      const blob = await html2pdf()
+        .set({
+          margin: [page.marginMm, page.marginMm, page.marginMm, page.marginMm],
+          filename: payrollPdfFileName(p),
+          image: { type: "jpeg", quality: 0.95 },
+          html2canvas: canvasOpt,
+          jsPDF: { unit: "mm", format: page.format, orientation: "landscape" },
+          pagebreak: { mode: ["css", "legacy"] },
+        })
+        .from(root)
+        .outputPdf("blob");
+      if (!blob || !blob.size) throw new Error("PDF vacío");
+      return blob;
     }
 
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
-    if (pageW < pageH) {
-      throw new Error("PDF quedó vertical; reintenta o usa Imprimir → Guardar como PDF");
-    }
-
     const margin = page.marginMm;
-    const maxW = pageW - margin * 2;
-    const maxH = pageH - margin * 2;
-    // Misma escala que la impresión: ancho completo; si no cabe, varias hojas (no achicar todo)
+    const maxW = Math.max(10, pageW - margin * 2);
+    const maxH = Math.max(10, pageH - margin * 2);
     const drawW = maxW;
     const pxPerMm = canvas.width / drawW;
     const sliceHpx = Math.max(1, Math.floor(maxH * pxPerMm));
@@ -3473,12 +3442,8 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
     let pageIndex = 0;
     while (srcY < canvas.height - 0.5) {
       if (pageIndex > 0) {
-        // Misma hoja horizontal que la primera página
-        if (pageFormat[0] > pageFormat[1]) {
-          pdf.addPage(pageFormat, "portrait");
-        } else {
-          pdf.addPage(page.format, "landscape");
-        }
+        if (pageFormat[0] > pageFormat[1]) pdf.addPage(pageFormat, "portrait");
+        else pdf.addPage(page.format, "landscape");
       }
       const hPx = Math.min(sliceHpx, canvas.height - srcY);
       const slice = document.createElement("canvas");
@@ -3489,12 +3454,12 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
       ctx.fillRect(0, 0, slice.width, slice.height);
       ctx.drawImage(canvas, 0, srcY, canvas.width, hPx, 0, 0, canvas.width, hPx);
       const drawH = hPx / pxPerMm;
-      const x = (pageW - drawW) / 2;
+      const x = (Math.max(pageW, pdf.internal.pageSize.getWidth()) - drawW) / 2;
       const y = margin;
-      const curW = pdf.internal.pageSize.getWidth();
-      const curH = pdf.internal.pageSize.getHeight();
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, 0, curW, curH, "F");
+      try {
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), "F");
+      } catch (_) {}
       pdf.addImage(slice.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
       srcY += hPx;
       pageIndex += 1;
@@ -3505,7 +3470,7 @@ table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{
     if (!blob || !blob.size) throw new Error("PDF vacío");
     return blob;
   } finally {
-    iframe.remove();
+    host.remove();
   }
 }
 
@@ -3560,13 +3525,15 @@ async function downloadOpenPayrollPdf() {
       const a = document.createElement("a");
       a.href = url;
       a.download = name;
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 2500);
     }
     toast("PDF descargado.");
   } catch (err) {
     console.error(err);
-    toast("No se pudo crear el PDF. Prueba Imprimir → Guardar como PDF.");
+    toast("No se pudo crear el PDF. Revisa la conexión e inténtalo de nuevo.");
   }
 }
 
@@ -3617,8 +3584,7 @@ async function shareOpenPayrollSheet(mode = "share") {
     toast("PDF descargado. Adjúntalo en WhatsApp.");
   } catch (err) {
     console.error(err);
-    printOpenPayrollSheet();
-    toast("Abre Descargar PDF o Correo PDF en la barra de impresión.");
+    toast("No se pudo preparar el PDF. Usa Descargar PDF e intenta de nuevo.");
   }
 }
 
@@ -3800,13 +3766,10 @@ function applyPayrollLiveUpdate(ev) {
     }
     return computePayrollLineTotals(l, opts);
   });
+  // Monorriel: no pisar Préstamos en vivo (el usuario puede teclear montos).
   if (p.group === "monorriel") {
     const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
     if (payDate) p.payDate = payDate;
-    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, {
-      forceClear: true,
-      skipManual: true,
-    }).map((l) => computePayrollLineTotals(l, opts));
   }
   p.lines = workLines;
   p.updatedAt = new Date().toISOString();
@@ -3937,6 +3900,9 @@ function renderNominaTab() {
             <button type="button" class="btn secondary btn-pay-print" data-id="${escapeHtml(
               p.id
             )}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir</button>
+            <button type="button" class="btn secondary btn-pay-download" data-id="${escapeHtml(
+              p.id
+            )}" style="width:auto;padding:8px 10px;font-size:12px">Descargar PDF</button>
             ${
               p.status === "draft"
                 ? `<button type="button" class="btn primary btn-pay-paid" data-id="${escapeHtml(
@@ -3978,6 +3944,23 @@ function renderNominaTab() {
         }
         renderNominaTab();
         setTimeout(() => printOpenPayrollSheet(), 50);
+      })
+    );
+    list.querySelectorAll(".btn-pay-download").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        selectedPayrollId = btn.dataset.id;
+        const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
+        if (p && halfSel) halfSel.value = String(p.half || 1);
+        if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
+        const tandaSel = document.getElementById("contabPayrollMonoTanda");
+        if (p && p.group === "monorriel" && tandaSel) {
+          syncMonorrielTandaUi("monorriel");
+          tandaSel.value = normalizeMonorrielTandaId(p.tanda);
+        }
+        renderNominaTab();
+        setTimeout(() => {
+          downloadOpenPayrollPdf().catch(() => {});
+        }, 50);
       })
     );
     list.querySelectorAll(".btn-pay-paid").forEach((btn) =>
@@ -4117,20 +4100,8 @@ function renderNominaTab() {
       saveContabilidadData(true);
     }
   }
-  // Monorriel: al abrir la tabla, pasar cuotas de préstamo a la columna Préstamos
-  if (payrollIsMonorriel(p) && p.status !== "paid") {
-    refreshMonorrielPayrollLoanDeductions._inRender = true;
-    try {
-      const loanSync = syncMonorrielPayrollLoanDeductions(p, true);
-      if (loanSync.changed) {
-        try {
-          saveContabilidadData(true);
-        } catch (_) {}
-      }
-    } finally {
-      refreshMonorrielPayrollLoanDeductions._inRender = false;
-    }
-  }
+  // Monorriel: no reescribir Préstamos al abrir/renderizar (borra lo tecleado).
+  // Usar el botón «Cargar préstamos» o regenerar la nómina para cuotas auto.
   const cols = getPayrollEditorCols(p);
   const formulaProfile = getPayrollFormulaProfile(p);
   const lines = p.lines || [];
