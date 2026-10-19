@@ -3307,7 +3307,8 @@ function resolveJsPdfConstructor() {
 
 /**
  * PDF nómina = mismo HTML/CSS que Imprimir, Legal/Carta horizontal.
- * Host en la página (como cotizaciones): más fiable que iframe en móvil/PWA.
+ * Importante: capturar el HOST (incluye <style>) y forzar tamaño del logo en línea
+ * (logo.jpg es 1500×1500; sin CSS en el clone salía gigante solo el logo).
  */
 async function buildPayrollPdfBlob(p) {
   if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
@@ -3316,6 +3317,7 @@ async function buildPayrollPdfBlob(p) {
   const isOffice = payrollIsOffice(p);
   const isLavega = payrollUsesLvaParams(p);
   const caption = payrollShareCaption(p);
+  const logoPx = isOffice ? 48 : 42;
   const logoUrl = (() => {
     try {
       return new URL("logo.jpg", window.location.href).href;
@@ -3327,21 +3329,27 @@ async function buildPayrollPdfBlob(p) {
   const host = document.createElement("div");
   host.setAttribute("data-rfs-payroll-pdf", "1");
   host.className = "print-nomina";
+  // Fuera de pantalla pero visible para html2canvas (opacity:0 rompe la captura)
   host.style.cssText =
-    "position:fixed;left:0;top:0;width:" +
+    "position:fixed;left:-14000px;top:0;width:" +
     page.cssPx +
     "px;max-width:" +
     page.cssPx +
-    "px;background:#fff;color:#111;padding:8px 10px;box-sizing:border-box;opacity:0;pointer-events:none;z-index:2147483000;-webkit-print-color-adjust:exact;print-color-adjust:exact;";
+    "px;background:#fff;color:#111;padding:8px 10px;box-sizing:border-box;pointer-events:none;z-index:-1;-webkit-print-color-adjust:exact;print-color-adjust:exact;";
   host.innerHTML = `<style>
 ${printCss}
-[data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important}
+[data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important;width:${page.cssPx}px !important}
 [data-rfs-payroll-pdf] .brand{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;margin:0 auto 8px}
-[data-rfs-payroll-pdf] .brand img{width:${isOffice ? 48 : 42}px;height:${isOffice ? 48 : 42}px;object-fit:contain;border:0}
+[data-rfs-payroll-pdf] .brand img{
+  width:${logoPx}px !important;height:${logoPx}px !important;
+  max-width:${logoPx}px !important;max-height:${logoPx}px !important;
+  object-fit:contain !important;border:0 !important;display:block !important
+}
 [data-rfs-payroll-pdf] .brand > div{text-align:center}
 [data-rfs-payroll-pdf] .brand h1{font-size:${isOffice ? 18 : 16}px;font-weight:900;margin:0;color:#111 !important}
 [data-rfs-payroll-pdf] .brand .cap{font-size:12px;color:#111 !important}
 [data-rfs-payroll-pdf] h2.nomina-print-title{color:#fff !important;background:#b71c1c !important;padding:6px 10px;margin:0 0 6px;text-align:center;font-weight:900;font-size:12px}
+[data-rfs-payroll-pdf] #rfsPrintRoot{width:100% !important;background:#fff;color:#111}
 [data-rfs-payroll-pdf] table.nomina-print{width:100% !important;max-width:100% !important}
 [data-rfs-payroll-pdf] table.nomina-print td,
 [data-rfs-payroll-pdf] table.nomina-print tfoot td{color:#111 !important}
@@ -3350,7 +3358,8 @@ ${printCss}
 </style>
 <div id="rfsPrintRoot">
   <div class="brand">
-    <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous"/>
+    <img src="${escapeHtml(logoUrl)}" alt="RFS" width="${logoPx}" height="${logoPx}" crossorigin="anonymous"
+      style="width:${logoPx}px;height:${logoPx}px;max-width:${logoPx}px;max-height:${logoPx}px;object-fit:contain;display:block;border:0"/>
     <div>
       <h1>Reaction Force Security</h1>
       <div class="cap">${escapeHtml(caption)}</div>
@@ -3362,9 +3371,10 @@ ${printCss}
   try {
     if (typeof waitForImages === "function") await waitForImages(host);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const root = host.querySelector("#rfsPrintRoot") || host;
+    // Capturar HOST (incluye <style>). Capturar solo #rfsPrintRoot dejaba el logo a 1500px.
+    const target = host;
     const canvasOpt = {
-      scale: 1.6,
+      scale: 1.5,
       useCORS: true,
       allowTaint: true,
       logging: false,
@@ -3377,10 +3387,21 @@ ${printCss}
         try {
           const node = clonedDoc.querySelector("[data-rfs-payroll-pdf]");
           if (node) {
+            node.style.setProperty("left", "0", "important");
             node.style.setProperty("opacity", "1", "important");
             node.style.setProperty("background", "#ffffff", "important");
             node.style.setProperty("color", "#111111", "important");
+            node.style.setProperty("width", page.cssPx + "px", "important");
           }
+          clonedDoc.querySelectorAll("[data-rfs-payroll-pdf] .brand img, .brand img").forEach((img) => {
+            img.setAttribute("width", String(logoPx));
+            img.setAttribute("height", String(logoPx));
+            img.style.setProperty("width", logoPx + "px", "important");
+            img.style.setProperty("height", logoPx + "px", "important");
+            img.style.setProperty("max-width", logoPx + "px", "important");
+            img.style.setProperty("max-height", logoPx + "px", "important");
+            img.style.setProperty("object-fit", "contain", "important");
+          });
           clonedDoc.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
             td.style.setProperty("color", "#111111", "important");
           });
@@ -3399,10 +3420,16 @@ ${printCss}
 
     const canvas = await html2pdf()
       .set({ html2canvas: canvasOpt })
-      .from(root)
+      .from(target)
       .toCanvas()
       .get("canvas");
     if (!canvas || !canvas.width) throw new Error("Captura PDF vacía");
+    // Si solo salió el logo (casi cuadrado ~1500px), fallar claro en vez de un PDF inútil
+    const table = host.querySelector("table.nomina-print");
+    const tableW = table ? table.scrollWidth || table.offsetWidth : 0;
+    if (tableW > 200 && canvas.width < 400 && canvas.height > canvas.width * 0.8) {
+      throw new Error("Captura incompleta (solo logo)");
+    }
 
     const JsPDF = resolveJsPdfConstructor();
     const pageFormat = [page.widthMm, page.heightMm];
@@ -3414,7 +3441,6 @@ ${printCss}
       }
     }
     if (!pdf) {
-      // Fallback: html2pdf directo (misma hoja horizontal)
       const blob = await html2pdf()
         .set({
           margin: [page.marginMm, page.marginMm, page.marginMm, page.marginMm],
@@ -3424,7 +3450,7 @@ ${printCss}
           jsPDF: { unit: "mm", format: page.format, orientation: "landscape" },
           pagebreak: { mode: ["css", "legacy"] },
         })
-        .from(root)
+        .from(target)
         .outputPdf("blob");
       if (!blob || !blob.size) throw new Error("PDF vacío");
       return blob;
