@@ -5038,7 +5038,7 @@ function importLoansSeedFromExcel(opts) {
     toast("No hay data de préstamos para importar.");
     return { imported: 0 };
   }
-  const ver = Number(meta.version) || 147;
+  const ver = Number(meta.version) || 148;
   const prev = Number(localStorage.getItem(LOANS_SEED_FLAG_KEY) || 0);
   if (!force && prev >= ver) return { imported: 0, skipped: true };
 
@@ -11803,7 +11803,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=147").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=148").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

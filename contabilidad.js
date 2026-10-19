@@ -462,10 +462,28 @@ function normalizePayrollLine(l = {}, opts = {}) {
   return { ...base, salary, other, deductions, net, salaryMonthly: salary, redondeo: net, salarioDepositar: net };
 }
 
+/** Fecha de pago canónica 5/20 (corrige borradores viejos con 15/30). */
+function effectivePayrollPayDate(p) {
+  if (!p) return "";
+  const period = monthKeyFromDate(p.period) || String(p.period || "").slice(0, 7);
+  const half = p.half === 2 || p.half === "2" ? 2 : 1;
+  const canonical = /^\d{4}-\d{2}$/.test(period) ? payrollPayDateFor(period, half) : "";
+  const raw = String(p.payDate || "").slice(0, 10);
+  if (!raw) return canonical;
+  const day = Number(String(raw).slice(8, 10));
+  // Solo 5 y 20 son válidos para descuento de préstamos / depósito
+  if (day === 5 || day === 20) {
+    // Si el día es correcto pero no cuadra con la quincena, preferir canónica
+    if (canonical && raw !== canonical) return canonical;
+    return raw;
+  }
+  return canonical || raw;
+}
+
 function normalizePayroll(p = {}) {
   const period = monthKeyFromDate(p.period) || String(p.period || "").slice(0, 7);
-  let payDate = String(p.payDate || "").slice(0, 10);
   const half = p.half === 2 || p.half === "2" ? 2 : 1;
+  let payDate = effectivePayrollPayDate({ ...p, period, half });
   if (!payDate && /^\d{4}-\d{2}$/.test(period)) {
     payDate = payrollPayDateFor(period, half) || payDate;
   }
@@ -1822,15 +1840,19 @@ function applyMonorrielLoanDeductionsToLines(lines, payDate, opts = {}) {
 function syncMonorrielPayrollLoanDeductions(p, forceClear = true) {
   if (!p || p.group !== "monorriel") return { changed: false, applied: 0 };
   if (p.status === "cancelled" || p.status === "paid") return { changed: false, applied: 0 };
-  const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+  // Siempre 5/20: borradores viejos tenían payDate día 15 y no matcheaban cuotas
+  const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
   const opts = typeof payrollComputeOpts === "function" ? payrollComputeOpts(p) : {};
+  const prevPay = String(p.payDate || "").slice(0, 10);
   const prev = JSON.stringify((p.lines || []).map((l) => [l.fullName, Number(l.prestamos) || 0]));
   const nextLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
     forceClear: !!forceClear,
   }).map((l) => computePayrollLineTotals(l, opts));
   const applied = nextLines.filter((l) => (Number(l.prestamos) || 0) > 0).length;
   const next = JSON.stringify(nextLines.map((l) => [l.fullName, Number(l.prestamos) || 0]));
-  if (prev === next) return { changed: false, applied };
+  const payFixed = !!(payDate && payDate !== prevPay);
+  if (prev === next && !payFixed) return { changed: false, applied };
+  if (payDate) p.payDate = payDate;
   p.lines = nextLines;
   p.updatedAt = new Date().toISOString();
   return { changed: true, applied };
@@ -2265,7 +2287,8 @@ function recalculateOpenPayroll(save = false) {
   // Recalcular: La Vega / Monorriel desde días+sueldo; Oficina = sueldo/2 + SFS fijo
   const profile = getPayrollFormulaProfile(p);
   const opts = payrollComputeOpts(p);
-  const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+  const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
+  if (payDate && p.payDate !== payDate) p.payDate = payDate;
   let workLines = lines;
   if (p.group === "monorriel") {
     workLines = applyMonorrielLoanDeductionsToLines(lines, payDate, { forceClear: true });
@@ -2311,7 +2334,8 @@ function saveOpenPayrollEdits() {
   const opts = payrollComputeOpts(p);
   let workLines = lines.map((l) => computePayrollLineTotalsForPayroll(p, l));
   if (p.group === "monorriel") {
-    const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+    const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
+    if (payDate) p.payDate = payDate;
     workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, { forceClear: true }).map((l) =>
       computePayrollLineTotals(l, opts)
     );
@@ -2572,15 +2596,12 @@ function addBlankPayrollRows() {
     const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
     const tandaMeta = group === "monorriel" ? monorrielTandaMeta(tanda) : null;
     const meta = payrollGroupMeta(group);
-    const [y, m] = period.split("-").map(Number);
-    const last = new Date(y, m, 0).getDate();
-    const payDay = half === 1 ? 15 : Math.min(30, last);
     p = normalizePayroll({
       period,
       half,
       group,
       tanda,
-      payDate: `${period}-${String(payDay).padStart(2, "0")}`,
+      payDate: payrollPayDateFor(period, half),
       status: "draft",
       lines: [],
       note:
@@ -3273,7 +3294,8 @@ function applyPayrollLiveUpdate(ev) {
     return computePayrollLineTotals(l, opts);
   });
   if (p.group === "monorriel") {
-    const payDate = p.payDate || payrollPayDateFor(p.period, p.half);
+    const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
+    if (payDate) p.payDate = payDate;
     workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, { forceClear: true }).map((l) =>
       computePayrollLineTotals(l, opts)
     );
