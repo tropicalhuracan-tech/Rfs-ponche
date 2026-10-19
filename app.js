@@ -5849,7 +5849,7 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             },
             pagebreak: { mode: landscape ? ["css", "legacy"] : ["avoid-all", "css", "legacy"] }
           };
-          // Nóminas / hojas anchas: capturar canvas y centrar en Legal/Carta horizontal
+          // Nóminas / hojas anchas: Legal/Carta horizontal a ancho completo; varias páginas si hace falta
           if (landscape && widePdf) {
             return html2pdf().set(opt).from(root).toCanvas().get("canvas").then(function (canvas) {
               if (!canvas || !canvas.width) throw new Error("Captura vacía");
@@ -5865,19 +5865,42 @@ function openPrintWindow(title, bodyHtml, options = {}) {
               }
               var pw = pdf.internal.pageSize.getWidth();
               var ph = pdf.internal.pageSize.getHeight();
+              if (pw < ph) {
+                return html2pdf().set(opt).from(root).outputPdf("blob");
+              }
               var margin = 6;
               var maxW = pw - margin * 2;
               var maxH = ph - margin * 2;
               var drawW = maxW;
-              var drawH = (canvas.height / canvas.width) * drawW;
-              if (drawH > maxH) {
-                drawH = maxH;
-                drawW = (canvas.width / canvas.height) * drawH;
+              var pxPerMm = canvas.width / drawW;
+              var sliceHpx = Math.max(1, Math.floor(maxH * pxPerMm));
+              var srcY = 0;
+              var pageIndex = 0;
+              while (srcY < canvas.height - 0.5) {
+                if (pageIndex > 0) {
+                  if (pageSize[0] > pageSize[1]) pdf.addPage(pageSize, "portrait");
+                  else pdf.addPage(jsFormat, "landscape");
+                }
+                var hPx = Math.min(sliceHpx, canvas.height - srcY);
+                var slice = document.createElement("canvas");
+                slice.width = canvas.width;
+                slice.height = Math.max(1, Math.ceil(hPx));
+                var ctx = slice.getContext("2d");
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, slice.width, slice.height);
+                ctx.drawImage(canvas, 0, srcY, canvas.width, hPx, 0, 0, canvas.width, hPx);
+                var drawH = hPx / pxPerMm;
+                var x = (pw - drawW) / 2;
+                var y = margin;
+                try {
+                  pdf.setFillColor(255, 255, 255);
+                  pdf.rect(0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight(), "F");
+                } catch (e0) {}
+                pdf.addImage(slice.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
+                srcY += hPx;
+                pageIndex += 1;
+                if (pageIndex > 40) break;
               }
-              var x = (pw - drawW) / 2;
-              var y = (ph - drawH) / 2;
-              try { pdf.setFillColor(255, 255, 255); pdf.rect(0, 0, pw, ph, "F"); } catch (e0) {}
-              pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
               return pdf.output("blob");
             }).catch(function () {
               return html2pdf().set(opt).from(root).outputPdf("blob");
@@ -12118,7 +12141,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=153").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=154").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

@@ -3037,7 +3037,7 @@ function buildPayrollPrintHtml(p) {
   const paper = getPayrollPaperForExport(p);
   const paperLabel = paper === "letter" ? "Carta" : "Legal";
   return `
-    <h2 style="margin:0 0 4px;font-size:13px;font-weight:800;color:#111;text-align:center">
+    <h2 class="nomina-print-title">
       NOMINA REACTION · ${escapeHtml(groupTitle)}${escapeHtml(tandaTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
         monthLabel(p.period).toUpperCase()
       )}
@@ -3083,11 +3083,15 @@ function payrollPrintCss(paperSize, options = {}) {
     body.print-nomina .brand{margin:0 auto 8px;justify-content:center;text-align:center;display:flex;align-items:center;gap:10px}
     body.print-nomina .brand img{width:${office ? "44px" : "38px"};height:${office ? "44px" : "38px"}}
     body.print-nomina h1{font-size:${office ? "17px" : "15px"};font-weight:900}
-    body.print-nomina h2{font-size:${office ? "14px" : "13px"};margin:0 0 4px;font-weight:900;text-align:center;color:#111}
+    body.print-nomina h2{
+      font-size:${office ? "13px" : "12px"};margin:0 0 6px;font-weight:900;text-align:center;
+      color:#fff !important;background:#b71c1c !important;padding:6px 10px;letter-spacing:0.02em
+    }
     #rfsPrintRoot{max-width:none;width:100%;min-width:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch;background:#fff;color:#111}
     #rfsPrintRoot > .footer{text-align:center;align-self:center}
-    table.nomina-print{width:${office ? "100%" : "auto"};max-width:100%;border-collapse:collapse;table-layout:auto;font-size:${
-      office ? "11.5px" : "11.5px"
+    /* Ancho completo de la hoja (como la impresión / foto de referencia) */
+    table.nomina-print{width:100% !important;max-width:100%;border-collapse:collapse;table-layout:auto;font-size:${
+      office ? "11px" : "10.5px"
     };margin:0 auto}
     table.nomina-print th,table.nomina-print td{border:1px solid #222;padding:${
       office ? "4px 5px" : "2px 4px"
@@ -3200,9 +3204,23 @@ function payrollPdfPageSpec(p) {
   const isOffice = payrollIsOffice(p);
   // Legal landscape 14×8.5 in → 355.6 × 215.9 mm; Carta landscape 11×8.5 → 279.4 × 215.9 mm
   if (isOffice) {
-    return { format: "letter", orientation: "landscape", widthMm: 279.4, heightMm: 215.9, marginMm: 7 };
+    return {
+      format: "letter",
+      orientation: "landscape",
+      widthMm: 279.4,
+      heightMm: 215.9,
+      marginMm: 6,
+      cssPx: 1100,
+    };
   }
-  return { format: "legal", orientation: "landscape", widthMm: 355.6, heightMm: 215.9, marginMm: 6 };
+  return {
+    format: "legal",
+    orientation: "landscape",
+    widthMm: 355.6,
+    heightMm: 215.9,
+    marginMm: 5,
+    cssPx: 1340,
+  };
 }
 
 function resolveJsPdfConstructor() {
@@ -3216,18 +3234,15 @@ function resolveJsPdfConstructor() {
 }
 
 /**
- * PDF nómina: Legal (o Carta oficina) horizontal, contenido centrado en la hoja.
- * Se arma a mano (html2canvas + jsPDF) porque html2pdf a veces entrega Carta vertical.
+ * PDF nómina = mismo HTML/CSS que Imprimir, en hoja Legal (o Carta oficina) horizontal,
+ * contenido a ancho de página y centrado (como la foto de referencia).
  */
 async function buildPayrollPdfBlob(p) {
   if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
   const html2pdf = await ensureHtml2Pdf();
   const page = payrollPdfPageSpec(p);
-  const fmt = page.format;
   const isOffice = payrollIsOffice(p);
   const isLavega = payrollUsesLvaParams(p);
-  // Lienzo ancho para que Monorriel/La Vega no corten columnas
-  let canvasW = fmt === "legal" ? 1700 : isOffice ? 1200 : 1500;
   const caption = payrollShareCaption(p);
   const logoUrl = (() => {
     try {
@@ -3236,103 +3251,108 @@ async function buildPayrollPdfBlob(p) {
       return "logo.jpg";
     }
   })();
-  const host = document.createElement("div");
-  host.setAttribute("data-rfs-payroll-pdf", "1");
-  // Visible para html2canvas. color/#111 forzado: body de la app es tema oscuro (texto claro).
-  host.style.cssText = `position:fixed;left:0;top:0;width:${canvasW}px;max-width:none;background:#ffffff;color:#111111;padding:${
-    isOffice ? "14px 16px" : "10px 12px"
-  };box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:${
-    isOffice ? "12px" : "11px"
-  };line-height:1.2;z-index:2147483000;pointer-events:none;isolation:isolate;`;
-  host.innerHTML = `
-    <style>${payrollPrintCss(fmt, { office: isOffice, lavega: isLavega })}
-      [data-rfs-payroll-pdf]{background:#fff !important;color:#111 !important}
-      [data-rfs-payroll-pdf] #rfsPdfInner{width:max-content;min-width:100%;max-width:none;box-sizing:border-box;background:#fff !important;color:#111 !important;margin:0 auto}
-      [data-rfs-payroll-pdf] h2,
-      [data-rfs-payroll-pdf] .meta,
-      [data-rfs-payroll-pdf] .meta *,
-      [data-rfs-payroll-pdf] .footer,
-      [data-rfs-payroll-pdf] .sign-line,
-      [data-rfs-payroll-pdf] .brand,
-      [data-rfs-payroll-pdf] .brand *{color:#111 !important}
-      [data-rfs-payroll-pdf] table.nomina-print{width:auto !important;max-width:none !important;margin:0 auto;color:#111 !important}
-      [data-rfs-payroll-pdf] table.nomina-print td,
-      [data-rfs-payroll-pdf] table.nomina-print td *,
-      [data-rfs-payroll-pdf] table.nomina-print tfoot td,
-      [data-rfs-payroll-pdf] table.nomina-print tfoot td *{color:#111 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      [data-rfs-payroll-pdf] table.nomina-print td{background:#fff !important}
-      [data-rfs-payroll-pdf] table.nomina-print th{color:#fff !important;background:#b71c1c !important}
-      [data-rfs-payroll-pdf] table.nomina-print:not(.nomina-print-office):not(.nomina-print-lavega) th{color:#111 !important;background:#e8e8e8 !important}
-      [data-rfs-payroll-pdf] table.nomina-print tfoot td{color:#111 !important;background:#ffe082 !important}
-      [data-rfs-payroll-pdf] table.nomina-print-lavega td.col-name,
-      [data-rfs-payroll-pdf] table.nomina-print-office td.col-name,
-      [data-rfs-payroll-pdf] table.nomina-print-lavega td.col-name *,
-      [data-rfs-payroll-pdf] table.nomina-print-office td.col-name *{color:#0d47a1 !important}
-      [data-rfs-payroll-pdf] .brand{justify-content:center;margin:0 auto 8px;background:transparent !important;border:0 !important;min-width:0}
-    </style>
-    <div id="rfsPdfInner">
-      <div class="brand" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;justify-content:center;color:#111">
-        <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous" style="width:${
-          isOffice ? "48" : "40"
-        }px;height:${isOffice ? "48" : "40"}px;object-fit:contain" />
-        <div style="text-align:left;color:#111">
-          <div style="font-size:${isOffice ? "18" : "15"}px;font-weight:800;margin:0;color:#111">Reaction Force Security</div>
-          <div style="font-size:${isOffice ? "13" : "12"}px;color:#111">${escapeHtml(caption)}</div>
-        </div>
-      </div>
-      ${buildPayrollPrintHtml(p)}
+  const printCss = payrollPrintCss(page.format, { office: isOffice, lavega: isLavega });
+  // Mismo documento / CSS que Imprimir (openPrintWindow + payrollPrintCss)
+  const docHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
+<style>
+${printCss}
+html,body{margin:0;padding:0;background:#fff !important;color:#111 !important}
+body.print-nomina{
+  width:${page.cssPx}px !important;max-width:${page.cssPx}px !important;
+  padding:8px 10px !important;box-sizing:border-box;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact;
+}
+#rfsPrintRoot{width:100% !important;max-width:100% !important;align-items:stretch}
+/* Misma marca que la ventana de impresión / foto: logo a la izquierda */
+.brand{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;margin:0 auto 8px;text-align:left}
+.brand img{width:${isOffice ? 48 : 42}px;height:${isOffice ? 48 : 42}px;object-fit:contain;border:0;flex:0 0 auto}
+.brand > div{text-align:center}
+.brand h1{font-size:${isOffice ? 18 : 16}px;font-weight:900;margin:0;color:#111 !important}
+.brand .cap{font-size:12px;color:#111 !important}
+h2.nomina-print-title,body.print-nomina h2{
+  color:#fff !important;background:#b71c1c !important;
+  padding:6px 10px;margin:0 0 6px;text-align:center;font-weight:900;font-size:12px
+}
+table.nomina-print{width:100% !important;max-width:100% !important}
+table.nomina-print th{color:${isOffice || isLavega ? "#fff" : "#111"} !important;background:${
+    isOffice || isLavega ? "#b71c1c" : "#e8e8e8"
+  } !important}
+table.nomina-print td,table.nomina-print td *,table.nomina-print tfoot td,table.nomina-print tfoot td *{
+  color:#111 !important
+}
+table.nomina-print tfoot td{background:${isOffice || isLavega ? "#ffe082" : "#efefef"} !important}
+table.nomina-print-lavega td.col-name,table.nomina-print-office td.col-name,
+table.nomina-print-lavega td.col-name *,table.nomina-print-office td.col-name *{color:#0d47a1 !important}
+.meta{color:#111 !important}
+.meta *{color:#111 !important}
+.sign-line,.footer{color:#111 !important}
+</style></head>
+<body class="print-nomina">
+<div id="rfsPrintRoot">
+  <div class="brand">
+    <img src="${escapeHtml(logoUrl)}" alt="RFS" crossorigin="anonymous"/>
+    <div>
+      <h1>Reaction Force Security</h1>
+      <div class="cap">${escapeHtml(caption)}</div>
     </div>
-  `;
-  document.body.appendChild(host);
+  </div>
+  ${buildPayrollPrintHtml(p)}
+</div>
+</body></html>`;
+
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("data-rfs-payroll-pdf-frame", "1");
+  iframe.style.cssText =
+    "position:fixed;left:0;top:0;width:" +
+    page.cssPx +
+    "px;height:900px;opacity:0.01;pointer-events:none;border:0;z-index:2147483000;background:#fff";
+  document.body.appendChild(iframe);
   try {
-    if (typeof waitForImages === "function") await waitForImages(host);
+    const idoc = iframe.contentDocument || iframe.contentWindow.document;
+    idoc.open();
+    idoc.write(docHtml);
+    idoc.close();
+    await new Promise((r) => setTimeout(r, 80));
+    if (typeof waitForImages === "function") await waitForImages(idoc);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const target = host.querySelector("#rfsPdfInner") || host;
-    const table = host.querySelector("table.nomina-print");
-    const measured = Math.max(
-      canvasW,
-      Math.ceil((target && target.scrollWidth) || 0) + 48,
-      Math.ceil((table && table.scrollWidth) || 0) + 64
-    );
-    canvasW = Math.min(Math.max(measured, canvasW), 2200);
-    host.style.width = `${canvasW}px`;
+    const root = idoc.getElementById("rfsPrintRoot");
+    if (!root) throw new Error("Sin contenido de impresión");
+    const fullH = Math.max(root.scrollHeight || 0, root.offsetHeight || 0, 400);
+    iframe.style.height = `${fullH + 40}px`;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     const canvasOpt = {
-      scale: isOffice ? 2 : measured > 1600 ? 1.3 : 1.45,
+      scale: 1.75,
       useCORS: true,
       allowTaint: true,
       logging: false,
       backgroundColor: "#ffffff",
-      windowWidth: canvasW,
-      width: canvasW,
+      windowWidth: page.cssPx,
+      width: page.cssPx,
       scrollX: 0,
       scrollY: 0,
-      onclone: (doc) => {
+      onclone: (clonedDoc) => {
         try {
-          const root = doc.querySelector("[data-rfs-payroll-pdf]");
-          if (!root) return;
-          root.style.setProperty("background", "#ffffff", "important");
-          root.style.setProperty("color", "#111111", "important");
-          root.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
+          const body = clonedDoc.body;
+          if (body) {
+            body.style.setProperty("background", "#ffffff", "important");
+            body.style.setProperty("color", "#111111", "important");
+          }
+          clonedDoc.querySelectorAll("table.nomina-print td, table.nomina-print tfoot td").forEach((td) => {
             td.style.setProperty("color", "#111111", "important");
-            td.querySelectorAll("*").forEach((el) => {
-              el.style.setProperty("color", "#111111", "important");
-            });
           });
-          root
+          clonedDoc
             .querySelectorAll(
-              "table.nomina-print-office td.col-name, table.nomina-print-lavega td.col-name, table.nomina-print-office td.col-name *, table.nomina-print-lavega td.col-name *"
+              "table.nomina-print-lavega td.col-name, table.nomina-print-office td.col-name"
             )
-            .forEach((el) => {
-              el.style.setProperty("color", "#0d47a1", "important");
-            });
-          root.querySelectorAll("table.nomina-print th").forEach((th) => {
-            const parent = th.closest("table");
+            .forEach((td) => td.style.setProperty("color", "#0d47a1", "important"));
+          clonedDoc.querySelectorAll("h2, h2.nomina-print-title").forEach((h) => {
+            h.style.setProperty("color", "#ffffff", "important");
+            h.style.setProperty("background", "#b71c1c", "important");
+          });
+          clonedDoc.querySelectorAll("table.nomina-print th").forEach((th) => {
             const colored =
-              parent &&
-              (parent.classList.contains("nomina-print-lavega") ||
-                parent.classList.contains("nomina-print-office"));
+              th.closest("table.nomina-print-lavega") || th.closest("table.nomina-print-office");
             th.style.setProperty("color", colored ? "#ffffff" : "#111111", "important");
             th.style.setProperty("background", colored ? "#b71c1c" : "#e8e8e8", "important");
           });
@@ -3340,89 +3360,72 @@ async function buildPayrollPdfBlob(p) {
       },
     };
 
-    // 1) Captura → 2) jsPDF Legal/Carta landscape → 3) imagen centrada (evita Carta vertical de html2pdf)
     const canvas = await html2pdf()
       .set({ html2canvas: canvasOpt })
-      .from(target)
+      .from(root)
       .toCanvas()
       .get("canvas");
     if (!canvas || !canvas.width) throw new Error("Captura PDF vacía");
 
     const JsPDF = resolveJsPdfConstructor();
-    /**
-     * jsPDF con format:[w,h] + orientation:"landscape" INTERCAMBIA w/h → queda vertical.
-     * Solución: pasar ya el tamaño horizontal [ancho > alto] con orientation:"portrait".
-     */
-    let pdf = null;
-    if (JsPDF) {
-      pdf = new JsPDF({
-        unit: "mm",
-        format: [page.widthMm, page.heightMm],
-        orientation: "portrait",
-      });
-      // Si alguna build aún invierte, reintentar con nombre + landscape
-      if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
-        pdf = new JsPDF({ unit: "mm", format: fmt, orientation: "landscape" });
-      }
-    }
-    if (!pdf) {
-      pdf = await html2pdf()
-        .set({
-          margin: 0,
-          image: { type: "jpeg", quality: 0.95 },
-          html2canvas: canvasOpt,
-          jsPDF: {
-            unit: "mm",
-            format: [page.widthMm, page.heightMm],
-            orientation: "portrait",
-          },
-          pagebreak: { mode: [] },
-        })
-        .from(target)
-        .toPdf()
-        .get("pdf");
+    if (!JsPDF) throw new Error("jsPDF no disponible");
+    // [ancho>alto] + portrait = hoja horizontal real (evita que jsPDF invierta a vertical)
+    const pageFormat = [page.widthMm, page.heightMm];
+    let pdf = new JsPDF({ unit: "mm", format: pageFormat, orientation: "portrait" });
+    if (pdf.internal.pageSize.getWidth() < pdf.internal.pageSize.getHeight()) {
+      pdf = new JsPDF({ unit: "mm", format: page.format, orientation: "landscape" });
     }
 
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
+    if (pageW < pageH) {
+      throw new Error("PDF quedó vertical; reintenta o usa Imprimir → Guardar como PDF");
+    }
 
     const margin = page.marginMm;
-    const maxW = Math.max(10, pageW - margin * 2);
-    const maxH = Math.max(10, pageH - margin * 2);
-    const imgW = canvas.width;
-    const imgH = canvas.height;
-    let drawW = maxW;
-    let drawH = (imgH / imgW) * drawW;
-    if (drawH > maxH) {
-      drawH = maxH;
-      drawW = (imgW / imgH) * drawH;
-    }
-    const x = (pageW - drawW) / 2;
-    const y = (pageH - drawH) / 2;
-    const imgData = canvas.toDataURL("image/jpeg", 0.95);
-
-    // Limpiar páginas que html2pdf/fallback puedan haber dejado
-    const total = pdf.getNumberOfPages ? pdf.getNumberOfPages() : 1;
-    for (let i = total; i > 1; i -= 1) {
-      try {
-        pdf.deletePage(i);
-      } catch (_) {}
-    }
-    try {
-      pdf.setPage(1);
-    } catch (_) {}
-    // Fondo blanco y dibujar centrado
-    try {
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+    // Misma escala que la impresión: ancho completo; si no cabe, varias hojas (no achicar todo)
+    const drawW = maxW;
+    const pxPerMm = canvas.width / drawW;
+    const sliceHpx = Math.max(1, Math.floor(maxH * pxPerMm));
+    let srcY = 0;
+    let pageIndex = 0;
+    while (srcY < canvas.height - 0.5) {
+      if (pageIndex > 0) {
+        // Misma hoja horizontal que la primera página
+        if (pageFormat[0] > pageFormat[1]) {
+          pdf.addPage(pageFormat, "portrait");
+        } else {
+          pdf.addPage(page.format, "landscape");
+        }
+      }
+      const hPx = Math.min(sliceHpx, canvas.height - srcY);
+      const slice = document.createElement("canvas");
+      slice.width = canvas.width;
+      slice.height = Math.max(1, Math.ceil(hPx));
+      const ctx = slice.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, slice.width, slice.height);
+      ctx.drawImage(canvas, 0, srcY, canvas.width, hPx, 0, 0, canvas.width, hPx);
+      const drawH = hPx / pxPerMm;
+      const x = (pageW - drawW) / 2;
+      const y = margin;
+      const curW = pdf.internal.pageSize.getWidth();
+      const curH = pdf.internal.pageSize.getHeight();
       pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, 0, pageW, pageH, "F");
-    } catch (_) {}
-    pdf.addImage(imgData, "JPEG", x, y, drawW, drawH, undefined, "FAST");
+      pdf.rect(0, 0, curW, curH, "F");
+      pdf.addImage(slice.toDataURL("image/jpeg", 0.95), "JPEG", x, y, drawW, drawH, undefined, "FAST");
+      srcY += hPx;
+      pageIndex += 1;
+      if (pageIndex > 40) break;
+    }
 
     const blob = pdf.output("blob");
     if (!blob || !blob.size) throw new Error("PDF vacío");
     return blob;
   } finally {
-    host.remove();
+    iframe.remove();
   }
 }
 
