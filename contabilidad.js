@@ -3446,7 +3446,7 @@ function payrollReceiptCss() {
       padding:3mm 4mm 3mm 8mm !important;box-sizing:border-box !important;
       background:#fff !important;color:#000 !important;
       font-family:Cambria,"Times New Roman",Times,serif;
-      font-size:10pt;line-height:1.35;font-weight:700
+      font-size:11pt;line-height:1.35;font-weight:700
     }
     body.print-recibo .brand,
     body.print-recibo .print-bar + #rfsPrintRoot > .brand,
@@ -3463,15 +3463,15 @@ function payrollReceiptCss() {
       page-break-after:auto;break-after:auto;border-bottom:0;margin-bottom:0;padding-bottom:4mm
     }
     .recibo-ticket .co{
-      text-align:center;font-weight:900;font-size:10.5pt;margin:0 0 2px;letter-spacing:0.01em
+      text-align:center;font-weight:900;font-size:11pt;margin:0 0 2px;letter-spacing:0.01em
     }
     .recibo-ticket .title{
       text-align:center;font-weight:900;font-size:12pt;margin:0 0 4px;text-transform:uppercase
     }
     .recibo-ticket .group-tag{
-      text-align:center;font-size:9.5pt;font-weight:700;margin:0 0 6px
+      text-align:center;font-size:10pt;font-weight:700;margin:0 0 6px
     }
-    .recibo-ticket .meta-line{margin:0 0 2px;font-size:10pt;font-weight:700}
+    .recibo-ticket .meta-line{margin:0 0 2px;font-size:11pt;font-weight:700}
     .recibo-ticket .meta-line strong{font-weight:900}
     .recibo-ticket .sep{
       border:0;border-top:1.5px solid #000;margin:6px 0
@@ -3479,7 +3479,7 @@ function payrollReceiptCss() {
     .recibo-ticket .rows{width:100%;margin:0;padding:0}
     .recibo-ticket .row{
       display:flex;justify-content:space-between;align-items:baseline;
-      gap:6px;margin:0 0 3px;font-size:10pt;font-weight:700
+      gap:6px;margin:0 0 3px;font-size:11pt;font-weight:700
     }
     .recibo-ticket .row .lab{flex:1 1 auto;min-width:0;font-weight:700}
     .recibo-ticket .row .val{
@@ -3498,7 +3498,7 @@ function payrollReceiptCss() {
     }
     .recibo-ticket .sign-line{
       border-top:1.5px solid #000;margin-top:22px;padding-top:3px;text-align:center;
-      font-size:9.5pt;font-weight:700
+      font-size:10pt;font-weight:700
     }
     .recibo-ticket .cut-hint{
       text-align:center;font-size:8pt;font-weight:700;margin:10px 0 0;letter-spacing:0.08em
