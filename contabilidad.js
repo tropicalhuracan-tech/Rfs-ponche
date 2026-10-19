@@ -1596,6 +1596,14 @@ function syncPayrollPaperUiForGroup(group) {
       ? `Mes: ${monthLabel(getSelectedMonth())} · PDF Carta horizontal`
       : `Mes: ${monthLabel(getSelectedMonth())} · PDF Legal horizontal`;
   }
+  const receiptBtn = document.getElementById("btnContabPrintReceipts");
+  if (receiptBtn) {
+    const showReceipts = group === "banco" || group === "efectivo";
+    receiptBtn.hidden = !showReceipts;
+    receiptBtn.title = showReceipts
+      ? "Recibos individuales para Epson TM-U220 (rollo 76 mm)"
+      : "Disponible en Reaction Banco y Efectivo";
+  }
 }
 
 function getLvaStaffForPayroll() {
@@ -3407,6 +3415,177 @@ async function downloadOpenPayrollPdf() {
   }
 }
 
+/** Recibos individuales (Epson TM-U220 / rollo ~76 mm): solo Reaction Banco y Efectivo. */
+function payrollSupportsReceiptPrint(p) {
+  return !!(p && (payrollIsBanco(p) || payrollIsEfectivo(p)));
+}
+
+function payrollReceiptAmt(n) {
+  const v = Number(n) || 0;
+  if (!v) return "";
+  return v.toLocaleString("es-DO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function payrollReceiptPayDateLabel(p) {
+  const raw = String((p && (p.payDate || effectivePayrollPayDate(p))) || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "—";
+  const [y, m, d] = raw.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function payrollReceiptCss() {
+  // Epson TM-U220: rollo ~76 mm. Sin logo (impacto/punto no sirve para gráficos grandes).
+  return `
+    @page{size:76mm auto;margin:2mm}
+    html,body.print-recibo{
+      width:72mm !important;max-width:72mm !important;margin:0 auto !important;
+      padding:1mm !important;background:#fff !important;color:#000 !important;
+      font-family:"Courier New",Courier,monospace;font-size:11px;line-height:1.25
+    }
+    body.print-recibo .brand,
+    body.print-recibo .print-bar + #rfsPrintRoot > .brand,
+    body.print-recibo #rfsPrintRoot > .brand,
+    body.print-recibo #rfsPrintRoot > .footer{display:none !important}
+    .recibo-ticket{
+      width:100%;box-sizing:border-box;page-break-after:always;break-after:page;
+      padding:0 0 4mm;color:#000
+    }
+    .recibo-ticket:last-child{page-break-after:auto;break-after:auto}
+    .recibo-ticket .co{text-align:center;font-weight:900;font-size:12px;letter-spacing:0.02em;margin:0 0 2px}
+    .recibo-ticket .title{text-align:center;font-weight:900;font-size:13px;margin:0 0 6px;text-transform:uppercase}
+    .recibo-ticket .meta-line{margin:0 0 2px;font-size:11px}
+    .recibo-ticket .meta-line strong{font-weight:900}
+    .recibo-ticket table{
+      width:100%;border-collapse:collapse;margin:6px 0 8px;table-layout:fixed
+    }
+    .recibo-ticket th,.recibo-ticket td{
+      border:1px solid #000;padding:3px 4px;vertical-align:middle;font-size:11px
+    }
+    .recibo-ticket th{font-weight:900;text-align:center;background:#fff}
+    .recibo-ticket td.desc{text-align:left;width:62%}
+    .recibo-ticket td.amt{text-align:right;width:38%;font-variant-numeric:tabular-nums}
+    .recibo-ticket .neto{
+      font-weight:900;font-size:12px;margin:4px 0 10px;text-align:left
+    }
+    .recibo-ticket .signs{
+      display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px
+    }
+    .recibo-ticket .sign-line{
+      border-top:1px solid #000;margin-top:22px;padding-top:3px;text-align:center;font-size:10px
+    }
+    .recibo-ticket .group-tag{text-align:center;font-size:10px;margin:0 0 4px}
+    @media print{
+      html,body.print-recibo{padding:0 !important;margin:0 auto !important;width:72mm !important}
+      .recibo-ticket{page-break-after:always}
+      .recibo-ticket:last-child{page-break-after:auto}
+    }
+  `;
+}
+
+function buildPayrollReceiptTicketHtml(p, line) {
+  const opts = payrollComputeOpts(p);
+  const l = computePayrollLineTotals(line, opts);
+  const name =
+    (typeof payrollShortEmployeeName === "function"
+      ? payrollShortEmployeeName(l.fullName)
+      : "") ||
+    String(l.fullName || "").trim() ||
+    "—";
+  const days = String(l.daysWorked || "").trim();
+  const fecha = payrollReceiptPayDateLabel(p);
+  const groupMeta = payrollGroupMeta(p.group || "banco");
+  const extras = roundMoney2((Number(l.horasExtras) || 0) + (Number(l.feriado) || 0));
+  const comida = roundMoney2((Number(l.almuerzo) || 0) + (Number(l.svda) || 0));
+  const unifRifa = roundMoney2((Number(l.uniformes) || 0) + (Number(l.rifa) || 0));
+  const rows = [
+    ["Sueldo bruto", l.salaryQuincena],
+    ["SFS/SVDS", l.sfs],
+    ["Incentivos", l.incentivos],
+    ["Volao", l.volaos],
+    ["Horas extras / feriados", extras],
+    ["Cena/Comida", comida],
+    ["Unif/Rifa", unifRifa],
+    ["Adelantos", l.adelantos],
+    ["Prestamos", l.prestamos],
+  ]
+    .map(
+      ([label, val]) =>
+        `<tr><td class="desc">${escapeHtml(label)}</td><td class="amt">${escapeHtml(
+          payrollReceiptAmt(val)
+        )}</td></tr>`
+    )
+    .join("");
+  const neto = Number(l.redondeo) || Number(l.salarioDepositar) || 0;
+  return `<article class="recibo-ticket">
+    <p class="co">REACTION FORCE SECURITY LS, SRL</p>
+    <p class="title">RECIBO DE PAGO</p>
+    <p class="group-tag">${escapeHtml(groupMeta.label)} · ${escapeHtml(halfLabel(p.half || 1))}</p>
+    <p class="meta-line"><strong>Empleado:</strong> ${escapeHtml(String(name).toUpperCase())}</p>
+    <p class="meta-line"><strong>Fecha:</strong> ${escapeHtml(fecha)} &nbsp; <strong>DIAS:</strong> ${escapeHtml(
+      days || "—"
+    )}</p>
+    <table>
+      <thead><tr><th>DESCRIPCIÓN</th><th>MONTO (RD$)</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="neto">SUELDO NETO: RD$ ${escapeHtml(payrollReceiptAmt(neto) || "0.00")}</p>
+    <div class="signs">
+      <div><div class="sign-line">Autorizado</div></div>
+      <div><div class="sign-line">Recibido</div></div>
+    </div>
+  </article>`;
+}
+
+function buildPayrollReceiptsHtml(p) {
+  const lines = payrollLinesForTotals(p.lines || []).map((l) =>
+    computePayrollLineTotals(l, payrollComputeOpts(p))
+  );
+  if (!lines.length) return `<p>Sin empleados en esta nómina.</p>`;
+  return lines.map((l) => buildPayrollReceiptTicketHtml(p, l)).join("\n");
+}
+
+function printOpenPayrollReceipts() {
+  const p = resolveOpenPayrollForExport();
+  if (!p) return;
+  if (!payrollSupportsReceiptPrint(p)) {
+    toast("Los recibos de rollo empiezan por Reaction Banco y Efectivo.");
+    return;
+  }
+  const n = payrollLinesForTotals(p.lines || []).length;
+  if (!n) {
+    toast("No hay empleados para imprimir recibos.");
+    return;
+  }
+  if (typeof openPrintWindow !== "function") {
+    toast("Impresión no disponible.");
+    return;
+  }
+  const caption = `Recibos ${payrollGroupMeta(p.group).short} · ${halfLabel(p.half || 1)} · ${monthLabel(
+    p.period
+  )}`;
+  const win = openPrintWindow(caption, buildPayrollReceiptsHtml(p), {
+    bodyClass: "print-recibo",
+    pageSize: "",
+    orientation: "portrait",
+    wide: false,
+    autoPrint: false,
+    extraCss: payrollReceiptCss(),
+    share: {
+      text: caption,
+      subject: caption,
+      fileName: `recibos-${p.group || "nomina"}-${p.period || ""}.pdf`,
+    },
+  });
+  if (!win) {
+    toast("Permite ventanas emergentes para imprimir los recibos.");
+    return;
+  }
+  toast(`${n} recibo(s) · elige la Epson TM-U220 · papel 76 mm`);
+}
+
 async function shareOpenPayrollSheet(mode = "share") {
   const p = resolveOpenPayrollForExport();
   if (!p) return;
@@ -3774,6 +3953,13 @@ function renderNominaTab() {
               p.id
             )}" style="width:auto;padding:8px 10px;font-size:12px">Descargar PDF</button>
             ${
+              payrollSupportsReceiptPrint(p)
+                ? `<button type="button" class="btn primary btn-pay-receipts" data-id="${escapeHtml(
+                    p.id
+                  )}" style="width:auto;padding:8px 10px;font-size:12px">Imprimir recibos</button>`
+                : ""
+            }
+            ${
               p.status === "draft"
                 ? `<button type="button" class="btn primary btn-pay-paid" data-id="${escapeHtml(
                     p.id
@@ -3831,6 +4017,16 @@ function renderNominaTab() {
         setTimeout(() => {
           downloadOpenPayrollPdf().catch(() => {});
         }, 50);
+      })
+    );
+    list.querySelectorAll(".btn-pay-receipts").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        selectedPayrollId = btn.dataset.id;
+        const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
+        if (p && halfSel) halfSel.value = String(p.half || 1);
+        if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
+        renderNominaTab();
+        setTimeout(() => printOpenPayrollReceipts(), 50);
       })
     );
     list.querySelectorAll(".btn-pay-paid").forEach((btn) =>
@@ -4173,6 +4369,11 @@ function renderNominaTab() {
       </label>
       <button type="button" class="btn secondary" id="btnContabLoadLoans2" style="width:auto" title="Carga cuotas según pago día 5 o 20">Cargar préstamos</button>
       <button type="button" class="btn secondary" id="btnContabAddManual2" style="width:auto" title="Fila sin fórmulas (trato especial)">＋ Manual</button>
+      ${
+        payrollSupportsReceiptPrint(p)
+          ? `<button type="button" class="btn primary" id="btnContabPrintReceipts2" style="width:auto" title="Recibos individuales para Epson TM-U220 (76 mm)">Imprimir recibos</button>`
+          : ""
+      }
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir ↔</button>
       <button type="button" class="btn secondary" id="btnContabDownloadPayroll2" style="width:auto">Descargar PDF</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
@@ -4192,6 +4393,7 @@ function renderNominaTab() {
   });
   document.getElementById("btnContabLoadLoans2")?.addEventListener("click", () => loadOpenPayrollLoans());
   document.getElementById("btnContabAddManual2")?.addEventListener("click", () => addManualPayrollRows());
+  document.getElementById("btnContabPrintReceipts2")?.addEventListener("click", () => printOpenPayrollReceipts());
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", () => printOpenPayrollSheet());
   document.getElementById("btnContabDownloadPayroll2")?.addEventListener("click", () => {
     downloadOpenPayrollPdf().catch(() => {});
@@ -4332,6 +4534,7 @@ function bindContabilidadUi() {
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
   document.getElementById("btnContabAddManualRows")?.addEventListener("click", addManualPayrollRows);
+  document.getElementById("btnContabPrintReceipts")?.addEventListener("click", () => printOpenPayrollReceipts());
   document.getElementById("btnContabPrintPayroll")?.addEventListener("click", () => printOpenPayrollSheet());
   document.getElementById("btnContabDownloadPayroll")?.addEventListener("click", () => {
     downloadOpenPayrollPdf().catch(() => {});
