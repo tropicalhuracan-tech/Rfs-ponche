@@ -290,9 +290,15 @@ function payrollComputeOpts(p, extra = {}) {
   return { ...profile, ...extra };
 }
 
+/** Empleado con trato especial: montos a mano, sin fórmulas de días/volao/extras. */
+function isManualPayrollLine(line) {
+  return !!(line && (line.manualEntry || line.manual));
+}
+
 function computePayrollLineTotals(line, opts = {}) {
   const office = !!(opts && opts.office);
   const lavega = !!(opts && opts.lavega);
+  const manual = isManualPayrollLine(line);
   const volaoPerExtraDay = Math.max(
     0,
     Number(opts && opts.volaoPerExtraDay != null ? opts.volaoPerExtraDay : LVA_PAYROLL_VOLAO_PER_EXTRA_DAY) || 0
@@ -332,7 +338,9 @@ function computePayrollLineTotals(line, opts = {}) {
   const extraDays = Math.max(0, Number(daysInfo.extraDays) || 0);
   const volaoFromDays = roundMoney2(extraDays * volaoPerExtraDay);
 
-  if (office) {
+  if (manual) {
+    // Trato especial: respetar todo lo tecleado; solo armar totales
+  } else if (office) {
     // Oficina: quincena = mitad del sueldo; días no influyen. SFS fijo. Sin unif/volao/comida/feriado/extras.
     salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
     sfs = hasName ? OFFICE_PAYROLL_SFS : 0;
@@ -374,6 +382,7 @@ function computePayrollLineTotals(line, opts = {}) {
   const net = redondeo;
   return {
     ...line,
+    manualEntry: manual,
     salaryMonthly,
     salaryQuincena,
     sfs,
@@ -396,7 +405,7 @@ function computePayrollLineTotals(line, opts = {}) {
     other,
     deductions,
     net,
-    daysWorked: office ? "" : daysInfo.label || String(line.daysWorked || ""),
+    daysWorked: office ? "" : manual ? String(line.daysWorked || "").trim() : daysInfo.label || String(line.daysWorked || ""),
   };
 }
 
@@ -438,6 +447,8 @@ function normalizePayrollLine(l = {}, opts = {}) {
     note: String(l.note || "").trim(),
     /** Solo edición en pantalla: empleado ya revisado en la nómina (no se imprime). */
     reviewed: !!l.reviewed,
+    /** Trato especial: sin fórmulas (días/volao/extras/quincena auto). */
+    manualEntry: !!(l.manualEntry || l.manual),
   };
   // Si viene de nómina oficina antigua (solo salary/net), conservar
   if (!base.salaryMonthly && base.salary) base.salaryMonthly = base.salary;
@@ -452,7 +463,7 @@ function normalizePayrollLine(l = {}, opts = {}) {
     base.redondeo ||
     (base.daysWorked && base.salaryMonthly) ||
     (office && base.salaryMonthly);
-  if (hasExcelShape || base.salaryMonthly) {
+  if (hasExcelShape || base.salaryMonthly || base.manualEntry) {
     return computePayrollLineTotals(base, opts);
   }
   const salary = base.salary || base.salaryMonthly;
@@ -1821,12 +1832,14 @@ function autoLoanDeductionForPayrollLine(person, fullName, payDate) {
 
 function applyMonorrielLoanDeductionsToLines(lines, payDate, opts = {}) {
   const force = !!(opts && opts.forceClear);
+  const skipManual = !!(opts && opts.skipManual);
   if (!payDate || typeof loanPayrollDeductionForName !== "function") {
     if (!force) return lines || [];
     // Sin fecha/función: al forzar, limpiar montos viejos de prueba
-    return (lines || []).map((l) => ({ ...l, prestamos: 0 }));
+    return (lines || []).map((l) => (skipManual && isManualPayrollLine(l) ? l : { ...l, prestamos: 0 }));
   }
   return (lines || []).map((l) => {
+    if (skipManual && isManualPayrollLine(l)) return l;
     const name = String(l.fullName || "").trim();
     if (!name) return force ? { ...l, prestamos: 0 } : l;
     const amt = loanPayrollDeductionForName(name, payDate, l.employeeId) || 0;
@@ -1847,6 +1860,7 @@ function syncMonorrielPayrollLoanDeductions(p, forceClear = true) {
   const prev = JSON.stringify((p.lines || []).map((l) => [l.fullName, Number(l.prestamos) || 0]));
   const nextLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
     forceClear: !!forceClear,
+    skipManual: true,
   }).map((l) => computePayrollLineTotals(l, opts));
   const applied = nextLines.filter((l) => (Number(l.prestamos) || 0) > 0).length;
   const next = JSON.stringify(nextLines.map((l) => [l.fullName, Number(l.prestamos) || 0]));
@@ -1926,8 +1940,10 @@ function getSelectedPayrollHalf() {
 }
 
 function halfLabel(half) {
-  // Periodo de trabajo; el pago de nómina es día 20 (1ª) y día 5 (2ª → mes siguiente)
-  return half === 2 ? "16 al fin (pago día 5)" : "01 al 15 (pago día 20)";
+  // Corte de costos 15/30; depósito de nómina días 5 y 20
+  return half === 2
+    ? "Corte 16–30 · pago día 5"
+    : "Corte 01–15 · pago día 20";
 }
 
 /** Fecha de depósito/pago de la nómina: días 5 y 20. */
@@ -2269,6 +2285,7 @@ function readPayrollLinesFromDom(payrollId) {
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
         reviewed: reviewedEl ? !!reviewedEl.checked : !!prev.reviewed,
+        manualEntry: !!(prev.manualEntry || prev.manual || tr.dataset.manual === "1"),
       },
       formulaOpts
     );
@@ -2291,9 +2308,15 @@ function recalculateOpenPayroll(save = false) {
   if (payDate && p.payDate !== payDate) p.payDate = payDate;
   let workLines = lines;
   if (p.group === "monorriel") {
-    workLines = applyMonorrielLoanDeductionsToLines(lines, payDate, { forceClear: true });
+    workLines = applyMonorrielLoanDeductionsToLines(lines, payDate, {
+      forceClear: true,
+      skipManual: true,
+    });
   }
   p.lines = workLines.map((l) => {
+    if (isManualPayrollLine(l)) {
+      return computePayrollLineTotals(l, opts);
+    }
     const daysInfo = parsePayrollDays(l.daysWorked);
     return computePayrollLineTotals(
       {
@@ -2336,15 +2359,128 @@ function saveOpenPayrollEdits() {
   if (p.group === "monorriel") {
     const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
     if (payDate) p.payDate = payDate;
-    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, { forceClear: true }).map((l) =>
-      computePayrollLineTotals(l, opts)
-    );
+    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, {
+      forceClear: true,
+      skipManual: true,
+    }).map((l) => computePayrollLineTotals(l, opts));
   }
   p.lines = workLines;
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   renderNominaTab();
   toast("Cambios guardados (con respaldo automático).");
+}
+
+/**
+ * Botón por nómina: cargar cuotas de préstamos según fecha de pago 5/20.
+ * Incluye filas manuales (trato especial) si el nombre coincide.
+ */
+function loadOpenPayrollLoans() {
+  if (!canAccessContabilidad()) {
+    toast("No tienes acceso a Contabilidad.");
+    return;
+  }
+  syncOpenPayrollFromDom(false);
+  const p = ensureOpenPayrollDraft();
+  if (!p) {
+    toast("Abre o genera una nómina primero.");
+    return;
+  }
+  if (p.status === "paid") {
+    toast("Nómina pagada: no se modifican préstamos.");
+    return;
+  }
+  if (typeof loanPayrollDeductionForName !== "function") {
+    toast("Módulo de préstamos no disponible.");
+    return;
+  }
+  const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
+  if (!payDate) {
+    toast("No se pudo determinar la fecha de pago (5 o 20).");
+    return;
+  }
+  p.payDate = payDate;
+  const opts = payrollComputeOpts(p);
+  const before = (p.lines || []).map((l) => Number(l.prestamos) || 0);
+  let workLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
+    forceClear: true,
+    skipManual: false,
+  }).map((l) => computePayrollLineTotals(l, opts));
+  p.lines = workLines;
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  renderNominaTab();
+  const applied = workLines.filter((l, i) => (Number(l.prestamos) || 0) > 0).length;
+  const changed = workLines.filter((l, i) => (Number(l.prestamos) || 0) !== before[i]).length;
+  toast(
+    `Préstamos cargados · pago ${payDate} · ${applied} empleado(s) con cuota` +
+      (changed ? ` · ${changed} fila(s) actualizada(s)` : "")
+  );
+}
+
+/** Agrega filas de empleados con trato especial (sin fórmulas automáticas). */
+function addManualPayrollRows() {
+  if (!canAccessContabilidad()) {
+    toast("No tienes acceso a Contabilidad.");
+    return;
+  }
+  syncOpenPayrollFromDom(false);
+  let p = ensureOpenPayrollDraft();
+  if (!p) {
+    const period = getSelectedMonth();
+    const half = getSelectedPayrollHalf();
+    const group = getSelectedPayrollGroup();
+    const tanda = group === "monorriel" ? getSelectedMonorrielTanda() : "";
+    const tandaMeta = group === "monorriel" ? monorrielTandaMeta(tanda) : null;
+    const meta = payrollGroupMeta(group);
+    p = normalizePayroll({
+      period,
+      half,
+      group,
+      tanda,
+      payDate: payrollPayDateFor(period, half),
+      status: "draft",
+      lines: [],
+      note:
+        group === "monorriel" && tandaMeta
+          ? `Nómina Monorriel · ${tandaMeta.label} · ${halfLabel(half)} · ${monthLabel(period)}`
+          : `Nómina ${meta.label} · ${halfLabel(half)} · ${monthLabel(period)}`,
+      createdBy:
+        typeof currentUser !== "undefined" && currentUser
+          ? currentUser.displayName || currentUser.username
+          : "",
+    });
+    contabilidadData.payrolls.unshift(p);
+    selectedPayrollId = p.id;
+  }
+  const countEl = document.getElementById("contabAddRowsCount");
+  let n = Math.max(1, Math.min(40, Number(countEl && countEl.value) || 1));
+  const blankFormulaOpts = payrollComputeOpts(p);
+  for (let i = 0; i < n; i += 1) {
+    p.lines.push(
+      normalizePayrollLine(
+        emptyPayrollLine({
+          position: payrollIsOffice(p) ? "Oficina" : "Trato especial",
+          daysWorked: "",
+          uniformes: 0,
+          rifa: 0,
+          volaos: 0,
+          almuerzo: 0,
+          feriado: 0,
+          horasExtras: 0,
+          sfs: 0,
+          salaryQuincena: 0,
+          manualEntry: true,
+          note: "Manual · sin fórmulas",
+        }),
+        blankFormulaOpts
+      )
+    );
+  }
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  renderNominaTab();
+  toast(`${n} fila(s) manual(es) agregada(s) · sin fórmulas (trato especial).`);
 }
 
 /**
@@ -2401,14 +2537,11 @@ function payrollShowsFeriado(p) {
 function getPayrollEditorCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_TABLE_COLS;
   const lavega = payrollUsesLvaParams(p);
-  const mono = payrollIsMonorriel(p);
   return PAYROLL_TABLE_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
     if (lavega && key === "almuerzo") return ["almuerzo", "Almuerzo / SVDA", "almuerzoSvda"];
-    // Monorriel: Préstamos = cuota automática del libro (solo lectura)
-    if (mono && key === "prestamos") return ["prestamos", "Préstamos", "ro"];
     return [key, label, kind];
   });
 }
@@ -3267,6 +3400,9 @@ function applyPayrollLiveUpdate(ev) {
   const opts = payrollComputeOpts(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
   let workLines = lines.map((l, i) => {
+    if (isManualPayrollLine(l)) {
+      return computePayrollLineTotals(l, opts);
+    }
     if (forceBase && i === idx) {
       const daysInfo = parsePayrollDays(l.daysWorked);
       // Al cambiar días: quincena, volao (+N) y extras auto según tanda
@@ -3296,9 +3432,10 @@ function applyPayrollLiveUpdate(ev) {
   if (p.group === "monorriel") {
     const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
     if (payDate) p.payDate = payDate;
-    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, { forceClear: true }).map((l) =>
-      computePayrollLineTotals(l, opts)
-    );
+    workLines = applyMonorrielLoanDeductionsToLines(workLines, payDate, {
+      forceClear: true,
+      skipManual: true,
+    }).map((l) => computePayrollLineTotals(l, opts));
   }
   p.lines = workLines;
   p.updatedAt = new Date().toISOString();
@@ -3680,22 +3817,28 @@ function renderNominaTab() {
   const body = lines
     .map((l, idx) => {
       const empty = !payrollLineHasEmployeeName(l);
+      const manual = isManualPayrollLine(l);
       const tds = cols
         .map(([key, , kind]) => {
           if (key === "fullName") {
             const checked = l.reviewed ? " checked" : "";
+            const manualTag = manual
+              ? `<span class="nomina-manual-tag" title="Trato especial · sin fórmulas">M</span>`
+              : "";
             return `<td class="sticky-name"><div class="nomina-name-cell">
               <label class="nomina-review-check" title="Marcar como revisado en esta nómina (no se imprime)">
                 <input type="checkbox" data-f="reviewed"${checked} />
               </label>
+              ${manualTag}
               <input class="nomina-inp nomina-inp-wide" data-f="fullName" type="text" value="${escapeHtml(
                 String(l.fullName || "")
-              )}" />
+              )}" placeholder="${manual ? "Nombre (manual)" : ""}" />
             </div></td>`;
           }
           let fit = "nomina-col-fit";
           if (key === "sfs") fit += " nomina-col-sfs";
           if (key === "redondeo") fit += " nomina-col-redondeo";
+          // Totales siempre RO; en filas manuales quincena/sfs/etc. ya vienen como num
           if (kind === "ro") {
             return `<td class="right ${fit}" data-ro="${key}">${escapeHtml(moneyCell(l[key]))}</td>`;
           }
@@ -3713,7 +3856,11 @@ function renderNominaTab() {
           const val = l[key] == null ? "" : l[key];
           const type = kind === "num" ? "number" : "text";
           const step = kind === "num" ? ' step="0.01" min="0"' : "";
-          return `<td class="${fit}"><input class="${cls}" data-f="${key}" type="${type}"${step} value="${escapeHtml(
+          const title =
+            manual && kind === "num"
+              ? ' title="Manual: escribe el monto (sin fórmula automática)"'
+              : "";
+          return `<td class="${fit}"><input class="${cls}" data-f="${key}" type="${type}"${step}${title} value="${escapeHtml(
             String(val)
           )}" /></td>`;
         })
@@ -3721,10 +3868,11 @@ function renderNominaTab() {
       const rowCls = [
         empty ? "nomina-row-empty" : "",
         !empty && l.reviewed ? "nomina-row-reviewed" : "",
+        manual ? "nomina-row-manual" : "",
       ]
         .filter(Boolean)
         .join(" ");
-      return `<tr data-line-idx="${idx}" class="${rowCls}">${tds}<td class="nomina-col-del"><button type="button" class="btn-row-del" data-idx="${idx}" title="Eliminar fila" aria-label="Eliminar fila">−</button></td></tr>`;
+      return `<tr data-line-idx="${idx}" class="${rowCls}"${manual ? ' data-manual="1"' : ""}>${tds}<td class="nomina-col-del"><button type="button" class="btn-row-del" data-idx="${idx}" title="Eliminar fila" aria-label="Eliminar fila">−</button></td></tr>`;
     })
     .join("");
   const totalRow =
@@ -3764,23 +3912,20 @@ function renderNominaTab() {
   const extrasHelp = formulaProfile.autoExtrasFromDays
     ? `Horas extras: ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay} (prorrateo).`
     : `Horas extras: manual.`;
-  const loanAutoN = payrollIsMonorriel(p)
-    ? payrollLinesForTotals(lines).filter((l) => (Number(l.prestamos) || 0) > 0).length
-    : 0;
+  const loanAutoN = payrollLinesForTotals(lines).filter((l) => (Number(l.prestamos) || 0) > 0).length;
+  const manualN = payrollLinesForTotals(lines).filter((l) => isManualPayrollLine(l)).length;
   const helpLine = isOfficeOpen
-    ? `Pago ${escapeHtml(p.payDate || "—")} · ${
+    ? `Pago ${escapeHtml(p.payDate || "—")} (depósito 5/20; corte 15/30) · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
-    : `Pago ${escapeHtml(p.payDate || "—")} · ${
+    : `Pago ${escapeHtml(p.payDate || "—")} (depósito días 5 y 20; corte de costos 15 y 30) · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": quincena solo con 13; el +N = RD$ ${formulaProfile.volaoPerExtraDay} c/u solo en Volaos. ${extrasHelp} Unif/Rifa 115/85.${
         payrollUsesLvaParams(p)
           ? ` Almuerzo/SVDA = comida + SVDA RD$ ${LVA_PAYROLL_SVDA}.`
           : ""
-      }${
-        payrollIsMonorriel(p)
-          ? ` Préstamos auto (${loanAutoN} cuota${loanAutoN === 1 ? "" : "s"} esta quincena).`
-          : ""
+      } Usa «Cargar préstamos» para la cuota del pago ${escapeHtml((p.payDate || "").slice(8, 10) || "5/20")} (${loanAutoN} con cuota).${
+        manualN ? ` ${manualN} fila(s) manual(es) sin fórmulas.` : " «＋ Manual» = trato especial sin fórmulas."
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
     <h2>NOMINA REACTION · ${escapeHtml(openTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
@@ -3814,6 +3959,8 @@ function renderNominaTab() {
           <option value="letter"${exportPaper === "letter" ? " selected" : ""}>Carta</option>
         </select>
       </label>
+      <button type="button" class="btn secondary" id="btnContabLoadLoans2" style="width:auto" title="Carga cuotas según pago día 5 o 20">Cargar préstamos</button>
+      <button type="button" class="btn secondary" id="btnContabAddManual2" style="width:auto" title="Fila sin fórmulas (trato especial)">＋ Manual</button>
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir ↔</button>
       <button type="button" class="btn secondary" id="btnContabDownloadPayroll2" style="width:auto">Descargar PDF</button>
       <button type="button" class="btn secondary" id="btnContabSharePayroll2" style="width:auto">Compartir PDF</button>
@@ -3831,6 +3978,8 @@ function renderNominaTab() {
     const main = document.getElementById("contabPayrollPaper");
     if (main) main.value = ev.target.value;
   });
+  document.getElementById("btnContabLoadLoans2")?.addEventListener("click", () => loadOpenPayrollLoans());
+  document.getElementById("btnContabAddManual2")?.addEventListener("click", () => addManualPayrollRows());
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", () => printOpenPayrollSheet());
   document.getElementById("btnContabDownloadPayroll2")?.addEventListener("click", () => {
     downloadOpenPayrollPdf().catch(() => {});
@@ -3953,8 +4102,10 @@ function bindContabilidadUi() {
   });
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
   document.getElementById("btnContabGenMonoTandas")?.addEventListener("click", generateAllMonorrielTandas);
+  document.getElementById("btnContabLoadLoans")?.addEventListener("click", loadOpenPayrollLoans);
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
+  document.getElementById("btnContabAddManualRows")?.addEventListener("click", addManualPayrollRows);
   document.getElementById("btnContabPrintPayroll")?.addEventListener("click", () => printOpenPayrollSheet());
   document.getElementById("btnContabDownloadPayroll")?.addEventListener("click", () => {
     downloadOpenPayrollPdf().catch(() => {});

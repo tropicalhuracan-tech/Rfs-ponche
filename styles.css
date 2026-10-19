@@ -2776,6 +2776,24 @@ body.lightbox-open {
 .nomina-table tr.nomina-row-empty {
   opacity: 0.72;
 }
+.nomina-table tr.nomina-row-manual td.sticky-name {
+  box-shadow: inset 3px 0 0 #b45309;
+}
+.nomina-manual-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  border-radius: 3px;
+  background: #b45309;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  flex: 0 0 auto;
+}
 
 .nomina-table input.nomina-inp-unifrifa {
   width: 100%;

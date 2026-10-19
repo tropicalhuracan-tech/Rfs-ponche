@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v148 · Cuotas Monorriel con pago 5/20</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v149 · Cargar préstamos + filas manuales</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -1096,10 +1096,10 @@
                 <option value="moto_noche">Motorizados de noche</option>
               </select>
             </label>
-            <label>Quincena
+            <label>Quincena (corte)
               <select id="contabPayrollHalf">
-                <option value="1">01 al 15</option>
-                <option value="2">16 al fin de mes</option>
+                <option value="1">Corte 01–15 · pago día 20</option>
+                <option value="2">Corte 16–30 · pago día 5</option>
               </select>
             </label>
             <label>Hoja
@@ -1115,10 +1115,12 @@
               <input id="contabAddRowsCount" type="number" min="1" max="40" value="1" inputmode="numeric" />
             </label>
             <button id="btnContabAddRows" class="btn secondary btn-sm" type="button">＋ Agregar</button>
+            <button id="btnContabAddManualRows" class="btn secondary btn-sm" type="button" title="Empleados con trato especial: sin fórmulas, datos a mano">＋ Manual</button>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
             <button id="btnContabGenPayroll" class="btn primary" type="button" style="width:auto">Generar / actualizar</button>
             <button id="btnContabGenMonoTandas" class="btn secondary" type="button" style="width:auto" hidden>Generar las 4 tandas</button>
+            <button id="btnContabLoadLoans" class="btn secondary" type="button" style="width:auto" title="Carga cuotas de préstamos del pago 5 o 20 en esta nómina">Cargar préstamos</button>
             <button id="btnContabSavePayroll" class="btn secondary" type="button" style="width:auto">Guardar cambios</button>
             <button id="btnContabPrintPayroll" class="btn secondary" type="button" style="width:auto">Imprimir ↔</button>
             <button id="btnContabDownloadPayroll" class="btn secondary" type="button" style="width:auto">Descargar PDF</button>
