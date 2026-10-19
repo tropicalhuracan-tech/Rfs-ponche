@@ -1598,11 +1598,18 @@ function syncPayrollPaperUiForGroup(group) {
   }
   const receiptBtn = document.getElementById("btnContabPrintReceipts");
   if (receiptBtn) {
-    const showReceipts = group === "banco" || group === "efectivo";
+    const showReceipts =
+      group === "banco" ||
+      group === "efectivo" ||
+      group === "lavega" ||
+      group === "lotedom" ||
+      group === "monorriel";
     receiptBtn.hidden = !showReceipts;
     receiptBtn.title = showReceipts
-      ? "Recibos individuales para Epson TM-U220 (rollo 76 mm)"
-      : "Disponible en Reaction Banco y Efectivo";
+      ? group === "monorriel"
+        ? "Recibos de esta tanda Monorriel · 2connect POS80 (80 mm)"
+        : "Recibos individuales · Epson TM-U220 (76 mm)"
+      : "Disponible en Banco, Efectivo, La Vega, Lotedom y Monorriel";
   }
 }
 
@@ -3415,9 +3422,23 @@ async function downloadOpenPayrollPdf() {
   }
 }
 
-/** Recibos individuales (Epson TM-U220 / rollo ~76 mm): solo Reaction Banco y Efectivo. */
+/** Recibos individuales: Banco/Efectivo/La Vega/Lotedom → Epson 76 mm; Monorriel → POS80 80 mm. */
 function payrollSupportsReceiptPrint(p) {
-  return !!(p && (payrollIsBanco(p) || payrollIsEfectivo(p)));
+  if (!p) return false;
+  if (payrollIsBanco(p) || payrollIsEfectivo(p) || payrollIsLavega(p) || payrollIsLotedom(p)) return true;
+  if (payrollIsMonorriel(p)) return true;
+  return false;
+}
+
+/** Perfil de impresora de rollo según nómina. */
+function payrollReceiptProfile(p) {
+  return payrollIsMonorriel(p) ? "pos80" : "epson76";
+}
+
+function payrollReceiptPrinterHint(p) {
+  return payrollReceiptProfile(p) === "pos80"
+    ? "2connect POS80 · papel 80 mm"
+    : "Epson TM-U220 · papel 76 mm";
 }
 
 function payrollReceiptAmt(n) {
@@ -3436,14 +3457,17 @@ function payrollReceiptPayDateLabel(p) {
   return `${d}/${m}/${y}`;
 }
 
-function payrollReceiptCss() {
-  // Epson TM-U220 ~76 mm: margen izquierdo amplio (la impresora come el borde),
-  // Cambria 10 pt negrita, diseño limpio sin tabla al borde.
+function payrollReceiptCss(profile = "epson76") {
+  // epson76 = TM-U220 (Reaction / La Vega / Lotedom). pos80 = 2connect POS80 (Monorriel).
+  const pos80 = profile === "pos80";
+  const pageW = pos80 ? "80mm" : "76mm";
+  const pad = pos80 ? "3mm 5mm 3mm 5mm" : "3mm 4mm 3mm 8mm";
+  const ticketMax = pos80 ? "68mm" : "62mm";
   return `
-    @page{size:76mm auto;margin:0}
+    @page{size:${pageW} auto;margin:0}
     html,body.print-recibo{
-      width:76mm !important;max-width:76mm !important;margin:0 !important;
-      padding:3mm 4mm 3mm 8mm !important;box-sizing:border-box !important;
+      width:${pageW} !important;max-width:${pageW} !important;margin:0 !important;
+      padding:${pad} !important;box-sizing:border-box !important;
       background:#fff !important;color:#000 !important;
       font-family:Cambria,"Times New Roman",Times,serif;
       font-size:11pt;line-height:1.35;font-weight:700
@@ -3454,7 +3478,7 @@ function payrollReceiptCss() {
     body.print-recibo #rfsPrintRoot > .footer{display:none !important}
     #rfsPrintRoot{width:100% !important;max-width:100% !important;padding:0 !important;margin:0 !important;box-sizing:border-box}
     .recibo-ticket{
-      width:100%;max-width:62mm;box-sizing:border-box;
+      width:100%;max-width:${ticketMax};box-sizing:border-box;
       page-break-after:always;break-after:page;
       padding:2mm 0 12mm;margin:0 0 8mm;color:#000;
       border-bottom:1px dashed #000
@@ -3505,8 +3529,8 @@ function payrollReceiptCss() {
     }
     @media print{
       html,body.print-recibo{
-        width:76mm !important;max-width:76mm !important;margin:0 !important;
-        padding:3mm 4mm 3mm 8mm !important;box-sizing:border-box !important
+        width:${pageW} !important;max-width:${pageW} !important;margin:0 !important;
+        padding:${pad} !important;box-sizing:border-box !important
       }
       .recibo-ticket{page-break-after:always;padding-bottom:12mm;margin-bottom:8mm}
       .recibo-ticket:last-child{page-break-after:auto;margin-bottom:0}
@@ -3526,6 +3550,10 @@ function buildPayrollReceiptTicketHtml(p, line) {
   const days = String(l.daysWorked || "").trim();
   const fecha = payrollReceiptPayDateLabel(p);
   const groupMeta = payrollGroupMeta(p.group || "banco");
+  const tandaMeta = payrollIsMonorriel(p) ? monorrielTandaMeta(p.tanda) : null;
+  const groupLine = tandaMeta
+    ? `${groupMeta.short} · ${tandaMeta.short} · ${halfLabel(p.half || 1)}`
+    : `${groupMeta.short} · ${halfLabel(p.half || 1)}`;
   const extras = roundMoney2((Number(l.horasExtras) || 0) + (Number(l.feriado) || 0));
   const comida = roundMoney2((Number(l.almuerzo) || 0) + (Number(l.svda) || 0));
   const unifRifa = roundMoney2((Number(l.uniformes) || 0) + (Number(l.rifa) || 0));
@@ -3551,7 +3579,7 @@ function buildPayrollReceiptTicketHtml(p, line) {
   return `<article class="recibo-ticket">
     <p class="co">REACTION FORCE SECURITY LS, SRL</p>
     <p class="title">RECIBO DE PAGO</p>
-    <p class="group-tag">${escapeHtml(groupMeta.short)} · ${escapeHtml(halfLabel(p.half || 1))}</p>
+    <p class="group-tag">${escapeHtml(groupLine)}</p>
     <hr class="sep" />
     <p class="meta-line"><strong>Empleado:</strong> ${escapeHtml(String(name).toUpperCase())}</p>
     <p class="meta-line"><strong>Fecha:</strong> ${escapeHtml(fecha)}</p>
@@ -3582,7 +3610,7 @@ function printOpenPayrollReceipts() {
   const p = resolveOpenPayrollForExport();
   if (!p) return;
   if (!payrollSupportsReceiptPrint(p)) {
-    toast("Los recibos de rollo empiezan por Reaction Banco y Efectivo.");
+    toast("Recibos disponibles en Banco, Efectivo, La Vega, Lotedom y Monorriel.");
     return;
   }
   const n = payrollLinesForTotals(p.lines || []).length;
@@ -3594,27 +3622,32 @@ function printOpenPayrollReceipts() {
     toast("Impresión no disponible.");
     return;
   }
-  const caption = `Recibos ${payrollGroupMeta(p.group).short} · ${halfLabel(p.half || 1)} · ${monthLabel(
-    p.period
-  )}`;
+  const profile = payrollReceiptProfile(p);
+  const tandaMeta = payrollIsMonorriel(p) ? monorrielTandaMeta(p.tanda) : null;
+  const groupBit = tandaMeta
+    ? `${payrollGroupMeta(p.group).short}-${tandaMeta.short}`
+    : payrollGroupMeta(p.group).short;
+  const caption = `Recibos ${groupBit} · ${halfLabel(p.half || 1)} · ${monthLabel(p.period)}`;
   const win = openPrintWindow(caption, buildPayrollReceiptsHtml(p), {
     bodyClass: "print-recibo",
     pageSize: "",
     orientation: "portrait",
     wide: false,
     autoPrint: false,
-    extraCss: payrollReceiptCss(),
+    extraCss: payrollReceiptCss(profile),
     share: {
       text: caption,
       subject: caption,
-      fileName: `recibos-${p.group || "nomina"}-${p.period || ""}.pdf`,
+      fileName: `recibos-${String(groupBit || "nomina")
+        .toLowerCase()
+        .replace(/\s+/g, "-")}-${p.period || ""}.pdf`,
     },
   });
   if (!win) {
     toast("Permite ventanas emergentes para imprimir los recibos.");
     return;
   }
-  toast(`${n} recibo(s) · elige la Epson TM-U220 · papel 76 mm`);
+  toast(`${n} recibo(s) · elige ${payrollReceiptPrinterHint(p)}`);
 }
 
 async function shareOpenPayrollSheet(mode = "share") {
@@ -4056,6 +4089,11 @@ function renderNominaTab() {
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
         if (p && groupSel && p.group && PAYROLL_GROUP_META[p.group]) groupSel.value = p.group;
+        const tandaSel = document.getElementById("contabPayrollMonoTanda");
+        if (p && p.group === "monorriel" && tandaSel) {
+          syncMonorrielTandaUi("monorriel");
+          tandaSel.value = normalizeMonorrielTandaId(p.tanda);
+        }
         renderNominaTab();
         setTimeout(() => printOpenPayrollReceipts(), 50);
       })
@@ -4402,7 +4440,9 @@ function renderNominaTab() {
       <button type="button" class="btn secondary" id="btnContabAddManual2" style="width:auto" title="Fila sin fórmulas (trato especial)">＋ Manual</button>
       ${
         payrollSupportsReceiptPrint(p)
-          ? `<button type="button" class="btn primary" id="btnContabPrintReceipts2" style="width:auto" title="Recibos individuales para Epson TM-U220 (76 mm)">Imprimir recibos</button>`
+          ? `<button type="button" class="btn primary" id="btnContabPrintReceipts2" style="width:auto" title="${escapeHtml(
+              payrollReceiptPrinterHint(p)
+            )}">Imprimir recibos</button>`
           : ""
       }
       <button type="button" class="btn secondary" id="btnContabPrintPayroll2" style="width:auto">Imprimir ↔</button>
