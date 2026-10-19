@@ -555,6 +555,7 @@ function normalizePayroll(p = {}) {
     status,
     showFeriado: office ? false : p.showFeriado === true,
     svdaMealSplit: p.svdaMealSplit === true,
+    seedRevision: String(p.seedRevision || "").trim(),
     lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, formulaOpts)) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
@@ -774,17 +775,18 @@ function restorePayrollFromBackup(backupId) {
 }
 
 /** Semilla de recuperación: La Vega 01–15 oct 2026 (snapshot 14-oct; días 13 por defecto). */
-const LAVEGA_OCT_H1_RECOVERY_SEED = {"id":"pay-1791943152987-8l82","period":"2026-10","half":1,"group":"lavega","payDate":"2026-10-20","lines":[{"employeeId":"emp-1791933177973-ebvz6l","fullName":"ANDRES CABRERA","position":"ENTRADA JARABACOA","cedula":"047-0134385-9","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":600.0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177971-tyaldy","fullName":"FRANCISCO GALAN","position":"BOTADERO 02","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177974-l2dckb","fullName":"FRANKLIN AYBAR","position":"BURENDE","cedula":"047-0013450-7","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177973-r83kcb","fullName":"JORGE LUIS","position":"ENTRADA JARABACOA","cedula":"012-0108564-2","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177971-epawy6","fullName":"JOSE DANIEL","position":"botadero","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177969-oleb64","fullName":"JOSE MIGUEL","position":"miranda carpa","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177974-z6r26t","fullName":"JULIO EDUARDO","position":"ARENOSO ABAJO","cedula":"047-0151191-9","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177971-z7cc5y","fullName":"LUIS DAVID","position":"traumatologico","cedula":"402-4281609-4","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177972-hwrpcb","fullName":"PABLO LUIS","position":"ARROYO EL PINO","cedula":"034-002839-1","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177972-lhh81e","fullName":"RAFAEL GARCIA","position":"INGENIERIA ESTRELLA","cedula":"056-0096608-8","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177974-ujevqp","fullName":"RAFAEL SANTIAGO","position":"GUACO LA VEGA","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115},{"employeeId":"emp-1791933177973-v3ukre","fullName":"RAFAEL TORRES","position":"GEREMIAS","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0,"rifa":85.0,"uniformes":115}],"createdAt":"2026-10-14T01:59:12.987Z","createdBy":"EDWARD CRUZ"};
+const LAVEGA_OCT_H1_RECOVERY_SEED = {"id":"pay-1791943152987-8l82","period":"2026-10","half":1,"group":"lavega","tanda":"","payDate":"2026-10-20","status":"draft","showFeriado":false,"svdaMealSplit":true,"seedRevision":"pdf-2026-10-16","note":"Nómina La Vega Autopista · 01 al 15 · Octubre 2026 · Restaurada desde PDF 16/10/2026 (17 empleados · redondeo 216,350)","createdBy":"EDWARD CRUZ","createdAt":"2026-10-14T01:59:12.987Z","updatedAt":"2026-10-19T21:19:36.614Z","lines":[{"employeeId":"emp-1791933177973-ebvz6l","fullName":"ANDRES CABRERA","position":"ENTRADA JARABACOA","cedula":"047-0134385-9","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":1545.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177971-tyaldy","fullName":"FRANCISCO GALAN","position":"BOTADERO 02","cedula":"","daysWorked":"15","salaryMonthly":24000.0,"almuerzo":0.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177974-l2dckb","fullName":"FRANKLIN AYBAR","position":"BURENDE","cedula":"047-0013450-7","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177973-r83kcb","fullName":"JORGE FELIX","position":"ENTRADA JARABACOA","cedula":"012-0108564-2","daysWorked":"14+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177969-oleb64","fullName":"JOSE TORRES","position":"miranda carpa","cedula":"","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177974-z6r26t","fullName":"JULIO MOLINA","position":"ARENOSO ABAJO","cedula":"047-0151191-9","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177971-z7cc5y","fullName":"LUIS CASTILLO","position":"traumatologico","cedula":"402-4281609-4","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177972-hwrpcb","fullName":"PABLO RODRIGUEZ","position":"ARROYO EL PINO","cedula":"034-002839-1","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177973-v3ukre","fullName":"RAFAEL TORRES","position":"GEREMIAS","cedula":"","daysWorked":"14+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177974-ujevqp","fullName":"RAFAEL SANTIAGO","position":"GUACO LA VEGA","cedula":"","daysWorked":"13","salaryMonthly":24000.0,"almuerzo":0.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-lva-joancabrer-776614","fullName":"JOAN CABRERA","position":"","cedula":"","daysWorked":"15+4","salaryMonthly":24000.0,"almuerzo":400.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177972-lhh81e","fullName":"RAFAEL CRUZ","position":"INGENIERIA ESTRELLA","cedula":"056-0096608-8","daysWorked":"9","salaryMonthly":24000.0,"almuerzo":0.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-lva-juancruz-776614","fullName":"JUAN CRUZ","position":"","cedula":"","daysWorked":"9","salaryMonthly":24000.0,"almuerzo":0.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-lva-gilbertoay-776614","fullName":"GILBERTO AYALA","position":"","cedula":"","daysWorked":"6+2","salaryMonthly":24000.0,"almuerzo":200.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-lva-darlinacev-776614","fullName":"DARLIN ACEVEDO","position":"","cedula":"","daysWorked":"7+2","salaryMonthly":24000.0,"almuerzo":200.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-1791933177971-epawy6","fullName":"JOSE FERREIRA","position":"botadero","cedula":"","daysWorked":"11","salaryMonthly":24000.0,"almuerzo":0.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":0.0,"incentivos":0,"feriado":0,"reviewed":false},{"employeeId":"emp-lva-angelabreu-776614","fullName":"ANGEL ABREU","position":"","cedula":"","daysWorked":"7.8","salaryMonthly":24000.0,"almuerzo":0.0,"rifa":85.0,"uniformes":115,"prestamos":0.0,"adelantos":450.0,"incentivos":0,"feriado":0,"reviewed":false}]};
 
 /**
- * Si la nómina La Vega 01–15 oct quedó vacía (respaldos también vacíos),
- * restaura la última copia conocida. No pisa una nómina que ya tenga empleados.
+ * Restaura La Vega 01–15 oct desde el PDF corregido (17 empleados · redondeo 216,350).
+ * Aplica si está vacía o si aún no tiene seedRevision del PDF (evita quedar con la copia vieja de 12).
  */
 function recoverLavegaOctPayrollIfEmpty() {
   const seed = LAVEGA_OCT_H1_RECOVERY_SEED;
   if (!seed || !seed.id) return false;
   if (!contabilidadData || typeof contabilidadData !== "object") return false;
   if (!Array.isArray(contabilidadData.payrolls)) contabilidadData.payrolls = [];
+  const seedRev = String(seed.seedRevision || "pdf-2026-10-16");
   const idx = contabilidadData.payrolls.findIndex(
     (p) =>
       p &&
@@ -795,30 +797,35 @@ function recoverLavegaOctPayrollIfEmpty() {
           p.status !== "cancelled"))
   );
   const existing = idx >= 0 ? contabilidadData.payrolls[idx] : null;
-  if (existing && payrollNamedLineCount(existing) > 0) return false;
-  const fromBackup = (contabilidadData.payrollBackups || [])
-    .map(normalizePayrollBackup)
-    .filter(
-      (b) =>
-        (b.payrollId === seed.id || (existing && b.payrollId === existing.id)) &&
-        payrollBackupNamedCount(b) > 0
-    )
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
-  const source = fromBackup && fromBackup.snapshot ? fromBackup.snapshot : seed;
-  const lines = Array.isArray(source.lines) && source.lines.length ? source.lines : seed.lines || [];
+  const named = existing ? payrollNamedLineCount(existing) : 0;
+  const alreadyPdf =
+    existing &&
+    String(existing.seedRevision || "") === seedRev &&
+    named === (seed.lines || []).length;
+  if (alreadyPdf) return false;
+  // Preferir el PDF embebido sobre respaldos viejos (12 empleados / días 13).
+  const lines = Array.isArray(seed.lines) && seed.lines.length ? seed.lines : [];
   if (!lines.length) return false;
+  if (existing && named > 0) {
+    try {
+      snapshotPayrollBackup(existing, "before_restore");
+    } catch (_) {}
+  }
   const restored = normalizePayroll({
-    ...source,
+    ...seed,
     id: (existing && existing.id) || seed.id,
     period: "2026-10",
     half: 1,
     group: "lavega",
-    payDate: source.payDate || seed.payDate || "2026-10-20",
+    payDate: seed.payDate || "2026-10-15",
     status: "draft",
+    showFeriado: false,
+    svdaMealSplit: true,
+    seedRevision: seedRev,
     lines,
     note:
-      (existing && String(existing.note || "").includes("La Vega") && existing.note) ||
-      "Nómina La Vega Autopista · 01 al 15 · Octubre 2026 · Recuperada (días 13 por defecto; revisar)",
+      seed.note ||
+      "Nómina La Vega Autopista · 01 al 15 · Octubre 2026 · Restaurada desde PDF 16/10/2026",
     createdBy: seed.createdBy || (existing && existing.createdBy) || "",
     createdAt: seed.createdAt || (existing && existing.createdAt) || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -4551,7 +4558,7 @@ function renderContabilidadModule() {
   try {
     if (recoverLavegaOctPayrollIfEmpty()) {
       saveContabilidadData(true);
-      toast("Nómina La Vega 01–15 oct recuperada (12 empleados). Revisa los días.");
+      toast("Nómina La Vega 01–15 oct restaurada desde PDF (17 empleados · RD$ 216,350).");
     }
   } catch (_) {}
   ensureMonthFilter();
