@@ -382,6 +382,9 @@ function computePayrollLineTotals(line, opts = {}) {
   const adelantos = Math.max(0, Number(line.adelantos) || 0);
   const prestamos = Math.max(0, Number(line.prestamos) || 0);
   const hasName = !!String(line.fullName || "").trim();
+  // Si el usuario tecleó SFS / horas extras (incluso 0), no pisar con la fórmula auto.
+  const sfsManual = !!line.sfsManual;
+  const horasExtrasManual = !!line.horasExtrasManual;
 
   const baseDays = Math.max(0, Number(daysInfo.baseDays != null ? daysInfo.baseDays : daysInfo.days) || 0);
   const extraDays = Math.max(0, Number(daysInfo.extraDays) || 0);
@@ -390,12 +393,12 @@ function computePayrollLineTotals(line, opts = {}) {
   if (manual) {
     // Trato especial: respetar todo lo tecleado; solo armar totales
   } else if (office) {
-    // Oficina: quincena = mitad del sueldo; días no influyen. SFS fijo. Sin unif/volao/comida/feriado/extras.
+    // Oficina: quincena = mitad del sueldo; días no influyen. SFS por defecto fijo (editable a mano).
     salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
-    sfs = hasName ? OFFICE_PAYROLL_SFS : 0;
+    if (!sfsManual) sfs = hasName ? OFFICE_PAYROLL_SFS : 0;
     uniformes = 0;
     volaos = 0;
-    horasExtras = 0;
+    if (!horasExtrasManual) horasExtras = 0;
     feriado = 0;
     almuerzo = 0;
     if (!hasName) rifa = 0;
@@ -404,15 +407,18 @@ function computePayrollLineTotals(line, opts = {}) {
     if (extraDays > 0) {
       volaos = volaoFromDays;
     }
-    // Horas extras auto (si la tanda lo permite): 13 días → monto base, prorrateo
-    if (autoExtrasFromDays && !horasExtras && baseDays > 0) {
+    // Horas extras auto solo si no las fijó el usuario a mano (permite dejarlas en 0)
+    if (autoExtrasFromDays && !horasExtrasManual && baseDays > 0) {
       horasExtras = extrasPayFromBaseDays(baseDays, extrasFromDaysPay, extrasDaysBlock);
     }
     if (!salaryQuincena && salaryMonthly && baseDays > 0) {
       // Quincena = solo primera cifra de días (12/13/15…); el +N no suma aquí
       salaryQuincena = roundMoney2((salaryMonthly * baseDays) / LVA_PAYROLL_DAY_BASE);
     }
-    if (!sfs && salaryQuincena) sfs = roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE);
+    // SFS auto solo si no es manual (permite 0 = sin descuento de seguro)
+    if (!sfsManual) {
+      sfs = hasName && salaryQuincena ? roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE) : 0;
+    }
   }
 
   // LVA (La Vega / Monorriel / Lotedom / Banco / Efectivo): comida editable + seguro de vida fijo 90
@@ -435,10 +441,12 @@ function computePayrollLineTotals(line, opts = {}) {
     salaryMonthly,
     salaryQuincena,
     sfs,
+    sfsManual,
     uniformes,
     volaos,
     incentivos,
     horasExtras,
+    horasExtrasManual,
     feriado,
     almuerzo,
     svda,
@@ -476,10 +484,14 @@ function normalizePayrollLine(l = {}, opts = {}) {
     salaryMonthly: Math.max(0, Number(l.salaryMonthly != null ? l.salaryMonthly : l.salary) || 0),
     salaryQuincena: Math.max(0, Number(l.salaryQuincena) || 0),
     sfs: Math.max(0, Number(l.sfs) || 0),
+    /** Usuario fijó SFS a mano (incluso 0 = sin seguro). */
+    sfsManual: !!l.sfsManual,
     uniformes: Math.max(0, Number(l.uniformes) || 0),
     volaos: Math.max(0, Number(l.volaos) || 0),
     incentivos: Math.max(0, Number(l.incentivos) || 0),
     horasExtras: Math.max(0, Number(l.horasExtras) || 0),
+    /** Usuario fijó horas extras a mano (incluso 0). */
+    horasExtrasManual: !!l.horasExtrasManual,
     feriado: Math.max(0, Number(l.feriado) || 0),
     almuerzo: Math.max(0, Number(l.almuerzo) || 0),
     rifa: Math.max(0, Number(l.rifa) || 0),
@@ -2018,7 +2030,7 @@ const PAYROLL_OFFICE_TABLE_COLS = [
   ["cedula", "Cédula", "text"],
   ["salaryMonthly", "Sueldo mes", "num"],
   ["salaryQuincena", "Quincena", "ro"],
-  ["sfs", "SFS", "ro"],
+  ["sfs", "SFS", "num"],
   ["rifa", "Rifa", "num"],
   ["incentivos", "Incent.", "num"],
   ["adelantos", "Adelantos", "num"],
@@ -2565,12 +2577,22 @@ function readPayrollLinesFromDom(payrollId) {
         daysWorked: isOffice ? "" : g("daysWorked") || prev.daysWorked,
         salaryMonthly: g("salaryMonthly"),
         salaryQuincena: isOffice ? 0 : g("salaryQuincena"),
-        sfs: isOffice ? OFFICE_PAYROLL_SFS : g("sfs"),
+        sfs: g("sfs") === "" || g("sfs") == null ? prev.sfs : g("sfs"),
+        sfsManual: !!prev.sfsManual,
         uniformes: isOffice ? 0 : ur.uniformes,
         rifa: rifaVal,
         volaos: isOffice ? 0 : g("volaos"),
         incentivos: g("incentivos"),
-        horasExtras: isOffice ? 0 : g("horasExtras"),
+        horasExtras: isOffice
+          ? prev.horasExtrasManual
+            ? g("horasExtras") === "" || g("horasExtras") == null
+              ? prev.horasExtras
+              : g("horasExtras")
+            : 0
+          : g("horasExtras") === "" || g("horasExtras") == null
+            ? prev.horasExtras
+            : g("horasExtras"),
+        horasExtrasManual: !!prev.horasExtrasManual,
         feriado: showFer ? g("feriado") : 0,
         almuerzo: isOffice
           ? 0
@@ -2609,22 +2631,28 @@ function recalculateOpenPayroll(save = false) {
       return computePayrollLineTotals(l, opts);
     }
     const daysInfo = parsePayrollDays(l.daysWorked);
+    const keepSfs = !!l.sfsManual;
+    const keepHex = !!l.horasExtrasManual;
     return computePayrollLineTotals(
       {
         ...l,
         salaryQuincena: 0,
-        sfs: profile.office ? OFFICE_PAYROLL_SFS : 0,
-        // Volaos por +N; horas extras auto solo si la tanda lo permite (moto = manual)
+        // Respeta SFS / horas extras tecleados a mano (incluido 0)
+        sfs: keepSfs ? Math.max(0, Number(l.sfs) || 0) : profile.office ? OFFICE_PAYROLL_SFS : 0,
+        sfsManual: keepSfs,
         volaos: 0,
-        horasExtras: profile.office
-          ? 0
-          : profile.autoExtrasFromDays
-            ? extrasPayFromBaseDays(
-                daysInfo.baseDays,
-                profile.extrasFromDaysPay,
-                profile.extrasDaysBlock
-              )
-            : Math.max(0, Number(l.horasExtras) || 0),
+        horasExtras: keepHex
+          ? Math.max(0, Number(l.horasExtras) || 0)
+          : profile.office
+            ? 0
+            : profile.autoExtrasFromDays
+              ? extrasPayFromBaseDays(
+                  daysInfo.baseDays,
+                  profile.extrasFromDaysPay,
+                  profile.extrasDaysBlock
+                )
+              : Math.max(0, Number(l.horasExtras) || 0),
+        horasExtrasManual: keepHex,
       },
       opts
     );
@@ -2991,7 +3019,11 @@ function syncOpenPayrollFromDom(recalc = false) {
         ? {
             ...l,
             salaryQuincena: 0,
-            sfs: profile.office ? OFFICE_PAYROLL_SFS : 0,
+            sfs: l.sfsManual
+              ? Math.max(0, Number(l.sfs) || 0)
+              : profile.office
+                ? OFFICE_PAYROLL_SFS
+                : 0,
           }
         : l,
       opts
@@ -3088,10 +3120,12 @@ function buildPayrollPrintHtml(p) {
       volaos: isOffice ? 0 : l.volaos,
       almuerzo: isOffice ? 0 : l.almuerzo,
       feriado: isOffice ? 0 : l.feriado,
-      horasExtras: isOffice ? 0 : l.horasExtras,
+      horasExtras: isOffice && !l.horasExtrasManual ? 0 : l.horasExtras,
+      horasExtrasManual: !!l.horasExtrasManual,
       daysWorked: isOffice ? "" : l.daysWorked,
       salaryQuincena: isOffice ? 0 : l.salaryQuincena,
-      sfs: isOffice ? OFFICE_PAYROLL_SFS : l.sfs,
+      sfs: isOffice && !l.sfsManual ? OFFICE_PAYROLL_SFS : l.sfs,
+      sfsManual: !!l.sfsManual,
     };
     const printOpts = payrollComputeOpts(p);
     const computed = computePayrollLineTotals(named, printOpts);
@@ -3858,10 +3892,11 @@ function updatePayrollReadonlyDom(p) {
     const vol = tr.querySelector('[data-f="volaos"]');
     const hex = tr.querySelector('[data-f="horasExtras"]');
     if (q && document.activeElement !== q) q.value = l.salaryQuincena || "";
-    if (s && document.activeElement !== s) s.value = l.sfs || "";
+    // Mostrar 0 cuando el usuario lo puso a mano (|| "" lo ocultaba)
+    if (s && document.activeElement !== s) s.value = String(Number(l.sfs) || 0);
     if (asv && document.activeElement !== asv) asv.value = formatAlmuerzoSvda(l);
     if (vol && document.activeElement !== vol) vol.value = l.volaos || "";
-    if (hex && document.activeElement !== hex) hex.value = l.horasExtras || "";
+    if (hex && document.activeElement !== hex) hex.value = String(Number(l.horasExtras) || 0);
     const prest = tr.querySelector('[data-f="prestamos"]');
     if (prest && document.activeElement !== prest) prest.value = l.prestamos || "";
     const prestRo = [...tr.children].find((cell) => cell.dataset && cell.dataset.ro === "prestamos");
@@ -3926,28 +3961,46 @@ function applyPayrollLiveUpdate(ev) {
   const profile = getPayrollFormulaProfile(p);
   const opts = payrollComputeOpts(p);
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
+  const editSfs = field === "sfs";
+  const editHex = field === "horasExtras";
   let workLines = lines.map((l, i) => {
     if (isManualPayrollLine(l)) {
       return computePayrollLineTotals(l, opts);
     }
+    if (i === idx && (editSfs || editHex)) {
+      return computePayrollLineTotals(
+        {
+          ...l,
+          sfsManual: editSfs ? true : !!l.sfsManual,
+          horasExtrasManual: editHex ? true : !!l.horasExtrasManual,
+          sfs: Math.max(0, Number(l.sfs) || 0),
+          horasExtras: Math.max(0, Number(l.horasExtras) || 0),
+        },
+        opts
+      );
+    }
     if (forceBase && i === idx) {
       const daysInfo = parsePayrollDays(l.daysWorked);
-      // Al cambiar días: quincena, volao (+N) y extras auto según tanda
-      let nextHoras = l.horasExtras;
-      if (field === "daysWorked" && !profile.office) {
+      // Al cambiar días: quincena, volao (+N) y extras auto (si no están a mano)
+      let nextHoras = Math.max(0, Number(l.horasExtras) || 0);
+      if (field === "daysWorked" && !profile.office && !l.horasExtrasManual) {
         nextHoras = profile.autoExtrasFromDays
           ? extrasPayFromBaseDays(
               daysInfo.baseDays,
               profile.extrasFromDaysPay,
               profile.extrasDaysBlock
             )
-          : Math.max(0, Number(l.horasExtras) || 0);
+          : nextHoras;
       }
       return computePayrollLineTotals(
         {
           ...l,
           salaryQuincena: 0,
-          sfs: profile.office ? OFFICE_PAYROLL_SFS : 0,
+          sfs: l.sfsManual
+            ? Math.max(0, Number(l.sfs) || 0)
+            : profile.office
+              ? OFFICE_PAYROLL_SFS
+              : 0,
           volaos: field === "daysWorked" ? 0 : l.volaos,
           horasExtras: nextHoras,
         },
@@ -4354,9 +4407,13 @@ function renderNominaTab() {
             : key === "daysWorked"
               ? `${label} · Ej. 13+2: quincena con 13 días; el +2 = RD$ ${formulaProfile.volaoPerExtraDay}×2 solo en Volaos`
               : key === "horasExtras"
-                ? formulaProfile.autoExtrasFromDays
-                  ? `${label} · Auto: ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay} (al cambiar días)`
-                  : `${label} · Manual (sin auto por días)`
+                ? `${label} · Editable: pon el monto o 0 si no aplica.${
+                    formulaProfile.autoExtrasFromDays
+                      ? ` Auto (si no tocas): ${formulaProfile.extrasDaysBlock} días = RD$ ${formulaProfile.extrasFromDaysPay}.`
+                      : ""
+                  }`
+                : key === "sfs"
+                  ? `${label} · Editable: pon el monto o 0 si no lleva descuento de seguro`
                 : kind === "almuerzoSvda"
                   ? `${label} · comida editable / Seguro de vida fijo RD$ ${LVA_PAYROLL_SVDA}`
                   : label;
@@ -4407,13 +4464,23 @@ function renderNominaTab() {
             )}" title="Comida editable / Seguro de vida fijo RD$ ${LVA_PAYROLL_SVDA} (ambas suman)" /></td>`;
           }
           const cls = kind === "days" ? "nomina-inp nomina-inp-days" : kind === "text" ? "nomina-inp nomina-inp-ced" : "nomina-inp";
-          const val = l[key] == null ? "" : l[key];
+          // SFS / horas extras: mostrar 0 si el usuario lo fijó (o el valor calculado)
+          const val =
+            key === "sfs" || key === "horasExtras"
+              ? Number(l[key]) || 0
+              : l[key] == null
+                ? ""
+                : l[key];
           const type = kind === "num" ? "number" : "text";
           const step = kind === "num" ? ' step="0.01" min="0"' : "";
-          const title =
-            manual && kind === "num"
-              ? ' title="Manual: escribe el monto (sin fórmula automática)"'
-              : "";
+          let title = "";
+          if (manual && kind === "num") {
+            title = ' title="Manual: escribe el monto (sin fórmula automática)"';
+          } else if (key === "sfs") {
+            title = ' title="Editable: pon el monto o 0 si no lleva seguro"';
+          } else if (key === "horasExtras") {
+            title = ' title="Editable: pon el monto o 0 si no lleva horas extras"';
+          }
           return `<td class="${fit}"><input class="${cls}" data-f="${key}" type="${type}"${step}${title} value="${escapeHtml(
             String(val)
           )}" /></td>`;
