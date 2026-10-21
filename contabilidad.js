@@ -1098,6 +1098,11 @@ function canAccessContabilidad() {
 }
 
 function setContabTab(tab) {
+  // "nomina" ya no es sub-pestaña: abrir vista propia
+  if (tab === "nomina") {
+    openNominaView();
+    return;
+  }
   contabTab = tab || "gastos";
   document.querySelectorAll(".contab-tabs .emp-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.contabTab === contabTab);
@@ -1107,7 +1112,6 @@ function setContabTab(tab) {
     itbis: "contabTabItbis",
     liquidacion: "contabTabLiquidacion",
     oficina: "contabTabOficina",
-    nomina: "contabTabNomina",
   };
   Object.entries(map).forEach(([key, id]) => {
     const el = document.getElementById(id);
@@ -1116,16 +1120,58 @@ function setContabTab(tab) {
   renderContabilidadModule();
 }
 
+function openNominaView() {
+  if (typeof showView === "function") showView("nominaView");
+  else {
+    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+    const el = document.getElementById("nominaView");
+    if (el) el.classList.add("active");
+  }
+  renderNominaModule();
+}
+
+function renderNominaModule() {
+  if (!canAccessContabilidad()) return;
+  ensureMonthFilter();
+  syncNominaMonthFilter();
+  const summary = document.getElementById("nominaSummary");
+  if (summary) {
+    const n = (contabilidadData.payrolls || []).length;
+    summary.textContent = `${monthLabel(getSelectedMonth())} · ${n} nómina(s) · cada una en su propio documento en la nube (hasta 1 MB).`;
+  }
+  renderNominaTab();
+}
+
 function getSelectedMonth() {
-  const el = document.getElementById("contabMonthFilter");
+  const nominaEl = document.getElementById("nominaMonthFilter");
+  const contabEl = document.getElementById("contabMonthFilter");
+  const active = document.querySelector(".view.active");
+  const preferNomina = active && active.id === "nominaView";
+  const el = preferNomina ? nominaEl || contabEl : contabEl || nominaEl;
   const v = el && el.value;
   return monthKeyFromDate(v) || currentMonthKey();
 }
 
 function ensureMonthFilter() {
-  const el = document.getElementById("contabMonthFilter");
-  if (!el) return;
-  if (!el.value) el.value = currentMonthKey();
+  const key = currentMonthKey();
+  ["contabMonthFilter", "nominaMonthFilter"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!el.value) el.value = key;
+  });
+}
+
+function syncNominaMonthFilter() {
+  const a = document.getElementById("nominaMonthFilter");
+  const b = document.getElementById("contabMonthFilter");
+  if (!a || !b) return;
+  if (a.value && !b.value) b.value = a.value;
+  else if (b.value && !a.value) a.value = b.value;
+  else if (a.value && b.value && a.value !== b.value) {
+    const active = document.querySelector(".view.active");
+    if (active && active.id === "nominaView") b.value = a.value;
+    else a.value = b.value;
+  }
 }
 
 function filterByMonth(rows, dateField = "date") {
@@ -2259,7 +2305,7 @@ function refreshMonorrielPayrollLoanDeductions(forceClear = true) {
       saveContabilidadData(true);
     } catch (_) {}
     try {
-      if (typeof renderNominaTab === "function" && typeof contabTab !== "undefined" && contabTab === "nomina") {
+      if (typeof renderNominaTab === "function" && document.getElementById("nominaView")?.classList.contains("active")) {
         // Evitar bucle: el caller puede estar dentro de renderNominaTab
         if (!refreshMonorrielPayrollLoanDeductions._inRender) renderNominaTab();
       } else if (typeof renderContabilidadModule === "function") {
@@ -2457,7 +2503,7 @@ function generateOfficePayroll() {
   if (!result) return;
   selectedPayrollId = result.payroll.id;
   saveContabilidadData(true);
-  setContabTab("nomina");
+  openNominaView();
   toast(
     `Nómina ${result.labelShort} ${halfLabel(result.half)} · ${monthLabel(result.period)} · ${
       result.lines.length
@@ -2533,7 +2579,7 @@ function generateAllMonorrielTandas() {
   if (tandaSel) tandaSel.value = "dia";
   selectedPayrollId = findPayrollByGroup(period, half, "monorriel", "dia")?.id || selectedPayrollId;
   saveContabilidadData(true);
-  setContabTab("nomina");
+  openNominaView();
   renderNominaTab();
   toast(`Monorriel ${halfLabel(half)} · ${counts.join(" · ")}`);
 }
@@ -3886,8 +3932,7 @@ let lastPayrollEditAt = 0;
 /** True si hay teclado/foco en la tabla de nómina (otra PC no debe pisar la UI). */
 function isPayrollBeingEdited() {
   const active = document.querySelector(".view.active");
-  if (!active || active.id !== "contabilidadView") return false;
-  if (typeof contabTab !== "undefined" && contabTab !== "nomina") return false;
+  if (!active || active.id !== "nominaView") return false;
   const root = document.getElementById("contabPayrollDetail");
   if (root && document.activeElement && root.contains(document.activeElement)) return true;
   return Date.now() - lastPayrollEditAt < 25000;
@@ -4749,13 +4794,12 @@ function renderContabilidadModule() {
   ensureMonthFilter();
   const summary = document.getElementById("contabSummary");
   if (summary) {
-    summary.textContent = `${monthLabel(getSelectedMonth())} · Gastos con NCF, ITBIS cobrado, liquidación DGII y nómina La Vega.`;
+    summary.textContent = `${monthLabel(getSelectedMonth())} · Gastos con NCF, ITBIS cobrado, liquidación DGII y personal de oficina.`;
   }
   if (contabTab === "gastos") renderExpensesTab();
   else if (contabTab === "itbis") renderItbisTab();
   else if (contabTab === "liquidacion") renderLiquidacionTab();
   else if (contabTab === "oficina") renderOficinaTab();
-  else if (contabTab === "nomina") renderNominaTab();
 }
 
 function onItbisBaseOrTotalInput() {
@@ -4787,7 +4831,18 @@ function bindContabilidadUi() {
   document.querySelectorAll(".contab-tabs .emp-tab").forEach((btn) => {
     btn.addEventListener("click", () => setContabTab(btn.dataset.contabTab));
   });
-  document.getElementById("contabMonthFilter")?.addEventListener("change", () => renderContabilidadModule());
+  document.getElementById("contabMonthFilter")?.addEventListener("change", () => {
+    const n = document.getElementById("nominaMonthFilter");
+    const cEl = document.getElementById("contabMonthFilter");
+    if (n && cEl) n.value = cEl.value;
+    renderContabilidadModule();
+  });
+  document.getElementById("nominaMonthFilter")?.addEventListener("change", () => {
+    const n = document.getElementById("nominaMonthFilter");
+    const cEl = document.getElementById("contabMonthFilter");
+    if (n && cEl) cEl.value = n.value;
+    renderNominaModule();
+  });
   document.getElementById("btnCfeSave")?.addEventListener("click", saveExpenseFromForm);
   document.getElementById("btnCfeClear")?.addEventListener("click", clearExpenseForm);
   document.getElementById("cfeAmount")?.addEventListener("input", onExpenseAmountInput);

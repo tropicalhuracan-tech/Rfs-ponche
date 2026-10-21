@@ -5,6 +5,8 @@
   const rootDoc = cfg.docPath || "rfs/main";
   const rootCollection = rootDoc.split("/")[0] || "rfs";
   const MEDIA_COLLECTION = cfg.mediaCollection || "rfs_media";
+  const PAYROLLS_COLLECTION = cfg.payrollsCollection || "rfs_payrolls";
+  const PAYROLL_BACKUPS_COLLECTION = cfg.payrollBackupsCollection || "rfs_payroll_backups";
   const storageBucket =
     cfg.storageBucket || (projectId ? `${projectId}.firebasestorage.app` : "");
   const SCHEMA_VERSION = "2";
@@ -222,13 +224,55 @@
 
   async function deleteMedia(id) {
     if (!id) return false;
-    const res = await fetch(docUrl(mediaPath(id)), { method: "DELETE" });
+    return deleteDocByPath(mediaPath(id));
+  }
+
+  async function deleteDocByPath(path) {
+    if (!path) return false;
+    const res = await fetch(docUrl(path), { method: "DELETE" });
     if (res.status === 404) return false;
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`cloud media delete ${id} ${res.status}: ${text.slice(0, 180)}`);
+      throw new Error(`cloud delete ${path} ${res.status}: ${text.slice(0, 180)}`);
     }
     return true;
+  }
+
+  function payrollPath(id) {
+    return `${PAYROLLS_COLLECTION}/${safeId(id)}`;
+  }
+
+  function payrollBackupPath(id) {
+    return `${PAYROLL_BACKUPS_COLLECTION}/${safeId(id)}`;
+  }
+
+  function payrollIndexPath() {
+    return `${rootCollection}/payroll_index`;
+  }
+
+  async function listCollectionDocs(collectionId, pageSize = 100) {
+    const out = [];
+    let pageToken = "";
+    for (let guard = 0; guard < 40; guard += 1) {
+      let url = `${baseUrl()}/${collectionId}?key=${encodeURIComponent(apiKey)}&pageSize=${pageSize}`;
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      const res = await fetch(url, { method: "GET" });
+      if (res.status === 404) return out;
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`cloud list ${collectionId} ${res.status}: ${text.slice(0, 180)}`);
+      }
+      const data = await res.json();
+      (data.documents || []).forEach((doc) => out.push(doc));
+      pageToken = data.nextPageToken || "";
+      if (!pageToken) break;
+    }
+    return out;
+  }
+
+  function docIdFromName(name) {
+    const parts = String(name || "").split("/");
+    return parts[parts.length - 1] || "";
   }
 
   async function loadMediaMap(ids) {
@@ -526,7 +570,197 @@
 
   function stripContabilidad(data) {
     const src = data && typeof data === "object" ? data : emptyContabilidad();
-    return { light: src, mediaJobs: [] };
+    // Nóminas y respaldos viven en rfs_payrolls / rfs_payroll_backups (1 MB c/u)
+    const light = {
+      expenses: Array.isArray(src.expenses) ? src.expenses : [],
+      itbisCollected: Array.isArray(src.itbisCollected) ? src.itbisCollected : [],
+      officeEmployees: Array.isArray(src.officeEmployees) ? src.officeEmployees : [],
+      lotedomEmployees: Array.isArray(src.lotedomEmployees) ? src.lotedomEmployees : [],
+      payrolls: [],
+      payrollBackups: [],
+      payrollBackupDeletedIds: [],
+      settings: src.settings && typeof src.settings === "object" ? src.settings : { defaultBook: "EDWARD" },
+      payrollsSplit: true,
+    };
+    return { light, mediaJobs: [] };
+  }
+
+  async function loadPayrollIndex() {
+    try {
+      const doc = await getDoc(payrollIndexPath());
+      if (!doc || !doc.fields) return { payrollIds: [], deletedBackupIds: [], updatedAt: null };
+      const fields = doc.fields;
+      return {
+        payrollIds: parseArrayField(fields, "payrollIdsJson").map(String).filter(Boolean),
+        deletedBackupIds: parseArrayField(fields, "deletedBackupIdsJson").map(String).filter(Boolean),
+        updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
+      };
+    } catch (_) {
+      return { payrollIds: [], deletedBackupIds: [], updatedAt: null };
+    }
+  }
+
+  async function loadPayrollDocsByIds(ids) {
+    const unique = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
+    const payrolls = [];
+    await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const doc = await getDoc(payrollPath(id));
+          if (!doc || !doc.fields) return;
+          const row = parseObjectField(doc.fields, "payrollJson");
+          if (row && row.id) payrolls.push(row);
+        } catch (_) {}
+      })
+    );
+    return payrolls;
+  }
+
+  async function loadPayrollBackupDocsByIds(ids) {
+    const unique = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
+    const backups = [];
+    await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const doc = await getDoc(payrollBackupPath(id));
+          if (!doc || !doc.fields) return;
+          const row = parseObjectField(doc.fields, "backupJson");
+          if (row && row.id) backups.push(row);
+        } catch (_) {}
+      })
+    );
+    return backups;
+  }
+
+  async function discoverPayrollIds() {
+    const index = await loadPayrollIndex();
+    const ids = new Set(index.payrollIds || []);
+    try {
+      const docs = await listCollectionDocs(PAYROLLS_COLLECTION, 100);
+      docs.forEach((doc) => {
+        const id = docIdFromName(doc.name);
+        if (id) ids.add(id);
+        const row = doc.fields ? parseObjectField(doc.fields, "payrollJson") : null;
+        if (row && row.id) ids.add(String(row.id));
+      });
+    } catch (_) {}
+    return { ids: [...ids], deletedBackupIds: index.deletedBackupIds || [] };
+  }
+
+  async function loadSeparatedPayrollBundle() {
+    const discovered = await discoverPayrollIds();
+    const [payrolls, backups] = await Promise.all([
+      loadPayrollDocsByIds(discovered.ids),
+      loadPayrollBackupDocsByIds(discovered.ids),
+    ]);
+    return {
+      payrolls,
+      payrollBackups: prunePayrollBackupsOnePerPayroll(backups, discovered.deletedBackupIds),
+      payrollBackupDeletedIds: discovered.deletedBackupIds,
+    };
+  }
+
+  function mergeContabilidadWithSeparatedPayrolls(contab, separated) {
+    const base = contab && typeof contab === "object" ? contab : emptyContabilidad();
+    const sep = separated || { payrolls: [], payrollBackups: [], payrollBackupDeletedIds: [] };
+    // Si aún hay nóminas embebidas (clientes viejos), fusionarlas una vez
+    const merged = mergeContabilidadPreferFilledPayrolls(
+      {
+        ...base,
+        payrolls: Array.isArray(base.payrolls) ? base.payrolls : [],
+        payrollBackups: Array.isArray(base.payrollBackups) ? base.payrollBackups : [],
+        payrollBackupDeletedIds: Array.isArray(base.payrollBackupDeletedIds)
+          ? base.payrollBackupDeletedIds
+          : [],
+      },
+      {
+        payrolls: sep.payrolls || [],
+        payrollBackups: sep.payrollBackups || [],
+        payrollBackupDeletedIds: sep.payrollBackupDeletedIds || [],
+      }
+    );
+    return merged;
+  }
+
+  async function persistSeparatedPayrolls(contab) {
+    const src = contab && typeof contab === "object" ? contab : emptyContabilidad();
+    const deletedIds = (src.payrollBackupDeletedIds || []).map(String).filter(Boolean).slice(0, 400);
+    const payrolls = Array.isArray(src.payrolls) ? src.payrolls.filter((p) => p && p.id) : [];
+    const backups = prunePayrollBackupsOnePerPayroll(src.payrollBackups || [], deletedIds);
+    const localIds = payrolls.map((p) => String(p.id));
+    const localIdSet = new Set(localIds);
+    const updatedAt = new Date().toISOString();
+
+    // Fusionar cada nómina con su doc remoto (no perder montos de otra PC)
+    await Promise.all(
+      payrolls.map(async (p) => {
+        let toSave = p;
+        try {
+          const remoteDoc = await getDoc(payrollPath(p.id));
+          if (remoteDoc && remoteDoc.fields) {
+            const remote = parseObjectField(remoteDoc.fields, "payrollJson");
+            if (remote && remote.id) toSave = mergePayrollRowsPreserveAmounts(p, remote);
+          }
+        } catch (_) {}
+        await patchDoc(
+          payrollPath(p.id),
+          {
+            payrollJson: { stringValue: JSON.stringify(toSave) },
+            group: { stringValue: String(toSave.group || "") },
+            period: { stringValue: String(toSave.period || "") },
+            updatedAt: { stringValue: String(toSave.updatedAt || updatedAt) },
+          },
+          ["payrollJson", "group", "period", "updatedAt"]
+        );
+      })
+    );
+
+    await Promise.all(
+      backups.map(async (b) => {
+        const pid = String(b.payrollId || (b.snapshot && b.snapshot.id) || "").trim();
+        if (!pid) return;
+        await patchDoc(
+          payrollBackupPath(pid),
+          {
+            backupJson: { stringValue: JSON.stringify(b) },
+            payrollId: { stringValue: pid },
+            updatedAt: { stringValue: String(b.updatedAt || b.createdAt || updatedAt) },
+          },
+          ["backupJson", "payrollId", "updatedAt"]
+        );
+      })
+    );
+
+    // Borrar docs huérfanos (nómina eliminada en la app)
+    let previousIds = [];
+    try {
+      const idx = await loadPayrollIndex();
+      previousIds = idx.payrollIds || [];
+    } catch (_) {}
+    const toDelete = previousIds.filter((id) => id && !localIdSet.has(String(id)));
+    await Promise.all(
+      toDelete.map(async (id) => {
+        try {
+          await deleteDocByPath(payrollPath(id));
+        } catch (_) {}
+        try {
+          await deleteDocByPath(payrollBackupPath(id));
+        } catch (_) {}
+      })
+    );
+
+    await patchDoc(
+      payrollIndexPath(),
+      {
+        payrollIdsJson: { stringValue: JSON.stringify(localIds) },
+        deletedBackupIdsJson: { stringValue: JSON.stringify(deletedIds) },
+        updatedAt: { stringValue: updatedAt },
+        schema: { stringValue: "payrolls-v1" },
+      },
+      ["payrollIdsJson", "deletedBackupIdsJson", "updatedAt", "schema"]
+    );
+
+    return { payrollIds: localIds, backups: backups.length, deletedOrphans: toDelete.length };
   }
 
   function payrollNamedCount(p) {
@@ -923,6 +1157,15 @@
     const empFields = (employees && employees.fields) || {};
     const hrFields = (hr && hr.fields) || {};
     const contabFields = (contab && contab.fields) || {};
+    let contabilidad = contabFields.contabilidadJson
+      ? parseObjectField(contabFields, "contabilidadJson")
+      : emptyContabilidad();
+    try {
+      const separated = await loadSeparatedPayrollBundle();
+      contabilidad = mergeContabilidadWithSeparatedPayrolls(contabilidad, separated);
+    } catch (err) {
+      console.warn("RFS: no se pudieron cargar nóminas separadas (merge)", err);
+    }
     return {
       empty: false,
       messages: parseArrayField(mainFields, "messagesJson"),
@@ -937,9 +1180,7 @@
         ? parseArrayField(empFields, "employeesJson")
         : parseArrayField(mainFields, "employeesJson"),
       hr: hrFields.hrJson ? parseObjectField(hrFields, "hrJson") : emptyHr(),
-      contabilidad: contabFields.contabilidadJson
-        ? parseObjectField(contabFields, "contabilidadJson")
-        : emptyContabilidad(),
+      contabilidad,
       partial: !loans || !employees,
     };
   }
@@ -1094,6 +1335,15 @@
     }
 
     const hydrated = await hydrateBundle(bundle);
+    try {
+      const separated = await loadSeparatedPayrollBundle();
+      hydrated.contabilidad = mergeContabilidadWithSeparatedPayrolls(
+        hydrated.contabilidad,
+        separated
+      );
+    } catch (err) {
+      console.warn("RFS: no se pudieron cargar nóminas separadas", err);
+    }
     const empty =
       !hydrated.posts.length &&
       !hydrated.employees.length &&
@@ -1147,6 +1397,18 @@
         contabToSave = mergeContabilidadPreferFilledPayrolls(contabilidad, remoteContab);
       }
     } catch (_) {}
+    // Fusionar también con nóminas ya separadas en la nube
+    try {
+      const separated = await loadSeparatedPayrollBundle();
+      contabToSave = mergeContabilidadWithSeparatedPayrolls(contabToSave, separated);
+    } catch (_) {}
+    // Persistir cada nómina/respaldo en su propio doc (1 MB cada uno)
+    try {
+      await persistSeparatedPayrolls(contabToSave);
+    } catch (err) {
+      console.warn("RFS: fallo al guardar nóminas separadas", err);
+      throw err;
+    }
     const contabPack = stripContabilidad(contabToSave);
     await persistMediaJobs([
       ...empPack.mediaJobs,
@@ -1242,6 +1504,8 @@
     storageEnabled,
     storageBucket: () => storageBucket,
     decodeDoc: decodeLegacyMain,
+    loadSeparatedPayrollBundle,
+    persistSeparatedPayrolls,
     SCHEMA_VERSION,
   };
 })();
