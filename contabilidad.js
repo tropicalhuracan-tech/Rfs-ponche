@@ -407,8 +407,9 @@ function computePayrollLineTotals(line, opts = {}) {
     if (extraDays > 0) {
       volaos = volaoFromDays;
     }
-    // Horas extras auto solo si no las fijó el usuario a mano (permite dejarlas en 0)
-    if (autoExtrasFromDays && !horasExtrasManual && baseDays > 0) {
+    // Horas extras auto: solo rellenar si están vacías y el usuario no las fijó.
+    // No pisar un monto ya tecleado (protege datos al sync / al editar otras casillas).
+    if (autoExtrasFromDays && !horasExtrasManual && !horasExtras && baseDays > 0) {
       horasExtras = extrasPayFromBaseDays(baseDays, extrasFromDaysPay, extrasDaysBlock);
     }
     if (!salaryQuincena && salaryMonthly && baseDays > 0) {
@@ -955,8 +956,61 @@ function applyRemoteContabilidadData(remote) {
   }
 
   /** Nunca dejar que una nómina vacía (0 empleados) pise una con datos. */
+  function mergePayrollLinesPreserveAmounts(winner, other) {
+    if (!winner) return other;
+    if (!other) return winner;
+    const otherByKey = new Map();
+    (other.lines || []).forEach((l) => {
+      if (!l) return;
+      const id = String(l.employeeId || "").trim();
+      const name = String(l.fullName || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      const key = id ? `id:${id}` : name ? `name:${name}` : "";
+      if (key) otherByKey.set(key, l);
+    });
+    const lines = (winner.lines || []).map((l) => {
+      if (!l) return l;
+      const id = String(l.employeeId || "").trim();
+      const name = String(l.fullName || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      const key = id ? `id:${id}` : name ? `name:${name}` : "";
+      const o = key ? otherByKey.get(key) : null;
+      if (!o) return l;
+      const next = { ...l };
+      ["adelantos", "prestamos", "incentivos", "almuerzo"].forEach((f) => {
+        const wv = Number(next[f]) || 0;
+        const ov = Number(o[f]) || 0;
+        if (wv === 0 && ov > 0) next[f] = o[f];
+      });
+      if (!(Number(next.horasExtras) > 0) && Number(o.horasExtras) > 0 && !next.horasExtrasManual) {
+        next.horasExtras = o.horasExtras;
+        if (o.horasExtrasManual) next.horasExtrasManual = true;
+      }
+      return next;
+    });
+    return { ...winner, lines };
+  }
+
   function mergePayrollsPreferFilled(a, b) {
     const map = new Map();
+    function moneyScore(p) {
+      let s = 0;
+      (p.lines || []).forEach((l) => {
+        if (!l || !String(l.fullName || "").trim()) return;
+        if (Number(l.adelantos) > 0) s += 1;
+        if (Number(l.prestamos) > 0) s += 1;
+        if (Number(l.horasExtras) > 0) s += 1;
+      });
+      return s;
+    }
     function consider(row) {
       if (!row || !row.id) return;
       const prev = map.get(row.id);
@@ -971,7 +1025,14 @@ function applyRemoteContabilidadData(remote) {
         map.set(row.id, row);
         return;
       }
-      if (String(row.updatedAt) > String(prev.updatedAt)) map.set(row.id, row);
+      let winner = String(row.updatedAt) > String(prev.updatedAt) ? row : prev;
+      let other = winner === row ? prev : row;
+      if (moneyScore(other) > moneyScore(winner) + 2) {
+        const tmp = winner;
+        winner = other;
+        other = tmp;
+      }
+      map.set(row.id, mergePayrollLinesPreserveAmounts(winner, other));
     }
     [...a, ...b].forEach(consider);
     return [...map.values()].sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));

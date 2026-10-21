@@ -534,6 +534,118 @@
     return p.lines.filter((l) => String((l && l.fullName) || "").trim()).length;
   }
 
+  function payrollLineMoneyScore(p) {
+    if (!p || !Array.isArray(p.lines)) return 0;
+    let score = 0;
+    p.lines.forEach((l) => {
+      if (!l || !String(l.fullName || "").trim()) return;
+      score += Number(l.adelantos) > 0 ? 1 : 0;
+      score += Number(l.prestamos) > 0 ? 1 : 0;
+      score += Number(l.horasExtras) > 0 ? 1 : 0;
+      score += Number(l.sfs) > 0 ? 1 : 0;
+    });
+    return score;
+  }
+
+  /** Une dos versiones de la misma nómina sin perder adelantos / extras / préstamos tecleados. */
+  function mergePayrollRowsPreserveAmounts(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const aN = payrollNamedCount(a);
+    const bN = payrollNamedCount(b);
+    if (aN > 0 && bN === 0) return a;
+    if (bN > 0 && aN === 0) return b;
+    let winner = String(b.updatedAt || "") > String(a.updatedAt || "") ? b : a;
+    let other = winner === a ? b : a;
+    // Si el "más nuevo" tiene claramente menos montos tecleados, preferir el más completo
+    const scoreW = payrollLineMoneyScore(winner);
+    const scoreO = payrollLineMoneyScore(other);
+    if (scoreO > scoreW + 2 && payrollNamedCount(other) >= payrollNamedCount(winner)) {
+      const tmp = winner;
+      winner = other;
+      other = tmp;
+    }
+    const otherByKey = new Map();
+    (other.lines || []).forEach((l) => {
+      if (!l) return;
+      const id = String(l.employeeId || "").trim();
+      const name = String(l.fullName || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      const key = id ? `id:${id}` : name ? `name:${name}` : "";
+      if (key) otherByKey.set(key, l);
+    });
+    const lines = (winner.lines || []).map((l) => {
+      if (!l) return l;
+      const id = String(l.employeeId || "").trim();
+      const name = String(l.fullName || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      const key = id ? `id:${id}` : name ? `name:${name}` : "";
+      const o = key ? otherByKey.get(key) : null;
+      if (!o) return l;
+      const next = { ...l };
+      // No pisar con 0 un monto que la otra copia sí tenía
+      ["adelantos", "prestamos", "incentivos", "almuerzo"].forEach((f) => {
+        const wv = Number(next[f]) || 0;
+        const ov = Number(o[f]) || 0;
+        if (wv === 0 && ov > 0) next[f] = o[f];
+      });
+      if (!(Number(next.horasExtras) > 0) && Number(o.horasExtras) > 0 && !next.horasExtrasManual) {
+        next.horasExtras = o.horasExtras;
+        if (o.horasExtrasManual) next.horasExtrasManual = true;
+      }
+      if (next.horasExtrasManual && !(Number(next.horasExtras) >= 0) && o.horasExtrasManual) {
+        next.horasExtras = o.horasExtras;
+      }
+      if (next.sfsManual && !(Number(next.sfs) > 0) && Number(o.sfs) > 0) {
+        // sfs manual en 0 es válido; no recuperar
+      } else if (!next.sfsManual && !(Number(next.sfs) > 0) && Number(o.sfs) > 0) {
+        next.sfs = o.sfs;
+      }
+      return next;
+    });
+    return { ...winner, lines };
+  }
+
+  /** Un solo respaldo por nómina (el más reciente con empleados). */
+  function prunePayrollBackupsOnePerPayroll(list, deletedIds) {
+    const banned = new Set(
+      (Array.isArray(deletedIds) ? deletedIds : []).map((id) => String(id || "").trim()).filter(Boolean)
+    );
+    const byPay = new Map();
+    (Array.isArray(list) ? list : []).forEach((b) => {
+      if (!b || !b.id || banned.has(b.id)) return;
+      const pid = String(b.payrollId || (b.snapshot && b.snapshot.id) || "").trim();
+      if (!pid) return;
+      if (!payrollNamedCount(b.snapshot) && banned.has(`pay:${pid}`)) return;
+      const prev = byPay.get(pid);
+      if (!prev) {
+        byPay.set(pid, b);
+        return;
+      }
+      const prevN = payrollNamedCount(prev.snapshot);
+      const rowN = payrollNamedCount(b.snapshot);
+      if (prevN > 0 && rowN === 0) return;
+      if (rowN > 0 && prevN === 0) {
+        byPay.set(pid, b);
+        return;
+      }
+      if (String(b.updatedAt || b.createdAt || "") > String(prev.updatedAt || prev.createdAt || "")) {
+        byPay.set(pid, b);
+      }
+    });
+    return [...byPay.values()].sort((a, b) =>
+      String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+    );
+  }
+
   /** Evita que un cliente con nómina vacía borre la versión con empleados en la nube. */
   function mergeContabilidadPreferFilledPayrolls(localContab, remoteContab) {
     const local = localContab && typeof localContab === "object" ? localContab : emptyContabilidad();
@@ -546,14 +658,7 @@
         map.set(row.id, row);
         return;
       }
-      const prevN = payrollNamedCount(prev);
-      const rowN = payrollNamedCount(row);
-      if (prevN > 0 && rowN === 0) return;
-      if (rowN > 0 && prevN === 0) {
-        map.set(row.id, row);
-        return;
-      }
-      if (String(row.updatedAt || "") > String(prev.updatedAt || "")) map.set(row.id, row);
+      map.set(row.id, mergePayrollRowsPreserveAmounts(prev, row));
     }
     [...(remote.payrolls || []), ...(local.payrolls || [])].forEach(consider);
     const payrolls = [...map.values()].sort((a, b) =>
@@ -570,6 +675,8 @@
     const backupMap = new Map();
     function considerBackup(row) {
       if (!row || !row.id || deletedSeen.has(row.id)) return;
+      const suppress = `pay:${String(row.payrollId || (row.snapshot && row.snapshot.id) || "").trim()}`;
+      if (deletedSeen.has(suppress)) return;
       const prev = backupMap.get(row.id);
       if (!prev) {
         backupMap.set(row.id, row);
@@ -587,11 +694,20 @@
       }
     }
     [...(remote.payrollBackups || []), ...(local.payrollBackups || [])].forEach(considerBackup);
+    // Crítico: no reacumular 30 respaldos en el doc de 1 MB — 1 por nómina
+    const pruned = prunePayrollBackupsOnePerPayroll([...backupMap.values()], deletedIds);
+    const keptIds = new Set(pruned.map((b) => b.id));
+    [...backupMap.keys()].forEach((id) => {
+      if (!keptIds.has(id) && !deletedSeen.has(id)) {
+        deletedSeen.add(id);
+        deletedIds.push(id);
+      }
+    });
     return {
       ...local,
       payrolls,
-      payrollBackups: [...backupMap.values()],
-      payrollBackupDeletedIds: deletedIds.slice(0, 300),
+      payrollBackups: pruned,
+      payrollBackupDeletedIds: deletedIds.slice(0, 400),
     };
   }
 
