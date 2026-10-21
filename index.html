@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v171 · Nóminas en docs separados</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v172 · Suplidores</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -74,6 +74,7 @@
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
           <button class="welcome-action" type="button" data-go="cajaView">Caja chica</button>
+          <button class="welcome-action" type="button" data-go="suplidoresView">Suplidores</button>
           <button class="welcome-action" type="button" data-go="nominaView">Nóminas</button>
           <button class="welcome-action" type="button" data-go="contabilidadView">Contabilidad</button>
           <button class="welcome-action" type="button" data-go="hrView">Recursos Humanos</button>
@@ -998,6 +999,101 @@
     </section>
 
 
+
+    <section id="suplidoresView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Suplidores</h1>
+          <p id="suplidoresSummary" class="muted">Uniformes, armería, seguros, botas, alarmas, oficina, publicidad y otros. Con NCF se suma a Gastos fiscales.</p>
+        </div>
+      </div>
+
+      <div class="emp-tabs sup-tabs" role="tablist">
+        <button class="emp-tab active" type="button" data-sup-tab="pagos">Pagos</button>
+        <button class="emp-tab" type="button" data-sup-tab="suplidores">Suplidores</button>
+        <button class="emp-tab" type="button" data-sup-tab="totales">Totales</button>
+      </div>
+
+      <div id="supTabPagos" class="sup-tab-panel">
+        <div class="form-card">
+          <h2 id="supPayFormTitle">Nuevo pago a suplidor</h2>
+          <p class="muted tight">Registra el monto, el concepto y la evidencia (foto, cheque o texto). Si la factura tiene NCF, se agrega sola a Contabilidad → Gastos fiscales.</p>
+          <label>Suplidor
+            <select id="supPaySupplier"></select>
+          </label>
+          <div class="coords-row">
+            <label>Categoría
+              <select id="supPayCategory"></select>
+            </label>
+            <label>Fecha<input id="supPayDate" type="date" /></label>
+          </div>
+          <label>Monto pagado (RD$)<input id="supPayAmount" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+          <label>Concepto<textarea id="supPayConcept" rows="2" placeholder="Qué se compró o pagó"></textarea></label>
+          <label class="check-row"><input id="supPayHasFiscal" type="checkbox" /><span>Tiene comprobante fiscal (NCF) — sumar a Gastos fiscales</span></label>
+          <div id="supPayFiscalFields" hidden>
+            <div class="coords-row">
+              <label>NCF<input id="supPayNcf" type="text" placeholder="E31... / B01..." /></label>
+              <label>RNC<input id="supPayRnc" type="text" inputmode="numeric" maxlength="11" /></label>
+            </div>
+            <label>ITBIS<input id="supPayItbis" type="number" min="0" step="0.01" placeholder="Se calcula si lo dejas vacío" /></label>
+          </div>
+          <div class="attach-block">
+            <h3 class="attach-title">Evidencia de pago</h3>
+            <p class="muted tight">Foto del cheque/transferencia, o explicación escrita abajo.</p>
+            <div class="cam-upload-row">
+              <label class="photo-label">Elegir foto / archivo
+                <input id="supPayEvidencePhoto" type="file" accept="image/*" capture="environment" />
+              </label>
+              <button id="btnSupPayCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+            </div>
+            <div id="supPayEvidencePreviewWrap" class="photo-preview emp-attach-preview" hidden>
+              <img id="supPayEvidencePreview" alt="Evidencia" />
+              <div class="attach-actions">
+                <button id="btnSupClearEvidence" class="btn ghost attach-btn" type="button">Quitar foto</button>
+              </div>
+            </div>
+            <label>Explicación escrita (si no hay foto)<textarea id="supPayEvidenceText" rows="2" placeholder="Ej. Transferencia Banreservas ref. 12345"></textarea></label>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button id="btnSupPaySave" class="btn primary" type="button" style="width:auto">Guardar pago</button>
+            <button id="btnSupPayClear" class="btn ghost" type="button" style="width:auto">Limpiar</button>
+          </div>
+        </div>
+        <div id="supPaymentList" class="card-list"></div>
+      </div>
+
+      <div id="supTabSuplidores" class="sup-tab-panel" hidden>
+        <div class="form-card">
+          <h2 id="supSupplierFormTitle">Nuevo suplidor</h2>
+          <p class="muted tight" id="supSupplierCodeHint">Código: se asignará al guardar (único, ej. SUP-0001)</p>
+          <label>Nombre / razón social<input id="supSupplierName" type="text" placeholder="Ej. Uniformes del Cibao" /></label>
+          <div class="coords-row">
+            <label>Categoría habitual
+              <select id="supSupplierCategory"></select>
+            </label>
+            <label>Teléfono<input id="supSupplierPhone" type="tel" /></label>
+          </div>
+          <label>RNC (opcional)<input id="supSupplierRnc" type="text" inputmode="numeric" maxlength="11" /></label>
+          <label>Notas<input id="supSupplierNotes" type="text" placeholder="Opcional" /></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button id="btnSupSupplierSave" class="btn primary" type="button" style="width:auto">Guardar suplidor</button>
+            <button id="btnSupSupplierClear" class="btn ghost" type="button" style="width:auto">Limpiar</button>
+          </div>
+        </div>
+        <div id="supSupplierList" class="card-list"></div>
+      </div>
+
+      <div id="supTabTotales" class="sup-tab-panel" hidden>
+        <div class="form-card">
+          <div class="coords-row">
+            <label>Mes<input id="supTotalesMonth" type="month" /></label>
+            <label>Año<input id="supTotalesYear" type="number" min="2020" max="2100" step="1" /></label>
+          </div>
+        </div>
+        <div id="supTotalesBox"></div>
+      </div>
+    </section>
+
     <section id="contabilidadView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -1742,6 +1838,7 @@
             <label class="check-row"><input type="checkbox" data-perm="lavega" checked /><span>La Vega Autopista</span></label>
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="cajachica" /><span>Caja chica</span></label>
+            <label class="check-row"><input type="checkbox" data-perm="suplidores" /><span>Suplidores</span></label>
             <label class="check-row"><input type="checkbox" data-perm="contabilidad" /><span>Contabilidad</span></label>
             <label class="check-row"><input type="checkbox" data-perm="rrhh" /><span>Recursos Humanos</span></label>
             <label class="check-row"><input type="checkbox" data-perm="depuracion" /><span>Depuración</span></label>
@@ -1872,6 +1969,7 @@
       <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
+      <button class="tab" data-view="suplidoresView" type="button"><span>Suplid.</span></button>
       <button class="tab" data-view="nominaView" type="button"><span>Nómina</span></button>
       <button class="tab" data-view="contabilidadView" type="button"><span>Contab.</span></button>
       <button class="tab" data-view="hrView" type="button"><span>RRHH</span></button>
@@ -1888,11 +1986,12 @@
   <script src="monorriel-data.js?v=144"></script>
   <script src="reaction-payroll-data.js?v=144"></script>
   <script src="loans-seed-data.js?v=144"></script>
-  <script src="cloud.js?v=171"></script>
+  <script src="cloud.js?v=172"></script>
   <script src="hr.js?v=144"></script>
   <script src="depuracion.js?v=144"></script>
-  <script src="contabilidad.js?v=171"></script>
+  <script src="suplidores.js?v=172"></script>
+  <script src="contabilidad.js?v=172"></script>
   <script src="quotes.js?v=144"></script>
-  <script src="app.js?v=171"></script>
+  <script src="app.js?v=172"></script>
 </body>
 </html>

@@ -95,6 +95,7 @@
     hr: true,
     depuracion: true,
     contabilidad: true,
+    suplidores: true,
   };
 
   function baseUrl() {
@@ -314,6 +315,10 @@
       payrollBackupDeletedIds: [],
       settings: { defaultBook: "EDWARD" },
     };
+  }
+
+  function emptySuplidores() {
+    return { suppliers: [], payments: [], nextCodeSeq: 1 };
   }
 
   function decodeLegacyMain(doc) {
@@ -945,6 +950,50 @@
     };
   }
 
+  async function stripSuplidores(data) {
+    const src = data && typeof data === "object" ? data : emptySuplidores();
+    const mediaJobs = [];
+    const payments = [];
+    for (const row of Array.isArray(src.payments) ? src.payments : []) {
+      const copy = { ...(row || {}) };
+      if (isHeavyMedia(copy.evidencePhoto) || isDataUrl(copy.evidencePhoto)) {
+        const mediaId = mediaDocId("sup", copy.id || "x", "evidence");
+        const path = `suplidores/${safeId(copy.id || "x")}/evidence.jpg`;
+        const put = await putHeavyToStorageOrMedia({
+          dataUrl: copy.evidencePhoto,
+          storagePath: path,
+          mediaId: copy.evidencePhotoMediaId || mediaId,
+          kind: "suplidores",
+          ownerId: copy.id || "",
+          field: "evidencePhoto",
+          mime: "image/jpeg",
+          mediaJobs,
+        });
+        if (put.usedStorage) {
+          copy.evidencePhotoUrl = put.url;
+          copy.evidencePhotoStoragePath = path;
+          copy.evidencePhoto = "";
+          copy.evidencePhotoMediaId = "";
+        } else {
+          copy.evidencePhoto = "";
+          copy.evidencePhotoMediaId = put.mediaId || mediaId;
+        }
+      } else if (isHttpUrl(copy.evidencePhoto)) {
+        copy.evidencePhotoUrl = copy.evidencePhoto;
+        copy.evidencePhoto = "";
+      }
+      payments.push(copy);
+    }
+    return {
+      light: {
+        suppliers: Array.isArray(src.suppliers) ? src.suppliers : [],
+        payments,
+        nextCodeSeq: Math.max(1, Number(src.nextCodeSeq) || 1),
+      },
+      mediaJobs,
+    };
+  }
+
   async function stripDepuracion(dep) {
     const src = dep && typeof dep === "object" ? dep : emptyDepuracion();
     const mediaJobs = [];
@@ -989,7 +1038,7 @@
     };
   }
 
-  function collectMediaIds(employees, pettyCash, hr, depuracion) {
+  function collectMediaIds(employees, pettyCash, hr, depuracion, suplidores) {
     const ids = [];
     (employees || []).forEach((e) => {
       if (e && e.photoMediaId) ids.push(e.photoMediaId);
@@ -1005,6 +1054,10 @@
     });
     ((depuracion && depuracion.candidates) || []).forEach((c) => {
       if (c && c.cedulaPhotoMediaId) ids.push(c.cedulaPhotoMediaId);
+    });
+    const sup = suplidores || {};
+    (Array.isArray(sup.payments) ? sup.payments : []).forEach((p) => {
+      if (p && p.evidencePhotoMediaId) ids.push(p.evidencePhotoMediaId);
     });
     return ids;
   }
@@ -1091,6 +1144,23 @@
     return src;
   }
 
+  function hydrateSuplidores(data, mediaMap) {
+    const src = data && typeof data === "object" ? { ...data } : emptySuplidores();
+    src.payments = (Array.isArray(src.payments) ? src.payments : []).map((row) => {
+      const copy = { ...(row || {}) };
+      if (copy.evidencePhotoUrl && isHttpUrl(copy.evidencePhotoUrl)) {
+        copy.evidencePhoto = copy.evidencePhotoUrl;
+      } else if (copy.evidencePhotoMediaId && mediaMap[copy.evidencePhotoMediaId]) {
+        copy.evidencePhoto = mediaMap[copy.evidencePhotoMediaId];
+      }
+      return copy;
+    });
+    if (!Array.isArray(src.suppliers)) src.suppliers = [];
+    src.nextCodeSeq = Math.max(1, Number(src.nextCodeSeq) || 1);
+    return src;
+  }
+
+
   async function loadSplitParts() {
     const names = Object.keys(PART_DOCS);
     const docs = await Promise.all(
@@ -1144,13 +1214,15 @@
         employees: [],
         hr: emptyHr(),
         contabilidad: emptyContabilidad(),
+        suplidores: emptySuplidores(),
       };
     }
-    const [loans, employees, hr, contab] = await Promise.all([
+    const [loans, employees, hr, contab, supl] = await Promise.all([
       getDoc(partPath("loans")).catch(() => null),
       getDoc(partPath("employees")).catch(() => null),
       getDoc(partPath("hr")).catch(() => null),
       getDoc(partPath("contabilidad")).catch(() => null),
+      getDoc(partPath("suplidores")).catch(() => null),
     ]);
     const mainFields = main.fields || {};
     const loanFields = (loans && loans.fields) || {};
@@ -1181,6 +1253,9 @@
         : parseArrayField(mainFields, "employeesJson"),
       hr: hrFields.hrJson ? parseObjectField(hrFields, "hrJson") : emptyHr(),
       contabilidad,
+      suplidores: supl && supl.fields && supl.fields.suplidoresJson
+        ? parseObjectField(supl.fields, "suplidoresJson")
+        : emptySuplidores(),
       partial: !loans || !employees,
     };
   }
@@ -1206,6 +1281,7 @@
     if (fieldLen(parts.hr, "hrJson") > 10) return true;
     if (fieldLen(parts.depuracion, "depuracionJson") > 10) return true;
     if (fieldLen(parts.contabilidad, "contabilidadJson") > 10) return true;
+    if (fieldLen(parts.suplidores, "suplidoresJson") > 10) return true;
     return false;
   }
 
@@ -1251,13 +1327,22 @@
       contabilidad: contab.contabilidadJson
         ? parseObjectField(contab, "contabilidadJson")
         : (legacy && legacy.contabilidad) || emptyContabilidad(),
+      suplidores: ((parts.suplidores && parts.suplidores.fields) || {}).suplidoresJson
+        ? parseObjectField((parts.suplidores && parts.suplidores.fields) || {}, "suplidoresJson")
+        : emptySuplidores(),
       updatedAt: (main.updatedAt && main.updatedAt.stringValue) || null,
       schemaVersion: (main.schemaVersion && main.schemaVersion.stringValue) || SCHEMA_VERSION,
     };
   }
 
   async function hydrateBundle(bundle) {
-    const mediaIds = collectMediaIds(bundle.employees, bundle.pettyCash, bundle.hr, bundle.depuracion);
+    const mediaIds = collectMediaIds(
+      bundle.employees,
+      bundle.pettyCash,
+      bundle.hr,
+      bundle.depuracion,
+      bundle.suplidores
+    );
     // Siempre hidratar: photoUrl de Storage → photo; legacy rfs_media si hay ids
     const mediaMap = mediaIds.length ? await loadMediaMap(mediaIds) : {};
     return {
@@ -1266,6 +1351,7 @@
       pettyCash: hydratePettyCash(bundle.pettyCash, mediaMap),
       hr: hydrateHr(bundle.hr, mediaMap),
       depuracion: hydrateDepuracion(bundle.depuracion, mediaMap),
+      suplidores: hydrateSuplidores(bundle.suplidores, mediaMap),
     };
   }
 
@@ -1319,6 +1405,7 @@
         hr: emptyHr(),
         depuracion: emptyDepuracion(),
         contabilidad: emptyContabilidad(),
+        suplidores: emptySuplidores(),
         updatedAt: null,
         empty: true,
         schemaVersion: SCHEMA_VERSION,
@@ -1377,6 +1464,7 @@
     hr,
     depuracion,
     contabilidad,
+    suplidores,
     loanTrash,
     options
   ) {
@@ -1387,6 +1475,7 @@
     const pettyPack = await stripPettyCash(pettyCash);
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
+    const supPack = await stripSuplidores(suplidores);
     let contabToSave = contabilidad;
     try {
       const remoteContabDoc = await getDoc(partPath("contabilidad")).catch(() => null);
@@ -1416,6 +1505,7 @@
       ...hrPack.mediaJobs,
       ...depPack.mediaJobs,
       ...contabPack.mediaJobs,
+      ...supPack.mediaJobs,
     ]);
 
     const updatedAt = new Date().toISOString();
@@ -1477,6 +1567,10 @@
         contabilidadJson: { stringValue: JSON.stringify(contabPack.light || emptyContabilidad()) },
         updatedAt: { stringValue: updatedAt },
       }, ["contabilidadJson", "updatedAt"]),
+      patchDoc(partPath("suplidores"), {
+        suplidoresJson: { stringValue: JSON.stringify(supPack.light || emptySuplidores()) },
+        updatedAt: { stringValue: updatedAt },
+      }, ["suplidoresJson", "updatedAt"]),
     ];
 
     await Promise.all(writes);

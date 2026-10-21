@@ -1786,6 +1786,7 @@ function refreshUiAfterCloudSync() {
     // Nunca llamar renderMonoPostsEditor aquí: borraría lo que se escribe
     if (activeId === "lvaView" && typeof renderLvaModule === "function") renderLvaModule();
     if (activeId === "cajaView" && typeof renderCajaModule === "function") renderCajaModule();
+    if (activeId === "suplidoresView" && typeof renderSuplidoresModule === "function") renderSuplidoresModule();
     if (activeId === "hrView" && typeof renderHrModule === "function") renderHrModule();
     if (activeId === "depuracionView" && typeof renderDepuracionModule === "function") {
       renderDepuracionModule();
@@ -2036,6 +2037,9 @@ async function mergeRemoteBundleBeforeSave() {
     if (remote.contabilidad && typeof remote.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
       applyRemoteContabilidadData(remote.contabilidad);
     }
+    if (remote.suplidores && typeof remote.suplidores === "object" && typeof applyRemoteSuplidoresData === "function") {
+      applyRemoteSuplidoresData(remote.suplidores);
+    }
     return true;
   } catch (_) {
     return false;
@@ -2096,6 +2100,7 @@ async function saveCloudBundle(options) {
     hrData,
     cloudDepuracionPayload(),
     cloudContabilidadPayload(),
+    typeof suplidoresData !== "undefined" ? suplidoresData : { suppliers: [], payments: [], nextCodeSeq: 1 },
     typeof loanTrashIds !== "undefined" ? loanTrashIds : [],
     options || {}
   );
@@ -2290,6 +2295,14 @@ async function syncFromCloud() {
           contabilidadData = emptyContabilidadData();
         }
       }
+      if (remote.suplidores && typeof remote.suplidores === "object" && typeof applyRemoteSuplidoresData === "function") {
+        applyRemoteSuplidoresData(remote.suplidores);
+      } else if (typeof emptySuplidoresData === "function" && typeof suplidoresData !== "undefined") {
+        if (!(suplidoresData.suppliers && suplidoresData.suppliers.length) &&
+            !(suplidoresData.payments && suplidoresData.payments.length)) {
+          suplidoresData = emptySuplidoresData();
+        }
+      }
     }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
@@ -2314,6 +2327,9 @@ async function syncFromCloud() {
     }
     if (typeof CONTABILIDAD_KEY !== "undefined" && typeof contabilidadData !== "undefined") {
       localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
+    }
+    if (typeof SUPLIDORES_KEY !== "undefined" && typeof suplidoresData !== "undefined") {
+      localStorage.setItem(SUPLIDORES_KEY, JSON.stringify(suplidoresData));
     }
     if (remote.updatedAt) lastKnownCloudUpdatedAt = remote.updatedAt;
     lastLivePullAt = Date.now();
@@ -3445,6 +3461,7 @@ const MODULE_DEFS = [
   { key: "lavega", label: "La Vega Autopista", view: "lvaView" },
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "cajachica", label: "Caja chica", view: "cajaView" },
+  { key: "suplidores", label: "Suplidores", view: "suplidoresView" },
   { key: "contabilidad", label: "Contabilidad", view: "contabilidadView" },
   { key: "rrhh", label: "Recursos Humanos", view: "hrView" },
   { key: "depuracion", label: "Depuración", view: "depuracionView" },
@@ -3485,6 +3502,7 @@ const VIEW_TO_MODULE = {
   adminView: "admin",
   detailView: "clients",
   cajaView: "cajachica",
+  suplidoresView: "suplidores",
   contabilidadView: "contabilidad",
   nominaView: "contabilidad",
   hrView: "rrhh",
@@ -3511,6 +3529,11 @@ function normalizeUser(u = {}) {
     // Caja chica / RRHH: solo si el dueño las marca (no se heredan solas al actualizar).
     if (m.key === "cajachica" && !Object.prototype.hasOwnProperty.call(incoming, "cajachica")) {
       modules.cajachica = false;
+      return;
+    }
+    if (m.key === "suplidores" && !Object.prototype.hasOwnProperty.call(incoming, "suplidores")) {
+      // Acceso inmediato: owner/admin/fortuna vía canAccessSuplidores; el resto solo si se marca
+      modules.suplidores = false;
       return;
     }
     if (m.key === "contabilidad" && !Object.prototype.hasOwnProperty.call(incoming, "contabilidad")) {
@@ -3542,6 +3565,11 @@ function normalizeUser(u = {}) {
   });
   const username = String(u.username || "").trim().toLowerCase();
   const role = u.role === "owner" || username === OWNER_USERNAME ? "owner" : "user";
+
+  // Suplidores: acceso inmediato para admin y fortuna (además del permiso explícito)
+  if (role === "owner" || modules.admin || username === "fortuna") {
+    modules.suplidores = true;
+  }
   if (role === "owner") {
     MODULE_DEFS.forEach((m) => {
       modules[m.key] = true;
@@ -3656,6 +3684,9 @@ function canAccessDepuracion() {
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
+  if (viewId === "suplidoresView") {
+    return typeof canAccessSuplidores === "function" ? canAccessSuplidores() : canAccessModule("suplidores");
+  }
   if (viewId === "contabilidadView" || viewId === "nominaView") {
     // Nóminas usa el mismo permiso que Contabilidad (usuarios existentes)
     return typeof canAccessContabilidad === "function" ? canAccessContabilidad() : canAccessModule("contabilidad");
@@ -3669,7 +3700,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "nominaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "suplidoresView", "nominaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -4184,6 +4215,7 @@ function clearUserForm() {
     lavega: true,
     finance: false,
     cajachica: false,
+    suplidores: false,
     contabilidad: false,
     rrhh: false,
     depuracion: false,
@@ -10579,6 +10611,7 @@ function switchView(viewId) {
   }
   if (viewId === "financeView") renderFinance();
   if (viewId === "cajaView") renderCajaModule();
+  if (viewId === "suplidoresView" && typeof renderSuplidoresModule === "function") renderSuplidoresModule();
   if (viewId === "hrView") renderHrModule();
   if (viewId === "contabilidadView") {
     if (typeof renderContabilidadModule === "function") renderContabilidadModule();
@@ -11632,6 +11665,7 @@ function exportBackup() {
     hr: hrData,
     depuracion: typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: {} },
     contabilidad: typeof contabilidadData !== "undefined" ? contabilidadData : emptyContabilidadDataSafe(),
+    suplidores: typeof suplidoresData !== "undefined" ? suplidoresData : { suppliers: [], payments: [], nextCodeSeq: 1 },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -11755,6 +11789,10 @@ function restoreBackupMerge() {
         applyRemoteContabilidadData(data.contabilidad);
         saveContabilidadData(true);
       }
+      if (data.suplidores && typeof data.suplidores === "object" && typeof applyRemoteSuplidoresData === "function") {
+        applyRemoteSuplidoresData(data.suplidores);
+        saveSuplidoresData(true);
+      }
       ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
       savePosts();
@@ -11776,6 +11814,7 @@ function restoreBackupMerge() {
       renderHrModule();
       if (typeof renderDepuracionModule === "function") renderDepuracionModule();
       if (typeof renderContabilidadModule === "function") renderContabilidadModule();
+      if (typeof renderSuplidoresModule === "function") renderSuplidoresModule();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
     .catch((err) => {
@@ -11836,6 +11875,12 @@ function restoreBackupReplace() {
         contabilidadData = normalizeContabilidadData(data.contabilidad);
         if (typeof CONTABILIDAD_KEY !== "undefined") {
           localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
+        }
+      }
+      if (data.suplidores && typeof data.suplidores === "object" && typeof normalizeSuplidoresData === "function") {
+        suplidoresData = normalizeSuplidoresData(data.suplidores);
+        if (typeof SUPLIDORES_KEY !== "undefined") {
+          localStorage.setItem(SUPLIDORES_KEY, JSON.stringify(suplidoresData));
         }
       }
       rebuildEmployeesFromPosts(employees);
@@ -12045,6 +12090,7 @@ function bindUi() {
   bindPcCameraUi();
   bindLoansUi();
   bindCajaUi();
+  if (typeof bindSuplidoresUi === "function") bindSuplidoresUi();
   bindHrUi();
   if (typeof bindDepuracionUi === "function") bindDepuracionUi();
   if (typeof bindContabilidadUi === "function") bindContabilidadUi();
@@ -12141,6 +12187,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof normalizeContabilidadData === "function" && typeof emptyContabilidadData === "function") {
     contabilidadData = normalizeContabilidadData(loadJsonObject(CONTABILIDAD_KEY, emptyContabilidadData()));
   }
+  if (typeof normalizeSuplidoresData === "function" && typeof emptySuplidoresData === "function") {
+    suplidoresData = normalizeSuplidoresData(loadJsonObject(SUPLIDORES_KEY, emptySuplidoresData()));
+  }
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
@@ -12155,6 +12204,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   if (typeof CONTABILIDAD_KEY !== "undefined" && typeof contabilidadData !== "undefined") {
     localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
+  }
+  if (typeof SUPLIDORES_KEY !== "undefined" && typeof suplidoresData !== "undefined") {
+    localStorage.setItem(SUPLIDORES_KEY, JSON.stringify(suplidoresData));
   }
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
@@ -12196,7 +12248,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=171").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=172").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
