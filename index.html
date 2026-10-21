@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v170 · Integridad nómina / 1 respaldo</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v171 · Nóminas en docs separados</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -74,6 +74,7 @@
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
           <button class="welcome-action" type="button" data-go="cajaView">Caja chica</button>
+          <button class="welcome-action" type="button" data-go="nominaView">Nóminas</button>
           <button class="welcome-action" type="button" data-go="contabilidadView">Contabilidad</button>
           <button class="welcome-action" type="button" data-go="hrView">Recursos Humanos</button>
           <button class="welcome-action" type="button" data-go="depuracionView">Depuración</button>
@@ -1001,7 +1002,7 @@
       <div class="section-head section-head-row">
         <div>
           <h1>Contabilidad</h1>
-          <p id="contabSummary">Gastos con NCF, ITBIS cobrado, liquidación DGII y nómina La Vega.</p>
+          <p id="contabSummary">Gastos con NCF, ITBIS cobrado, liquidación DGII y personal de oficina.</p>
         </div>
       </div>
 
@@ -1016,7 +1017,6 @@
         <button class="emp-tab" type="button" data-contab-tab="itbis">ITBIS cobrado</button>
         <button class="emp-tab" type="button" data-contab-tab="liquidacion">Liquidación</button>
         <button class="emp-tab" type="button" data-contab-tab="oficina">Oficina</button>
-        <button class="emp-tab" type="button" data-contab-tab="nomina">Nómina</button>
       </div>
 
       <div id="contabTabGastos" class="contab-tab-panel">
@@ -1105,7 +1105,23 @@
         <div id="contabOfficeList" class="card-list"></div>
       </div>
 
-      <div id="contabTabNomina" class="contab-tab-panel" hidden>
+    </section>
+
+    <section id="nominaView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Nóminas</h1>
+          <p id="nominaSummary" class="muted">Cada nómina se guarda aparte en la nube (hasta 1 MB). La Vega, Monorriel, LOTEDOM, Banco, Efectivo y Oficina.</p>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <label>Mes de trabajo
+          <input id="nominaMonthFilter" type="month" />
+        </label>
+      </div>
+
+      <div id="contabTabNomina" class="contab-tab-panel">
         <div class="form-card">
           <h2 id="contabNominaTitle">Nómina Reaction</h2>
           <p class="muted tight">La Vega, Monorriel, LOTEDOM, Reaction Banco y Efectivo: mismo formato base. Monorriel se divide en 4 tandas (día / moto día / noche / moto noche). Oficina: Carta, sueldo/2, SFS 800, rifa.</p>
@@ -1165,6 +1181,7 @@
         <div id="contabPayrollList" class="card-list"></div>
         <div class="form-card" id="contabPayrollDetail"></div>
       </div>
+
     </section>
 
     <section id="hrView" class="view scroll-view">
@@ -1855,6 +1872,7 @@
       <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
+      <button class="tab" data-view="nominaView" type="button"><span>Nómina</span></button>
       <button class="tab" data-view="contabilidadView" type="button"><span>Contab.</span></button>
       <button class="tab" data-view="hrView" type="button"><span>RRHH</span></button>
       <button class="tab" data-view="depuracionView" type="button"><span>Depur.</span></button>
@@ -1870,11 +1888,11 @@
   <script src="monorriel-data.js?v=144"></script>
   <script src="reaction-payroll-data.js?v=144"></script>
   <script src="loans-seed-data.js?v=144"></script>
-  <script src="cloud.js?v=170"></script>
+  <script src="cloud.js?v=171"></script>
   <script src="hr.js?v=144"></script>
   <script src="depuracion.js?v=144"></script>
-  <script src="contabilidad.js?v=170"></script>
+  <script src="contabilidad.js?v=171"></script>
   <script src="quotes.js?v=144"></script>
-  <script src="app.js?v=170"></script>
+  <script src="app.js?v=171"></script>
 </body>
 </html>

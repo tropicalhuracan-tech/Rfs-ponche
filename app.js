@@ -1793,6 +1793,9 @@ function refreshUiAfterCloudSync() {
     if (activeId === "contabilidadView" && typeof renderContabilidadModule === "function") {
       renderContabilidadModule();
     }
+    if (activeId === "nominaView" && typeof renderNominaModule === "function") {
+      renderNominaModule();
+    }
     if (activeId === "quotesView" && typeof renderQuotesModule === "function") renderQuotesModule();
     if (typeof renderMessagesModule === "function") {
       if (activeId === "messagesView") renderMessagesModule();
@@ -3483,6 +3486,7 @@ const VIEW_TO_MODULE = {
   detailView: "clients",
   cajaView: "cajachica",
   contabilidadView: "contabilidad",
+  nominaView: "contabilidad",
   hrView: "rrhh",
   depuracionView: "depuracion",
   quotesView: "cotizaciones",
@@ -3652,7 +3656,8 @@ function canAccessDepuracion() {
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
-  if (viewId === "contabilidadView") {
+  if (viewId === "contabilidadView" || viewId === "nominaView") {
+    // Nóminas usa el mismo permiso que Contabilidad (usuarios existentes)
     return typeof canAccessContabilidad === "function" ? canAccessContabilidad() : canAccessModule("contabilidad");
   }
   if (viewId === "hrView") return canAccessRrhh();
@@ -3664,7 +3669,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "nominaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -6241,7 +6246,7 @@ function printCurrentView() {
   if (id === "monoReportDetailView") return printMonoReport();
   if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
   if (id === "lvaView") return printLvaActiveSheet();
-  if (id === "contabilidadView" && typeof printOpenPayrollSheet === "function") return printOpenPayrollSheet();
+  if ((id === "nominaView" || id === "contabilidadView") && typeof printOpenPayrollSheet === "function") return printOpenPayrollSheet();
   if (id === "detailView") {
     const post = getPost(selectedId);
     if (!post) return toast("No hay ficha para imprimir.");
@@ -10578,6 +10583,9 @@ function switchView(viewId) {
   if (viewId === "contabilidadView") {
     if (typeof renderContabilidadModule === "function") renderContabilidadModule();
   }
+  if (viewId === "nominaView") {
+    if (typeof renderNominaModule === "function") renderNominaModule();
+  }
   if (viewId === "depuracionView") {
     if (typeof renderDepuracionModule === "function") renderDepuracionModule();
   }
@@ -12188,7 +12196,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=170").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=171").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
