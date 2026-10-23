@@ -1,0 +1,19 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { json, methodNotAllowed } from '../../../_lib/http.js'
+import { requirePanel } from '../../../_lib/auth.js'
+import { getGuard, listDevices, normalizeGuard, setGuard } from '../../../_lib/store.js'
+import { sendGuardPush } from '../../../_lib/push.js'
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return methodNotAllowed(res)
+  const auth = requirePanel(req)
+  if (!auth.ok) return json(res, auth.status, { error: auth.error })
+  const name = normalizeGuard(String(req.query.name || ''))
+  const prev = await getGuard(name)
+  await setGuard(name, { ...prev, alertUntil: null, alertSound: null })
+  const devices = await listDevices()
+  for (const device of devices.filter((d) => normalizeGuard(d.vigilanteName) === name)) {
+    await sendGuardPush(device.pushSubscription, { kind: 'remote-alert-stop' })
+  }
+  return json(res, 200, { ok: true })
+}

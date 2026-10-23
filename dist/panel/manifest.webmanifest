@@ -1,0 +1,32 @@
+{
+  "id": "https://rfs-panel-acme-f35d.vercel.app/v2",
+  "name": "RFS Panel Central",
+  "short_name": "RFS Panel",
+  "description": "Panel receptor de ponches y reportes — Reaction Force Security.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0a",
+  "theme_color": "#9D2D2D",
+  "icons": [
+    {
+      "src": "/panel/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/panel/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/panel/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
