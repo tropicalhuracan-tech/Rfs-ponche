@@ -1,0 +1,32 @@
+{
+  "id": "rfs-ponche-vigilante-v2",
+  "name": "RFS Ponche",
+  "short_name": "RFS Ponche",
+  "description": "Ponche GPS y evidencia fotográfica para vigilantes de Reaction Force Security.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#9D2D2D",
+  "theme_color": "#9D2D2D",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
