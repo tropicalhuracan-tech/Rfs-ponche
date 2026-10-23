@@ -1831,6 +1831,12 @@ function G() {
                   "aria-label": `Vigilantes`,
                   children: [
                     (L.jsx)(`h2`, { children: `Vigilantes` }),
+                    V.length > 0
+                      ? (L.jsx)(`p`, {
+                          className: `panel-hint`,
+                          children: `Toca un vigilante para ver acciones: sirena, bloqueo y Eliminar vigilante.`,
+                        })
+                      : null,
                     V.length === 0
                       ? (L.jsxs)(`div`, {
                           className: `panel-empty`,
