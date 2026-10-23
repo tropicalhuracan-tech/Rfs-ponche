@@ -3458,6 +3458,7 @@ const MODULE_DEFS = [
   { key: "employees", label: "Empleados", view: "employeesView" },
   { key: "loans", label: "Préstamos", view: "loansView" },
   { key: "monorriel", label: "Monorriel", view: "monorrielView" },
+  { key: "vargas", label: "Ramón Vargas", view: "vargasView" },
   { key: "lavega", label: "La Vega Autopista", view: "lvaView" },
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "cajachica", label: "Caja chica", view: "cajaView" },
@@ -3490,6 +3491,7 @@ const VIEW_TO_MODULE = {
   loanNewView: "loans",
   loanDetailView: "loans",
   monorrielView: "monorriel",
+  vargasView: "vargas",
   monoReportEditView: "monorriel",
   monoReportDetailView: "monorriel",
   monoEmployeeSummaryView: "monorriel",
@@ -3536,6 +3538,10 @@ function normalizeUser(u = {}) {
       modules.suplidores = false;
       return;
     }
+    if (m.key === "vargas" && !Object.prototype.hasOwnProperty.call(incoming, "vargas")) {
+      modules.vargas = false;
+      return;
+    }
     if (m.key === "contabilidad" && !Object.prototype.hasOwnProperty.call(incoming, "contabilidad")) {
       modules.contabilidad = false;
       return;
@@ -3569,6 +3575,10 @@ function normalizeUser(u = {}) {
   // Suplidores: acceso inmediato para admin y fortuna (además del permiso explícito)
   if (role === "owner" || modules.admin || username === "fortuna") {
     modules.suplidores = true;
+  }
+  // Ramón Vargas: acceso inmediato para owner/admin y usuario vargas10
+  if (role === "owner" || modules.admin || username === "vargas10") {
+    modules.vargas = true;
   }
   if (role === "owner") {
     MODULE_DEFS.forEach((m) => {
@@ -3687,6 +3697,9 @@ function canAccessView(viewId) {
   if (viewId === "suplidoresView") {
     return typeof canAccessSuplidores === "function" ? canAccessSuplidores() : canAccessModule("suplidores");
   }
+  if (viewId === "vargasView") {
+    return typeof canAccessVargas === "function" ? canAccessVargas() : canAccessModule("vargas");
+  }
   if (viewId === "contabilidadView" || viewId === "nominaView") {
     // Nóminas usa el mismo permiso que Contabilidad (usuarios existentes)
     return typeof canAccessContabilidad === "function" ? canAccessContabilidad() : canAccessModule("contabilidad");
@@ -3700,7 +3713,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "suplidoresView", "nominaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "vargasView", "lvaView", "financeView", "cajaView", "suplidoresView", "nominaView", "contabilidadView", "hrView", "depuracionView", "quotesView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -4216,6 +4229,7 @@ function clearUserForm() {
     finance: false,
     cajachica: false,
     suplidores: false,
+    vargas: false,
     contabilidad: false,
     rrhh: false,
     depuracion: false,
@@ -9417,6 +9431,24 @@ function applyRemotePettyCash(remote) {
   localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
 }
 
+
+function canAccessVargas() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  if (canAccessModule("admin")) return true;
+  if (String(currentUser.username || "").toLowerCase() === "vargas10") return true;
+  return canAccessModule("vargas");
+}
+
+function renderVargasModule() {
+  if (!canAccessVargas()) return;
+  const summary = document.getElementById("vargasSummary");
+  if (summary) {
+    summary.textContent =
+      "Reportes de supervisión (Reaction Banco / Efectivo). Formato pendiente del Excel de Ramón.";
+  }
+}
+
 function canAccessCajaChica() {
   if (!currentUser) return false;
   if (currentUser.role === "owner") return true;
@@ -10622,6 +10654,7 @@ function switchView(viewId) {
   if (viewId === "financeView") renderFinance();
   if (viewId === "cajaView") renderCajaModule();
   if (viewId === "suplidoresView" && typeof renderSuplidoresModule === "function") renderSuplidoresModule();
+  if (viewId === "vargasView" && typeof renderVargasModule === "function") renderVargasModule();
   if (viewId === "hrView") renderHrModule();
   if (viewId === "contabilidadView") {
     if (typeof renderContabilidadModule === "function") renderContabilidadModule();
@@ -12258,7 +12291,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=174").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=175").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

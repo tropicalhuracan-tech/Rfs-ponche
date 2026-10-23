@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v174 · Cortes 16–30 (sin día 31)</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v175 · Pestaña Ramón Vargas</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -70,6 +70,7 @@
           <button class="welcome-action" type="button" data-go="radioView">Radio</button>
           <button class="welcome-action" type="button" data-go="loansView">Préstamos</button>
           <button class="welcome-action" type="button" data-go="monorrielView">Monorriel</button>
+          <button class="welcome-action" type="button" data-go="vargasView">Ramón Vargas</button>
           <button class="welcome-action" type="button" data-go="lvaView">La Vega Autopista</button>
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
@@ -1203,6 +1204,36 @@
 
     </section>
 
+
+    <section id="vargasView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Ramón Vargas</h1>
+          <p id="vargasSummary" class="muted">Reportes de supervisión para Reaction Banco y Reaction Efectivo.</p>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <h2>Pestaña lista</h2>
+        <p>Aquí Ramón Vargas seguirá haciendo sus reportes como siempre, dentro de la app.</p>
+        <p class="muted tight" style="margin-top:10px">
+          El formato del reporte se replicará cuando nos pasen el Excel de ejemplo.
+          Después se enlazará con las nóminas <strong>Reaction Banco</strong> y <strong>Reaction Efectivo</strong>
+          (cruce de días), igual que Monorriel con sus reportes.
+        </p>
+        <p class="muted tight" style="margin-top:10px"><strong>Estado:</strong> esperando Excel / formato de reporte.</p>
+      </div>
+
+      <div class="form-card" id="vargasPlaceholderBox">
+        <h2>Próximos pasos</h2>
+        <ol class="muted" style="margin:8px 0 0 18px; line-height:1.5">
+          <li>Recibir Excel de ejemplo del reporte de Ramón.</li>
+          <li>Replicar el mismo formato en esta pestaña.</li>
+          <li>Enlazar con nóminas Reaction Banco y Reaction Efectivo.</li>
+        </ol>
+      </div>
+    </section>
+
     <section id="nominaView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -1967,6 +1998,7 @@
       <button class="tab" data-view="radioView" type="button"><span>Radio</span></button>
       <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
       <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
+      <button class="tab" data-view="vargasView" type="button"><span>Vargas</span></button>
       <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
@@ -1987,12 +2019,12 @@
   <script src="monorriel-data.js?v=144"></script>
   <script src="reaction-payroll-data.js?v=144"></script>
   <script src="loans-seed-data.js?v=144"></script>
-  <script src="cloud.js?v=174"></script>
+  <script src="cloud.js?v=175"></script>
   <script src="hr.js?v=144"></script>
   <script src="depuracion.js?v=144"></script>
-  <script src="suplidores.js?v=174"></script>
-  <script src="contabilidad.js?v=174"></script>
+  <script src="suplidores.js?v=175"></script>
+  <script src="contabilidad.js?v=175"></script>
   <script src="quotes.js?v=144"></script>
-  <script src="app.js?v=174"></script>
+  <script src="app.js?v=175"></script>
 </body>
 </html>
