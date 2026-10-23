@@ -110,6 +110,38 @@ export async function getEvent(id: string) {
 export async function deleteEvent(id: string) {
   await kv.del(eventKey(id))
   await kv.del(photoKey(id))
+  await kv.lrem(EVENTS_INDEX, 0, id)
+}
+
+export async function deleteDevice(deviceId: string) {
+  const device = await getDevice(deviceId)
+  if (!device) return false
+  await kv.del(codeKey(device.code))
+  await kv.del(deviceKey(deviceId))
+  return true
+}
+
+/** Removes a vigilante, their events, photos, devices, and moderation state. */
+export async function deleteGuard(vigilanteName: string) {
+  const norm = normalizeGuard(vigilanteName)
+  if (!norm) return { events: 0, devices: 0 }
+
+  let eventsRemoved = 0
+  const events = await listEvents(5000)
+  for (const ev of events) {
+    if (normalizeGuard(ev.vigilanteName) !== norm) continue
+    await deleteEvent(ev.id)
+    eventsRemoved += 1
+  }
+
+  let devicesRemoved = 0
+  for (const device of await listDevices()) {
+    if (normalizeGuard(device.vigilanteName) !== norm) continue
+    if (await deleteDevice(device.deviceId)) devicesRemoved += 1
+  }
+
+  await kv.del(guardKey(norm))
+  return { events: eventsRemoved, devices: devicesRemoved }
 }
 
 export async function storePhotoBytes(id: string, bytes: Buffer) {

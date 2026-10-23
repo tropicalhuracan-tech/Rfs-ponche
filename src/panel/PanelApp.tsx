@@ -642,6 +642,24 @@ function H({
       }
     }
   }
+  async function je() {
+    let t = `¿Eliminar a ${e} del panel?\n\nSe borrarán todos sus ponches, fotos y dispositivos registrados. Esta acción no se puede deshacer.`;
+    if (!confirm(t)) return;
+    if (!confirm(`Confirmación final: ¿eliminar definitivamente a ${e}?`)) return;
+    K(!0);
+    try {
+      let t = await api.deleteGuard(e);
+      W(
+        `Vigilante eliminado · ${t.events ?? 0} registro(s) · ${t.devices ?? 0} dispositivo(s)`,
+      );
+      f();
+      u();
+    } catch (e) {
+      W(e instanceof Error ? e.message : `No se pudo eliminar`);
+    } finally {
+      K(!1);
+    }
+  }
   async function ve() {
     let t = !c?.blocked,
       n = t
@@ -867,6 +885,13 @@ function H({
                 onClick: () => void ve(),
                 children: c?.blocked ? `Desbloquear` : `Bloquear`,
               }),
+              (L.jsx)(`button`, {
+                type: `button`,
+                className: `secondary-btn danger-btn`,
+                disabled: G,
+                onClick: () => void je(),
+                children: `Eliminar vigilante`,
+              }),
             ],
           }),
         ],
@@ -1053,7 +1078,7 @@ function H({
                                           }),
                                           (L.jsx)(`a`, {
                                             className: `photo-download-link`,
-                                            href: a(e),
+                                            href: api.photoDownloadUrl(e),
                                             download: !0,
                                             children: `Guardar archivo`,
                                           }),
@@ -1096,7 +1121,7 @@ function H({
                   (L.jsx)(`label`, { children: `Periodo` }),
                   (L.jsx)(`div`, {
                     className: `report-periods`,
-                    children: Object.keys(w).map((e) =>
+                    children: Object.keys(periodLabels).map((e) =>
                       (L.jsx)(
                         `button`,
                         {
@@ -1105,7 +1130,7 @@ function H({
                           onClick: () => {
                             (ee(e), A(null));
                           },
-                          children: w[e],
+                          children: periodLabels[e as keyof typeof periodLabels],
                         },
                         e,
                       ),
@@ -1161,7 +1186,9 @@ function H({
                           (L.jsx)(`h3`, {
                             children: `Reporte de efectividad`,
                           }),
-                          (L.jsxs)(`p`, { children: [w[y], ` · `, e] }),
+                          (L.jsxs)(`p`, {
+                            children: [periodLabels[y as keyof typeof periodLabels], ` · `, e],
+                          }),
                         ],
                       }),
                     ],

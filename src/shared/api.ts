@@ -248,6 +248,12 @@ export async function resetGuard(vigilanteName: string) {
   if (!res.ok) throw new Error('No se pudo reiniciar el conteo')
 }
 
+export async function deleteGuard(vigilanteName: string) {
+  const res = await panelFetch(`/api/guards/${encodeURIComponent(vigilanteName)}/delete`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res, 'No se pudo eliminar el vigilante'))
+  return (await res.json()) as { ok?: boolean; events?: number; devices?: number }
+}
+
 export async function alertGuard(vigilanteName: string, minutes = 15, sound: AlertSound = 'wail') {
   const res = await panelFetch(`/api/guards/${encodeURIComponent(vigilanteName)}/alert`, {
     method: 'POST',
