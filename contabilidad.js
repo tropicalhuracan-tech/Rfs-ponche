@@ -2384,6 +2384,22 @@ function payrollPayDateFor(period, half) {
  * opts: { group, half, period, tanda, quiet, skipConfirm }
  */
 
+
+/** Mes actual + siguiente (para cubrir todos los cortes, incl. noviembre). */
+function monoFeedPeriodList(anchorYm) {
+  const ym = String(anchorYm || currentMonthKey()).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return [currentMonthKey()];
+  const [y0, m0] = ym.split("-").map(Number);
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  const next = `${y}-${String(m).padStart(2, "0")}`;
+  return ym === next ? [ym] : [ym, next];
+}
+
 /** Rango de fechas de una quincena Monorriel (corte 01–15 / 16–fin de mes). */
 function monoPayrollPeriodRange(period, half) {
   const ym = String(period || "").slice(0, 7);
@@ -2391,8 +2407,10 @@ function monoPayrollPeriodRange(period, half) {
   const [y, m] = ym.split("-").map(Number);
   const h = half === 2 || half === "2" ? 2 : 1;
   if (h === 1) return { from: `${ym}-01`, to: `${ym}-15` };
+  // Corte 16–30: el día 31 se reporta pero NO entra en nómina. Feb usa 28/29.
   const last = new Date(y, m, 0).getDate();
-  return { from: `${ym}-16`, to: `${ym}-${String(last).padStart(2, "0")}` };
+  const endDay = Math.min(30, last);
+  return { from: `${ym}-16`, to: `${ym}-${String(endDay).padStart(2, "0")}` };
 }
 
 function monoPayrollNameKey(name) {
@@ -2475,13 +2493,20 @@ function feedMonorrielPayrollDaysFromReports(opts = {}) {
   if (typeof monorrielReports === "undefined" || !Array.isArray(monorrielReports)) {
     return { updated: 0, lines: 0, reason: "no-reports" };
   }
-  const period = opts.period || (typeof getSelectedMonth === "function" ? getSelectedMonth() : currentMonthKey());
+  const periods = Array.isArray(opts.periods) && opts.periods.length
+    ? opts.periods.map((p) => String(p || "").slice(0, 7)).filter((p) => /^\d{4}-\d{2}$/.test(p))
+    : null;
+  const basePeriod =
+    opts.period || (typeof getSelectedMonth === "function" ? getSelectedMonth() : currentMonthKey());
+  // Todos los cortes del mes seleccionado; si no se limita, también el mes siguiente (ej. nov).
+  const periodList = periods || (opts.onlySelectedPeriod ? [basePeriod] : monoFeedPeriodList(basePeriod));
   const halves =
     opts.half != null ? [opts.half === 2 || opts.half === "2" ? 2 : 1] : [1, 2];
   const createMissing = opts.createMissing !== false;
   let payrollsTouched = 0;
   let linesTouched = 0;
 
+  periodList.forEach((period) => {
   halves.forEach((half) => {
     const range = monoPayrollPeriodRange(period, half);
     if (!range.from || !range.to) return;
@@ -2609,6 +2634,7 @@ function feedMonorrielPayrollDaysFromReports(opts = {}) {
         }
       });
     });
+  });
   });
 
   if (payrollsTouched) {
@@ -4424,6 +4450,7 @@ function renderNominaTab() {
         half: getSelectedPayrollHalf(),
         quiet: true,
         createMissing: true,
+        onlySelectedPeriod: true,
       });
     } catch (_) {}
     renderNominaTab._feedingDays = false;
@@ -5131,9 +5158,9 @@ function bindContabilidadUi() {
   document.getElementById("btnContabFeedMonoDays")?.addEventListener("click", () => {
     const r = feedMonorrielPayrollDaysFromReports({
       period: getSelectedMonth(),
-      half: getSelectedPayrollHalf(),
       quiet: false,
       createMissing: true,
+      // Ambos cortes del mes + mes siguiente (nov, etc.)
     });
     renderNominaTab();
     if (!(r && r.updated)) toast("No había días nuevos que actualizar desde reportes.");

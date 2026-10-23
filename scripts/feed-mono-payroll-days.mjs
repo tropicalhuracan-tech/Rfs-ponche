@@ -1,7 +1,7 @@
 /**
  * Alimenta columna Días de nóminas Monorriel desde reportes (quincena).
- * Uso: node scripts/feed-mono-payroll-days.mjs [YYYY-MM] [1|2|both]
- * Por defecto: mes actual, ambas quincenas (crea H2/H1 si faltan y hay reportes).
+ * Uso: node scripts/feed-mono-payroll-days.mjs [auto|YYYY-MM] [1|2|both]
+ * Por defecto: auto = mes actual + siguiente, ambas quincenas (16–30; día 31 excluido).
  */
 import fs from "fs";
 import vm from "vm";
@@ -63,8 +63,10 @@ function loose(a, b) {
 function periodRange(period, half) {
   const [y, m] = period.split("-").map(Number);
   if (half === 1) return { from: `${period}-01`, to: `${period}-15` };
+  // 16–30: el día 31 se reporta pero no entra en nómina
   const last = new Date(y, m, 0).getDate();
-  return { from: `${period}-16`, to: `${period}-${String(last).padStart(2, "0")}` };
+  const endDay = Math.min(30, last);
+  return { from: `${period}-16`, to: `${period}-${String(endDay).padStart(2, "0")}` };
 }
 function payDateFor(period, half) {
   if (half === 1) return `${period}-20`;
@@ -252,11 +254,27 @@ async function feedHalf(period, half, reports, payrollByKey, ids) {
   return touched;
 }
 
+function nextYm(ym) {
+  const [y0, m0] = ym.split("-").map(Number);
+  let y = y0;
+  let m = m0 + 1;
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
 const now = new Date();
 const defaultPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const period = process.argv[2] || defaultPeriod;
+const periodArg = process.argv[2] || "auto";
 const halfArg = process.argv[3] || "both";
 const halves = halfArg === "both" ? [1, 2] : [Number(halfArg) === 2 ? 2 : 1];
+// auto = mes actual + siguiente (todos los cortes, incl. noviembre)
+const periods =
+  periodArg === "auto"
+    ? [defaultPeriod, nextYm(defaultPeriod)]
+    : [String(periodArg).slice(0, 7)];
 
 const main = await getDoc("rfs/main");
 const reports = JSON.parse(main.fields.monorrielReportsJson.stringValue || "[]");
@@ -272,7 +290,9 @@ for (const id of ids) {
 }
 
 let total = 0;
-for (const h of halves) total += await feedHalf(period, h, reports, payrollByKey, ids);
+for (const period of periods) {
+  for (const h of halves) total += await feedHalf(period, h, reports, payrollByKey, ids);
+}
 await patchDoc(
   "rfs/payroll_index",
   {
@@ -282,4 +302,4 @@ await patchDoc(
   },
   ["payrollIdsJson", "updatedAt", "schema"]
 );
-console.log("Done. payrolls touched:", total, "period", period, "halves", halves.join(","));
+console.log("Done. payrolls touched:", total, "periods", periods.join(", "), "halves", halves.join(","));
