@@ -7044,6 +7044,14 @@ function saveMonoReport() {
     flushCloudSave();
   } catch (_) {}
   toast("Reporte Monorriel guardado.");
+  try {
+    if (typeof feedMonorrielPayrollDaysFromReports === "function") {
+      const ym = String(date || "").slice(0, 7);
+      const day = Number(String(date || "").slice(8, 10)) || 0;
+      const half = day >= 16 ? 2 : 1;
+      feedMonorrielPayrollDaysFromReports({ period: ym, half, quiet: true, createMissing: true });
+    }
+  } catch (_) {}
   openMonoReportDetail(normalized.id);
 }
 
@@ -7300,7 +7308,9 @@ function renderMonoStaffList() {
 function monoEmployeeAttendanceKey(assignment) {
   const id = String((assignment && assignment.employeeId) || "").trim();
   if (id) return `id:${id}`;
-  const name = String((assignment && assignment.employeeName) || "")
+  const raw = String((assignment && assignment.employeeName) || "").trim();
+  const base = typeof monoBaseName === "function" ? monoBaseName(raw) : raw;
+  const name = String(base || raw)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -7339,7 +7349,7 @@ function buildMonoEmployeeAttendance(fromDate, toDate, shiftFilter = "") {
         map.set(key, row);
       }
       if (!row.employeeId && a.employeeId) row.employeeId = a.employeeId;
-      if (name.length > String(row.name || "").length) row.name = name;
+      // Primera lectura del nombre queda fija (no reemplazar por variantes)
       row.daySet.add(d);
       row.entries.push({ date: d, shift, postId: a.postId || "" });
     });
@@ -12248,7 +12258,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=172").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=173").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {

@@ -1893,6 +1893,8 @@ function syncMonorrielTandaUi(group) {
   const isMono = group === "monorriel";
   if (wrap) wrap.hidden = !isMono;
   if (genAll) genAll.hidden = !isMono;
+  const feedBtn = document.getElementById("btnContabFeedMonoDays");
+  if (feedBtn) feedBtn.hidden = !isMono;
   if (!sel || !isMono) return;
   const tandas = getMonorrielPayrollTandas();
   const prev = sel.value;
@@ -2381,6 +2383,247 @@ function payrollPayDateFor(period, half) {
  * Genera / actualiza una nómina.
  * opts: { group, half, period, tanda, quiet, skipConfirm }
  */
+
+/** Rango de fechas de una quincena Monorriel (corte 01–15 / 16–fin de mes). */
+function monoPayrollPeriodRange(period, half) {
+  const ym = String(period || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return { from: "", to: "" };
+  const [y, m] = ym.split("-").map(Number);
+  const h = half === 2 || half === "2" ? 2 : 1;
+  if (h === 1) return { from: `${ym}-01`, to: `${ym}-15` };
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${ym}-16`, to: `${ym}-${String(last).padStart(2, "0")}` };
+}
+
+function monoPayrollNameKey(name) {
+  return String(name || "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function monoNamesLooselyMatch(a, b) {
+  const ka = monoPayrollNameKey(a);
+  const kb = monoPayrollNameKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  if (ka.includes(kb) || kb.includes(ka)) return true;
+  const pa = ka.split(" ").filter(Boolean);
+  const pb = kb.split(" ").filter(Boolean);
+  if (pa.length >= 2 && pb.length >= 2 && pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1]) {
+    return true;
+  }
+  return false;
+}
+
+/** Primera lectura del nombre queda fija en settings.monoNameLocks */
+function lockMonoPayrollDisplayName(rawName) {
+  if (!contabilidadData.settings || typeof contabilidadData.settings !== "object") {
+    contabilidadData.settings = { defaultBook: "EDWARD" };
+  }
+  if (!contabilidadData.settings.monoNameLocks || typeof contabilidadData.settings.monoNameLocks !== "object") {
+    contabilidadData.settings.monoNameLocks = {};
+  }
+  const locks = contabilidadData.settings.monoNameLocks;
+  const key = monoPayrollNameKey(rawName);
+  if (!key) return payrollCleanEmployeeName(rawName) || String(rawName || "").trim();
+  if (!locks[key]) {
+    locks[key] = payrollCleanEmployeeName(rawName) || String(rawName || "").trim();
+  }
+  return locks[key];
+}
+
+function findMonorrielRosterEntry(name, employeeId) {
+  const tandas = getMonorrielPayrollTandas();
+  for (const t of tandas) {
+    for (const r of t.roster || []) {
+      if (!r) continue;
+      if (employeeId && (r.employeeId === employeeId || r.id === employeeId)) {
+        return { tanda: t.id, person: r };
+      }
+      if (monoNamesLooselyMatch(r.name, name)) return { tanda: t.id, person: r };
+    }
+  }
+  return null;
+}
+
+/** am → día/moto_día · pm → noche/moto_noche (según Excel si hay match). */
+function resolveMonorrielTandaForReportWorker(name, employeeId, shift) {
+  const family = shift === "pm" ? ["noche", "moto_noche"] : ["dia", "moto_dia"];
+  const hit = findMonorrielRosterEntry(name, employeeId);
+  if (hit && family.includes(hit.tanda)) return hit.tanda;
+  if (hit) {
+    const wantMoto = String(hit.tanda).startsWith("moto");
+    const alt = family.find((id) => (wantMoto ? id.startsWith("moto") : !id.startsWith("moto")));
+    if (alt) return alt;
+  }
+  return shift === "pm" ? "noche" : "dia";
+}
+
+/**
+ * Cruza reportes Monorriel → columna Días de la nómina (quincena).
+ * No pisa adelantos / préstamos / horas extras manuales.
+ * opts: { period, half, quiet, createMissing }
+ */
+function feedMonorrielPayrollDaysFromReports(opts = {}) {
+  if (typeof buildMonoEmployeeAttendance !== "function") {
+    return { updated: 0, lines: 0, reason: "no-attendance-fn" };
+  }
+  if (typeof monorrielReports === "undefined" || !Array.isArray(monorrielReports)) {
+    return { updated: 0, lines: 0, reason: "no-reports" };
+  }
+  const period = opts.period || (typeof getSelectedMonth === "function" ? getSelectedMonth() : currentMonthKey());
+  const halves =
+    opts.half != null ? [opts.half === 2 || opts.half === "2" ? 2 : 1] : [1, 2];
+  const createMissing = opts.createMissing !== false;
+  let payrollsTouched = 0;
+  let linesTouched = 0;
+
+  halves.forEach((half) => {
+    const range = monoPayrollPeriodRange(period, half);
+    if (!range.from || !range.to) return;
+
+    ["am", "pm"].forEach((shift) => {
+      const attendance = buildMonoEmployeeAttendance(range.from, range.to, shift);
+      if (!attendance.length) return;
+
+      const byTanda = new Map();
+      attendance.forEach((row) => {
+        const tanda = resolveMonorrielTandaForReportWorker(row.name, row.employeeId, shift);
+        if (!byTanda.has(tanda)) byTanda.set(tanda, []);
+        byTanda.get(tanda).push(row);
+      });
+
+      byTanda.forEach((rows, tanda) => {
+        let payroll = findPayrollByGroup(period, half, "monorriel", tanda);
+        if (!payroll && createMissing) {
+          const gen = generatePayrollForSelection({
+            period,
+            half,
+            group: "monorriel",
+            tanda,
+            quiet: true,
+            skipConfirm: true,
+            skipReportFeed: true,
+          });
+          payroll = gen && gen.payroll;
+        }
+        if (!payroll) return;
+
+        const formulaOpts = payrollComputeOpts(payroll);
+        const prevById = new Map();
+        const prevByName = new Map();
+        (payroll.lines || []).forEach((l) => {
+          if (!l) return;
+          if (l.employeeId) prevById.set(String(l.employeeId), l);
+          const nk = monoPayrollNameKey(l.fullName);
+          if (nk) prevByName.set(nk, l);
+        });
+
+        let changed = false;
+        rows.forEach((row) => {
+          const daysCount = Math.max(0, Number(row.daysCount) || 0);
+          if (!daysCount) return;
+          const displayName = lockMonoPayrollDisplayName(row.name);
+          const nameKey = monoPayrollNameKey(displayName);
+          const rosterHit = findMonorrielRosterEntry(row.name, row.employeeId);
+          let line =
+            (row.employeeId && prevById.get(String(row.employeeId))) ||
+            prevByName.get(nameKey) ||
+            null;
+          if (!line) {
+            line =
+              (payroll.lines || []).find((l) => monoNamesLooselyMatch(l.fullName, displayName)) ||
+              null;
+          }
+
+          const keepAdelantos = line ? Math.max(0, Number(line.adelantos) || 0) : 0;
+          const keepPrestamos = line ? Math.max(0, Number(line.prestamos) || 0) : 0;
+          const keepExtrasManual = !!(line && line.horasExtrasManual);
+          const keepExtras = keepExtrasManual ? Math.max(0, Number(line.horasExtras) || 0) : null;
+
+          if (!line) {
+            const person = rosterHit
+              ? { ...rosterHit.person, name: displayName }
+              : {
+                  id: row.employeeId || "",
+                  employeeId: row.employeeId || "",
+                  name: displayName,
+                  salaryMonthly: LVA_PAYROLL_DEFAULT_MONTHLY,
+                };
+            line = buildPayrollLineFromPerson(
+              { ...person, name: displayName, daysWorked: String(daysCount) },
+              null,
+              "Monorriel",
+              formulaOpts
+            );
+            payroll.lines = payroll.lines || [];
+            payroll.lines.push(line);
+            if (line.employeeId) prevById.set(String(line.employeeId), line);
+            prevByName.set(nameKey, line);
+            changed = true;
+            linesTouched += 1;
+          }
+
+          const nextDays = String(daysCount);
+          const prevDays = String(line.daysWorked || "").trim();
+          if (prevDays !== nextDays || !line.daysFromReports) {
+            line.daysWorked = nextDays;
+            line.daysFromReports = true;
+            if (!String(line.fullName || "").trim()) line.fullName = displayName;
+            changed = true;
+            linesTouched += 1;
+          }
+
+          line.adelantos = keepAdelantos;
+          line.prestamos = keepPrestamos;
+          if (keepExtrasManual) {
+            line.horasExtras = keepExtras;
+            line.horasExtrasManual = true;
+          }
+          let recomputed = computePayrollLineTotals(line, formulaOpts);
+          recomputed.adelantos = keepAdelantos;
+          recomputed.prestamos = keepPrestamos;
+          if (keepExtrasManual) {
+            recomputed.horasExtras = keepExtras;
+            recomputed.horasExtrasManual = true;
+            recomputed = computePayrollLineTotals(recomputed, formulaOpts);
+            recomputed.adelantos = keepAdelantos;
+            recomputed.prestamos = keepPrestamos;
+            recomputed.horasExtras = keepExtras;
+            recomputed.horasExtrasManual = true;
+          }
+          Object.assign(line, recomputed);
+        });
+
+        if (changed) {
+          payroll.updatedAt = new Date().toISOString();
+          payroll.note = String(payroll.note || "");
+          if (!/días desde reportes/i.test(payroll.note)) {
+            payroll.note = `${payroll.note} · Días desde reportes`.replace(/^\s·\s*/, "").trim();
+          }
+          payrollsTouched += 1;
+        }
+      });
+    });
+  });
+
+  if (payrollsTouched) {
+    try {
+      saveContabilidadData(true);
+    } catch (_) {}
+  }
+  if (!opts.quiet && payrollsTouched) {
+    toast(
+      `Días Monorriel actualizados desde reportes · ${linesTouched} línea(s) · ${payrollsTouched} nómina(s).`
+    );
+  }
+  return { updated: payrollsTouched, lines: linesTouched };
+}
+
 function generatePayrollForSelection(opts = {}) {
   const period = opts.period || getSelectedMonth();
   const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : getSelectedPayrollHalf();
@@ -2490,7 +2733,19 @@ function generatePayrollForSelection(opts = {}) {
   } else {
     contabilidadData.payrolls.unshift(payroll);
   }
-  return { payroll, labelShort, lines, period, half };
+  if (group === "monorriel" && !opts.skipReportFeed) {
+    try {
+      feedMonorrielPayrollDaysFromReports({
+        period,
+        half,
+        quiet: true,
+        createMissing: false,
+      });
+      const refreshed = findPayrollByGroup(period, half, "monorriel", tanda);
+      if (refreshed) payroll = refreshed;
+    } catch (_) {}
+  }
+  return { payroll, labelShort, lines: payroll.lines || lines, period, half };
 }
 
 /** Genera / actualiza nómina del grupo seleccionado (mismo formato). */
@@ -4161,6 +4416,18 @@ function renderNominaTab() {
   const halfSel = document.getElementById("contabPayrollHalf");
   const groupSel = document.getElementById("contabPayrollGroup");
   const group = getSelectedPayrollGroup();
+  if (group === "monorriel" && !renderNominaTab._feedingDays) {
+    renderNominaTab._feedingDays = true;
+    try {
+      feedMonorrielPayrollDaysFromReports({
+        period: getSelectedMonth(),
+        half: getSelectedPayrollHalf(),
+        quiet: true,
+        createMissing: true,
+      });
+    } catch (_) {}
+    renderNominaTab._feedingDays = false;
+  }
   const meta = payrollGroupMeta(group);
   syncPayrollPaperUiForGroup(group);
   syncMonorrielTandaUi(group);
@@ -4861,6 +5128,16 @@ function bindContabilidadUi() {
   });
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
   document.getElementById("btnContabGenMonoTandas")?.addEventListener("click", generateAllMonorrielTandas);
+  document.getElementById("btnContabFeedMonoDays")?.addEventListener("click", () => {
+    const r = feedMonorrielPayrollDaysFromReports({
+      period: getSelectedMonth(),
+      half: getSelectedPayrollHalf(),
+      quiet: false,
+      createMissing: true,
+    });
+    renderNominaTab();
+    if (!(r && r.updated)) toast("No había días nuevos que actualizar desde reportes.");
+  });
   document.getElementById("btnContabLoadLoans")?.addEventListener("click", loadOpenPayrollLoans);
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
   document.getElementById("btnContabAddRows")?.addEventListener("click", addBlankPayrollRows);
