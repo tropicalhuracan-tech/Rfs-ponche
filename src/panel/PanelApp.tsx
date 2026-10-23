@@ -6,7 +6,10 @@ const S = React
 const L = { jsx: React.createElement, jsxs: React.createElement, Fragment: React.Fragment }
 
 /** Visible en el panel para confirmar que el deploy trae la UI nueva (eliminar vigilante). */
-const PANEL_UI_VERSION = `2026.10.23b`
+const PANEL_UI_VERSION = `2026.10.23c`
+
+const assetUrl = (path: string) =>
+  `${import.meta.env.BASE_URL || '/'}${path.replace(/^\//, '')}`
 
 const periodLabels = {
     "24h": `Últimas 24 horas`,
@@ -373,7 +376,7 @@ async function N() {
   if (M) return M;
   try {
     let e = await (
-      await fetch(`${window.location.origin}/logo-panel-tight.jpg?v=5`, {
+      await fetch(new URL(assetUrl(`logo-panel-tight.jpg?v=5`), window.location.href).href, {
         cache: `force-cache`,
       })
     ).blob();
@@ -1180,7 +1183,7 @@ function H({
                     className: `report-brand`,
                     children: [
                       (L.jsx)(`img`, {
-                        src: `/logo-panel-tight.jpg?v=5`,
+                        src: assetUrl(`logo-panel-tight.jpg?v=5`),
                         alt: `Reaction Force Security`,
                       }),
                       (L.jsxs)(`div`, {
@@ -1740,7 +1743,7 @@ function G() {
                       className: `panel-brand`,
                       children: [
                         (L.jsx)(`img`, {
-                          src: `/logo-panel-tight.jpg?v=5`,
+                          src: assetUrl(`logo-panel-tight.jpg?v=5`),
                           alt: `Reaction Force Security`,
                           className: `panel-logo`,
                         }),
@@ -1940,7 +1943,7 @@ function G() {
             className: `panel-login-card`,
             children: [
               (L.jsx)(`img`, {
-                src: `/logo-panel-tight.jpg?v=5`,
+                src: assetUrl(`logo-panel-tight.jpg?v=5`),
                 alt: `Reaction Force Security`,
                 className: `panel-logo`,
               }),

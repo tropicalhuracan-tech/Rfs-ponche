@@ -18,6 +18,14 @@ Recovered full-stack Vite app for Reaction Force Security vigilante ponche (`/`)
 
 **Note:** Production at [rfs-ponche.vercel.app](https://rfs-ponche.vercel.app) already has data in its KV namespace. Point this project at the same KV credentials to stay compatible.
 
+### Panel central (con Eliminar vigilante)
+
+Si Vercel no ha redeployado el panel, usa la copia publicada en GitHub Pages (misma API en Vercel):
+
+**https://tropicalhuracan-tech.github.io/Rfs-ponche/panel/**
+
+Comprueba la versión en la barra de sync: **`v2026.10.23c`**. En el detalle del vigilante debe verse el botón rojo **Eliminar vigilante** arriba de la sirena.
+
 ## Scripts
 
 - `npm run dev` — local Vite dev server

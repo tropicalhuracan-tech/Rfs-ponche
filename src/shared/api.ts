@@ -10,7 +10,8 @@ import type {
   RfsEvent,
 } from './types'
 
-const API_BASE = ''
+/** En GitHub Pages el panel llama a la API en Vercel; en producción Vercel queda vacío (mismo origen). */
+const API_BASE = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/, '') ?? ''
 
 const PANEL_KEY_STORAGE = 'rfs.panelKey'
 
@@ -338,13 +339,17 @@ export function normalizeAlertSound(sound: unknown): AlertSound {
 
 export function sirenFileFor(sound: unknown) {
   const id = normalizeAlertSound(sound)
-  return sirenPresets.find((p) => p.id === id)?.file ?? '/sirena-wail.wav'
+  const file = sirenPresets.find((p) => p.id === id)?.file ?? '/sirena-wail.wav'
+  const base = import.meta.env.BASE_URL || '/'
+  return file.startsWith('http') ? file : `${base}${file.replace(/^\//, '')}`
 }
 
 export function registerServiceWorker() {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return
+  if (API_BASE) return
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+    const swPath = `${import.meta.env.BASE_URL}sw.js`.replace(/([^:]\/)\/+/g, '$1')
+    navigator.serviceWorker.register(swPath).catch(() => undefined)
   })
 }
 
