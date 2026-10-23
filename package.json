@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:pages": "VITE_API_ORIGIN=https://rfs-ponche.vercel.app VITE_BASE_PATH=/Rfs-ponche/ vite build",
     "preview": "vite preview"
   },
   "dependencies": {
