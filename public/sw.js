@@ -1,5 +1,5 @@
 /* RFS — network-first for HTML/JS; Web Push wakes vigilantes outside the app. */
-const CACHE = 'rfs-shell-v12'
+const CACHE = 'rfs-shell-v13'
 const OVERDUE_MS = 2 * 60 * 60 * 1000
 const SHELL = [
   '/logo.jpg',

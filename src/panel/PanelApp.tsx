@@ -5,6 +5,9 @@ import * as api from '../shared/api'
 const S = React
 const L = { jsx: React.createElement, jsxs: React.createElement, Fragment: React.Fragment }
 
+/** Visible en el panel para confirmar que el deploy trae la UI nueva (eliminar vigilante). */
+const PANEL_UI_VERSION = `2026.10.23b`
+
 const periodLabels = {
     "24h": `Últimas 24 horas`,
     "48h": `Últimas 48 horas`,
@@ -859,6 +862,16 @@ function H({
                   }),
             ],
           }),
+          (L.jsx)(`div`, {
+            className: `guard-delete-bar no-print`,
+            children: (L.jsx)(`button`, {
+              type: `button`,
+              className: `secondary-btn danger-btn guard-delete-main`,
+              disabled: G,
+              onClick: () => void je(),
+              children: `Eliminar vigilante`,
+            }),
+          }),
           (L.jsxs)(`div`, {
             className: `guard-actions no-print`,
             children: [
@@ -884,13 +897,6 @@ function H({
                 disabled: G,
                 onClick: () => void ve(),
                 children: c?.blocked ? `Desbloquear` : `Bloquear`,
-              }),
-              (L.jsx)(`button`, {
-                type: `button`,
-                className: `secondary-btn danger-btn`,
-                disabled: G,
-                onClick: () => void je(),
-                children: `Eliminar vigilante`,
               }),
             ],
           }),
@@ -1822,7 +1828,11 @@ function G() {
                     (L.jsx)(`p`, {
                       className: `panel-sync`,
                       children:
-                        C || M || (D ? `Última sync: ${D}` : `Conectando…`),
+                        C ||
+                        M ||
+                        (D
+                          ? `Última sync: ${D} · v${PANEL_UI_VERSION}`
+                          : `Conectando… · v${PANEL_UI_VERSION}`),
                     }),
                   ],
                 }),
