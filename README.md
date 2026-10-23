@@ -36,9 +36,9 @@ Comprueba la versión en la barra de sync: **`v2026.10.23c`**. En el detalle del
 Production ([rfs-ponche.vercel.app](https://rfs-ponche.vercel.app)) must be **rebuilt** after changes to `src/panel/`. If GitHub is not linked to Vercel, pushes to `main` will not update the live site.
 
 1. **Preferred:** GitHub Actions workflow `.github/workflows/vercel-production.yml` — add repo secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` (from Vercel → Project → Settings → General), then push to `main` or run the workflow manually.
-2. **Manual:** Vercel dashboard → project **rfs-ponche** → **Deployments** → **Redeploy** (latest `main`).
+2. **Manual (obligatorio hoy):** Vercel → **rfs-ponche** → **Deployments** → **Redeploy** el último `main`. El repo incluye `dist/` precompilado (`panel-*.js` con **Eliminar vigilante**).
 
-After deploy, open the panel and check the footer sync line includes **`v2026.10.23b`**. In a vigilante detail you should see a full-width red **Eliminar vigilante** above the siren buttons.
+After deploy, the panel script should **not** be `panel-CxVUta_P.js`. Sync line: **`v2026.10.23c`**. Detalle del vigilante: botón rojo **Eliminar vigilante** arriba de la sirena.
 
 ## Flash / torch (vigilante)
 
