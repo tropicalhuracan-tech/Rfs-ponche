@@ -3249,7 +3249,7 @@ function guardCardHtml(index, guard = emptyGuard()) {
     <div class="guard-card" data-index="${index}">
       <div class="row" style="align-items:center;margin-bottom:8px">
         <strong>Vigilante ${index + 1}</strong>
-        <button type="button" class="btn ghost btn-remove-guard" data-index="${index}" style="width:auto;margin:0;padding:6px 10px" ${index === 0 ? "disabled" : ""}>Quitar</button>
+        <button type="button" class="btn danger btn-remove-guard" data-index="${index}" style="width:auto;margin:0;padding:6px 10px;font-size:12px" title="Quitar este vigilante del puesto">Eliminar</button>
       </div>
       <label>Nombre<input class="g-name" type="text" value="${escapeHtml(guard.name)}" placeholder="Nombre completo" /></label>
       <div class="coords-row">
@@ -3271,7 +3271,21 @@ function renderGuardsEditor(guards) {
     btn.addEventListener("click", () => {
       const current = readGuardsFromEditor();
       const idx = Number(btn.dataset.index);
-      if (current.length <= 1) return;
+      if (idx < 0 || idx >= current.length) return;
+      const g = current[idx] || emptyGuard();
+      const label = g.name.trim() || `Vigilante ${idx + 1}`;
+      const hasData =
+        g.name.trim() ||
+        g.phone.trim() ||
+        g.cedula.trim() ||
+        g.weapons.trim() ||
+        g.serial.trim() ||
+        g.companyEntryDate;
+      if (hasData && !window.confirm(`¿Eliminar a ${label} de este puesto?`)) return;
+      if (current.length <= 1) {
+        renderGuardsEditor([emptyGuard()]);
+        return;
+      }
       current.splice(idx, 1);
       renderGuardsEditor(current);
     });
