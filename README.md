@@ -31,6 +31,12 @@ Comprueba la versión en la barra de sync: **`v2026.10.23c`**. En el detalle del
 - `npm run dev` — local Vite dev server
 - `npm run build` — production client build to `dist/`
 
+## Despliegue automático
+
+Cada push a **`main`** dispara GitHub Actions y publica en Vercel (`rfs-ponche.vercel.app`) cuando están configurados los secretos `VERCEL_TOKEN`, `VERCEL_ORG_ID` y `VERCEL_PROJECT_ID`.
+
+Guía paso a paso (una sola vez): **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+
 ## Deploy (Vercel)
 
 Production ([rfs-ponche.vercel.app](https://rfs-ponche.vercel.app)) must be **rebuilt** after changes to `src/panel/`. If GitHub is not linked to Vercel, pushes to `main` will not update the live site.

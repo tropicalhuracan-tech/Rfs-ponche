@@ -7,12 +7,22 @@ on:
 
 concurrency:
   group: vercel-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
+      - name: Require Vercel secrets
+        if: ${{ env.VERCEL_TOKEN == '' || env.VERCEL_ORG_ID == '' || env.VERCEL_PROJECT_ID == '' }}
+        run: |
+          echo "::error title=Secretos de Vercel faltantes::Configure VERCEL_TOKEN, VERCEL_ORG_ID y VERCEL_PROJECT_ID en Settings → Secrets → Actions (o en el environment «production»). Guía: docs/DEPLOY.md"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -22,14 +32,24 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Install and build
-        run: npm ci && npm run build
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: ./
-          vercel-args: "--prod"
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel env (production)
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build for Vercel
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy prebuilt to production
+        id: deploy
+        run: |
+          url="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Production deployment: $url"
+
+      - name: Summary
+        run: echo "### Vercel production" >> "$GITHUB_STEP_SUMMARY" && echo "${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
